@@ -1,0 +1,58 @@
+# ==========================
+# Logs
+# ==========================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+firebase-debug.log*
+
+# ==========================
+# Node modules
+# ==========================
+node_modules
+
+# ==========================
+# Build folders
+# ==========================
+dist
+dist-ssr
+frontend/dist
+
+# ==========================
+# Environment files (IMPORTANT 🔥)
+# ==========================
+.env
+backend/.env
+frontend/.env
+*.local
+
+# Firebase Private Key (Security Leak Prevention 🛡️)
+serviceAccountKey.json
+backend/serviceAccountKey.json
+
+# ==========================
+# Uploads (files/images)
+# ==========================
+backend/uploads
+
+# ==========================
+# OS & Editor files
+# ==========================
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Misc
+# ==========================
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

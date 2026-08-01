@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 🔥 TEXT SHARPNESS FIX */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* remove any blur effect */
+* {
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+
+/* =========================================================
+   STAFF PROFILE REPORT PRINT FIX
+   ========================================================= */
+
+@media print {
+
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #printable-area,
+  #printable-area * {
+    visibility: visible !important;
+  }
+
+  #printable-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+
+    width: 100% !important;
+    max-width: none !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+
+    overflow: visible !important;
+
+    background: white !important;
+    color: black !important;
+  }
+
+  #staff-report-overlay {
+    position: static !important;
+    display: block !important;
+
+    width: 100% !important;
+    min-height: auto !important;
+
+    padding: 0 !important;
+    margin: 0 !important;
+
+    background: white !important;
+    backdrop-filter: none !important;
+
+    overflow: visible !important;
+  }
+
+  #staff-report-overlay > div {
+    display: block !important;
+    width: 100% !important;
+    min-height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .staff-print-report {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .report-header {
+    padding: 0 0 5mm 0 !important;
+    margin-bottom: 5mm !important;
+  }
+
+  .report-body {
+    padding: 0 !important;
+  }
+
+  .profile-section {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .report-section {
+    break-inside: auto !important;
+  }
+
+  .report-stat {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .report-tools-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .report-tools-table thead {
+    display: table-header-group !important;
+  }
+
+  .report-tools-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .report-tools-table th,
+  .report-tools-table td {
+    padding: 2.5mm !important;
+    font-size: 10pt !important;
+  }
+
+  .report-profile-image {
+    width: 30mm !important;
+    height: 30mm !important;
+    object-fit: cover !important;
+  }
+
+  .report-footer {
+    margin-top: 8mm !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+}
