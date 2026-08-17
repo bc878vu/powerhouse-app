@@ -9,7 +9,7 @@ import {
   updateDoc,
   writeBatch
 } from "firebase/firestore";
-import { auth, db, getFCMToken } from "../firebase";
+import { auth, db, getFCMToken, isFirebaseConfigured, missingConfig } from "../firebase";
 
 const notificationsRef = (uid) => collection(db, "powerhouse_notifications", uid, "items");
 
@@ -69,6 +69,9 @@ export async function markAllNotificationsRead(uid, notifications = []) {
 export async function enablePushNotifications() {
   if (!auth.currentUser) throw new Error("Please login first");
   if (!("Notification" in window)) throw new Error("Browser notifications are not supported");
+  if (!isFirebaseConfigured) {
+    throw new Error(`Firebase web configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
+  }
   if (!import.meta.env.VITE_VAPID_KEY) throw new Error("VITE_VAPID_KEY is not configured");
   return getFCMToken();
 }
