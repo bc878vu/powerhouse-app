@@ -1,25 +1,12 @@
-import { panelRequest, listPanels, subscribeToPanels } from "./services/firebasePanelStore";
-
-const isPanelUrl = (url = "") => {
-  const value = String(url).replace(/^\/api/, "");
-  return value === "/panels" || value.startsWith("/panels/");
-};
-
-const request = async (method, url, data) => {
-  if (!isPanelUrl(url)) {
-    throw new Error(`Firebase migration: endpoint ${method} ${url} has not been migrated yet.`);
-  }
-
-  const result = await panelRequest(method, url, data);
-  return { data: result, status: 200, config: { method, url } };
-};
+import { requestFirebase } from "./services/firebaseDataStore";
+import { listPanels, subscribeToPanels } from "./services/firebasePanelStore";
 
 const FirebaseAPI = {
-  get: (url, config) => request("GET", url, config?.params),
-  post: (url, data) => request("POST", url, data),
-  put: (url, data) => request("PUT", url, data),
-  patch: (url, data) => request("PATCH", url, data),
-  delete: (url) => request("DELETE", url),
+  get: (url, config = {}) => requestFirebase("GET", url, undefined, config?.params || {}),
+  post: (url, data, config = {}) => requestFirebase("POST", url, data, config?.params || {}),
+  put: (url, data, config = {}) => requestFirebase("PUT", url, data, config?.params || {}),
+  patch: (url, data, config = {}) => requestFirebase("PATCH", url, data, config?.params || {}),
+  delete: (url, config = {}) => requestFirebase("DELETE", url, undefined, config?.params || {}),
   subscribeToPanels
 };
 

@@ -1,34 +1,68 @@
-import React, { useState } from "react";
-import { ExternalLink, Maximize2, Fuel, LayoutDashboard } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { addDoc, collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { BarChart, Bar, CartesianGrid, LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { db } from "./firebase";
+import { getUser } from "./utils/auth";
+import { Fuel, LayoutDashboard, PlusCircle, FileText, RefreshCw, Download, Printer, Trash2 } from "lucide-react";
 
-const FUEL_APP_URL = "https://fuel-management-three.vercel.app/admin";
+const ENGINE_KW = { "1400kva": 1120, "1020kva": 816, "650kva": 520 };
+const ENGINE_TABLES = {
+  "1400kva": [[1,22],[5,34],[10,52],[20,84],[30,114],[40,146],[50,178],[60,210],[70,242],[80,275],[90,310],[100,345]],
+  "1020kva": [[1,19],[5,28],[10,40],[20,64],[30,87],[40,112],[50,136],[60,160],[70,185],[80,212],[90,240],[100,265]],
+  "650kva": [[1,13],[5,20],[10,27],[20,42],[30,56],[40,72],[50,88],[60,105],[70,123],[80,141],[90,160],[100,178]]
+};
+const interpolate = (table, load) => { if (load <= table[0][0]) return table[0][1]; if (load >= 100) return table[table.length-1][1]; for (let i=0;i<table.length-1;i++){const [a,af]=table[i],[b,bf]=table[i+1];if(load>=a&&load<=b){const r=(load-a)/(b-a);return af+r*(bf-af);}}return table[table.length-1][1]; };
+const parseHours = (value) => { const p=String(value||"0").replace(".",":").split(":").map(Number); return (p[0]||0)+(p[1]||0)/60; };
+const fuelFor = (engine, hours, kwh) => { const h=Number(hours||0), expected=(ENGINE_KW[engine]||0)*h; if(!h||!expected)return 0; const load=Math.min(100,Math.max(1,(Number(kwh||0)/expected)*100||50)); return Number((interpolate(ENGINE_TABLES[engine],load)*h).toFixed(2)); };
+const totalOther = (items=[]) => items.reduce((s,x)=>s+Number(x.amount||0),0);
+const csvEscape = (v) => `"${String(v??"").replace(/"/g,'""')}"`;
+
+function Stat({ title, value, warn }) { return <div className={`p-5 rounded-2xl ${warn ? "bg-red-600 text-white" : "bg-gradient-to-br from-slate-800 to-slate-700 text-white"}`}><p className="text-xs uppercase tracking-widest opacity-70">{title}</p><p className="text-3xl font-black mt-2">{Number(value||0).toFixed(2)}</p></div>; }
 
 export default function FuelManagement() {
-  const [src, setSrc] = useState(FUEL_APP_URL);
-  const openFull = () => window.open(src, "_blank", "noopener,noreferrer");
+  const [view,setView]=useState("dashboard");
+  const [entries,setEntries]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [draft,setDraft]=useState({date:new Date().toISOString().slice(0,10),engine:"1400kva",previousHours:"",startTime:"",runHours:"",kwh:"",incoming:"",previousStock:"",other:[{name:"",amount:""}]});
+  const [userName,setUserName]=useState(getUser()?.name||"");
+  const [fromDate,setFromDate]=useState(new Date().toISOString().slice(0,10));
+  const [toDate,setToDate]=useState(new Date().toISOString().slice(0,10));
+  const [engineFilter,setEngineFilter]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [message,setMessage]=useState("");
 
-  return (
-    <section className="h-full min-h-[calc(100vh-120px)] flex flex-col gap-4">
-      <div className="rounded-3xl border border-white/10 bg-[#020617]/90 p-4 md:p-5 shadow-2xl">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-yellow-500 text-black flex items-center justify-center shadow-lg shadow-yellow-500/20"><Fuel size={22} /></div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-black">Fuel Management</h1>
-              <p className="text-xs text-slate-400 mt-1">Diesel, generator running hours, stock, entries and reports</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setSrc(FUEL_APP_URL)} className="inline-flex items-center gap-2 rounded-xl bg-yellow-500 px-4 py-2.5 text-sm font-black text-black hover:bg-yellow-400 transition"><LayoutDashboard size={17} /> Dashboard</button>
-            <button type="button" onClick={openFull} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/10 transition"><Maximize2 size={17} /> Full screen</button>
-            <a href={src} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/10 transition"><ExternalLink size={17} /> Open module</a>
-          </div>
-        </div>
-        <div className="mt-4 rounded-2xl border border-yellow-500/10 bg-yellow-500/[0.04] px-4 py-3 text-xs text-slate-400">The complete Fuel Management application is loaded below with its own internal navigation. Dashboard, New Entry, Reports, Firebase data and its mobile layout remain intact.</div>
-      </div>
-      <div className="flex-1 min-h-[720px] overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
-        <iframe key={src} title="PowerHouse Fuel Management" src={src} className="w-full h-full min-h-[720px] border-0 bg-slate-900" allow="clipboard-read; clipboard-write" />
-      </div>
-    </section>
-  );
+  useEffect(()=>{
+    const q=query(collection(db,"entries"),orderBy("createdAt","asc"));
+    return onSnapshot(q,snap=>{setEntries(snap.docs.map(d=>({id:d.id,...d.data()})));setLoading(false);},err=>{console.error(err);setMessage("Fuel data could not be loaded from Firebase.");setLoading(false);});
+  },[]);
+
+  const stock = useMemo(()=>entries.reduce((acc,e,i)=>{const prev=i===0?Number(e.previousStock||0):acc;return prev+Number(e.incoming||0)-Number(e.totalConsumption||0);},0),[entries]);
+  const stats = useMemo(()=>{const totalFuel=entries.reduce((s,e)=>s+(e.engines||[]).reduce((a,x)=>a+Number(x.fuel||0),0),0);const consumption=entries.reduce((s,e)=>s+Number(e.totalConsumption||0),0);const incoming=entries.reduce((s,e)=>s+Number(e.incoming||0),0);const hours={"1400kva":0,"1020kva":0,"650kva":0};entries.forEach(e=>(e.engines||[]).forEach(x=>hours[x.name]=(hours[x.name]||0)+Number(x.duration||0)));return {totalFuel,consumption,incoming,avg:entries.length?totalFuel/entries.length:0,hours};},[entries]);
+  const filtered=useMemo(()=>entries.filter(e=>(!fromDate||e.date>=fromDate)&&(!toDate||e.date<=toDate)&&(!engineFilter||(e.engines||[]).some(x=>x.name===engineFilter))),[entries,fromDate,toDate,engineFilter]);
+  const chart=useMemo(()=>entries.slice(-14).map(e=>({date:e.date,fuel:Number(e.totalConsumption||0),incoming:Number(e.incoming||0)})),[entries]);
+
+  const setField=(key,value)=>setDraft(d=>({...d,[key]:value}));
+  const duration= Math.max(0,parseHours(draft.runHours)-parseHours(draft.previousHours));
+  const engineFuel=fuelFor(draft.engine,duration,draft.kwh);
+  const other=totalOther(draft.other);
+  const consumption=Number((engineFuel+other).toFixed(2));
+  const currentStock=Number((Number(draft.previousStock||0)+Number(draft.incoming||0)-consumption).toFixed(2));
+  const stopTime=useMemo(()=>{if(!draft.startTime||duration<=0)return "";const [h,m]=draft.startTime.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);d.setMinutes(d.getMinutes()+duration*60);return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;},[draft.startTime,duration]);
+
+  const saveEntry=async(e)=>{e.preventDefault();if(!draft.date||!userName){setMessage("User name and date are required.");return;}if(new Date(draft.date)>new Date()){setMessage("Future date is not allowed.");return;}setSaving(true);try{const payload={userName,...draft,previousStock:Number(draft.previousStock||0),incoming:Number(draft.incoming||0),engineFuel,engines:[{name:draft.engine,fuel:engineFuel,duration}],totalConsumption:consumption,otherTotal:other,currentStock,stock:currentStock,stopTime,createdAt:new Date()};await addDoc(collection(db,"entries"),payload);localStorage.setItem("latest_stock",String(currentStock));setDraft(d=>({...d,incoming:"",other:[{name:"",amount:""}]}));setMessage("Fuel entry saved to Firebase.");}catch(err){console.error(err);setMessage(err.message||"Could not save fuel entry.");}finally{setSaving(false);}};
+  const exportCsv=()=>{const rows=filtered.map(e=>[e.date,e.engine,e.startTime,e.stopTime,e.runHours,e.kwh,e.engineFuel,e.incoming,e.totalConsumption,e.stock]);const csv=[["Date","Engine","Start","Stop","Run Hours","kWh","Fuel","Incoming","Total Consumption","Stock"],...rows].map(r=>r.map(csvEscape).join(",")).join("\n");const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`fuel-report-${Date.now()}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+  const print=()=>window.print();
+
+  const nav=[{id:"dashboard",label:"Dashboard",icon:LayoutDashboard},{id:"entry",label:"New Entry",icon:PlusCircle},{id:"reports",label:"Reports",icon:FileText}];
+  return <div className="min-h-[calc(100vh-120px)] rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white overflow-hidden border border-white/5 shadow-2xl">
+    <div className="border-b border-white/10 bg-slate-950/90 p-4 md:p-5"><div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4"><div className="flex items-center gap-3"><div className="w-11 h-11 rounded-2xl bg-yellow-500 text-black flex items-center justify-center"><Fuel size={22}/></div><div><h1 className="text-xl md:text-2xl font-black">Fuel Management</h1><p className="text-[10px] text-slate-500 uppercase tracking-widest">Firebase Diesel & Generator Control</p></div></div><div className="flex flex-wrap gap-2">{nav.map(({id,label,icon:Icon})=><button key={id} onClick={()=>setView(id)} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black ${view===id?"bg-yellow-500 text-black":"bg-white/5 text-slate-300 hover:bg-white/10"}`}><Icon size={15}/>{label}</button>)}<button onClick={()=>window.location.reload()} className="p-2.5 rounded-xl bg-white/5"><RefreshCw size={15}/></button></div></div></div>
+    {message&&<div className="m-4 p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-sm font-bold">{message}</div>}
+
+    {view==="dashboard"&&<div className="p-4 md:p-7 space-y-6"><div className="flex items-center justify-between"><div><h2 className="text-2xl font-black">Dashboard Overview</h2><p className="text-slate-500 text-sm">Live Firestore data updates automatically.</p></div>{loading&&<RefreshCw className="animate-spin text-yellow-500"/>}</div><div className="grid grid-cols-2 lg:grid-cols-5 gap-4"><Stat title="Total Fuel" value={stats.totalFuel}/><Stat title="Consumption" value={stats.consumption}/><Stat title="Incoming" value={stats.incoming}/><Stat title="Average" value={stats.avg}/><Stat title="Current Stock" value={stock} warn={stock<3000}/></div><div className="grid md:grid-cols-3 gap-4"><Stat title="1400 KVA Hours" value={stats.hours["1400kva"]}/><Stat title="1020 KVA Hours" value={stats.hours["1020kva"]}/><Stat title="650 KVA Hours" value={stats.hours["650kva"]}/></div><div className="grid lg:grid-cols-2 gap-5"><div className="bg-white/95 rounded-2xl p-4 h-80"><h3 className="text-slate-900 font-black mb-3">Fuel / Consumption Trend</h3><ResponsiveContainer width="100%" height="90%"><LineChart data={chart}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="date"/><YAxis/><Tooltip/><Line type="monotone" dataKey="fuel" stroke="#2563eb" strokeWidth={3}/><Line type="monotone" dataKey="incoming" stroke="#f59e0b" strokeWidth={2}/></LineChart></ResponsiveContainer></div><div className="bg-white/95 rounded-2xl p-4 h-80"><h3 className="text-slate-900 font-black mb-3">Recent Consumption</h3><ResponsiveContainer width="100%" height="90%"><BarChart data={chart}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="date"/><YAxis/><Tooltip/><Bar dataKey="fuel" fill="#10b981"/></BarChart></ResponsiveContainer></div></div></div>}
+
+    {view==="entry"&&<div className="p-4 md:p-7"><form onSubmit={saveEntry} className="max-w-5xl mx-auto bg-white/95 text-slate-900 rounded-2xl p-5 md:p-7 space-y-6"><div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4"><label>User Name<input value={userName} onChange={e=>setUserName(e.target.value)} className="field" required/></label><label>Date<input type="date" value={draft.date} onChange={e=>setField("date",e.target.value)} className="field" required/></label><label>Engine<select value={draft.engine} onChange={e=>setField("engine",e.target.value)} className="field"><option>1400kva</option><option>1020kva</option><option>650kva</option></select></label><label>Previous Running Hours<input value={draft.previousHours} onChange={e=>setField("previousHours",e.target.value)} placeholder="0:00" className="field"/></label><label>Start Time<input type="time" value={draft.startTime} onChange={e=>setField("startTime",e.target.value)} className="field"/></label><label>Running Hours<input value={draft.runHours} onChange={e=>setField("runHours",e.target.value)} placeholder="1:30" className="field"/></label><label>Stop Time<input value={stopTime} readOnly className="field bg-slate-100"/></label><label>kWh<input type="number" value={draft.kwh} onChange={e=>setField("kwh",e.target.value)} className="field"/></label><label>Engine Fuel (L)<input value={engineFuel.toFixed(2)} readOnly className="field bg-green-50"/></label><label>Incoming Fuel<input type="number" value={draft.incoming} onChange={e=>setField("incoming",e.target.value)} className="field"/></label><label>Previous Stock<input type="number" value={draft.previousStock} onChange={e=>setField("previousStock",e.target.value)} className="field"/></label><label>Current Stock<input value={currentStock.toFixed(2)} readOnly className="field bg-slate-100"/></label></div><div><h3 className="font-black mb-3">Other Usage</h3>{draft.other.map((item,i)=><div key={i} className="flex gap-2 mb-2"><input value={item.name} onChange={e=>setDraft(d=>({...d,other:d.other.map((x,j)=>j===i?{...x,name:e.target.value}:x)}))} placeholder="Boiler / CEO / Lifter" className="field flex-1"/><input type="number" value={item.amount} onChange={e=>setDraft(d=>({...d,other:d.other.map((x,j)=>j===i?{...x,amount:e.target.value}:x)}))} placeholder="Liters" className="field w-36"/></div>)}<button type="button" onClick={()=>setDraft(d=>({...d,other:[...d.other,{name:"",amount:""}]}))} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black">+ Add Usage</button></div><div className="flex justify-between items-center p-4 rounded-xl bg-slate-100"><div><b>Total Consumption:</b> {consumption.toFixed(2)} L</div><button disabled={saving} className="px-6 py-3 rounded-xl bg-yellow-500 text-black font-black">{saving?"Saving…":"Save Entry"}</button></div></form></div>}
+
+    {view==="reports"&&<div className="p-4 md:p-7 space-y-5"><div className="flex flex-wrap gap-3 items-end bg-white/95 text-slate-900 p-4 rounded-2xl"><label>From<input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} className="field"/></label><label>To<input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} className="field"/></label><label>Engine<select value={engineFilter} onChange={e=>setEngineFilter(e.target.value)} className="field"><option value="">All</option><option>1400kva</option><option>1020kva</option><option>650kva</option></select></label><button onClick={exportCsv} className="px-4 py-3 rounded-xl bg-blue-600 text-white font-black text-xs"><Download size={15} className="inline mr-1"/>CSV</button><button onClick={print} className="px-4 py-3 rounded-xl bg-green-600 text-white font-black text-xs"><Printer size={15} className="inline mr-1"/>Print</button></div><div className="bg-white/95 text-slate-900 rounded-2xl overflow-auto"><table className="w-full min-w-[1000px] text-sm"><thead className="bg-slate-200"><tr>{["Date","Engine","Start","Stop","Hours","kWh","Fuel","Incoming","Total","Stock"].map(h=><th key={h} className="p-3 text-left">{h}</th>)}</tr></thead><tbody>{filtered.map(e=><tr key={e.id} className="border-b"><td className="p-3">{e.date}</td><td className="p-3">{e.engine}</td><td className="p-3">{e.startTime||"-"}</td><td className="p-3">{e.stopTime||"-"}</td><td className="p-3">{e.runHours||"-"}</td><td className="p-3">{e.kwh||0}</td><td className="p-3">{Number(e.engineFuel||0).toFixed(2)}</td><td className="p-3">{Number(e.incoming||0).toFixed(2)}</td><td className="p-3">{Number(e.totalConsumption||0).toFixed(2)}</td><td className="p-3">{Number(e.stock||e.currentStock||0).toFixed(2)}</td></tr>)}</tbody></table></div></div>}
+    <style>{`.field{display:block;width:100%;margin-top:6px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;outline:none;background:white;color:#0f172a}.field:focus{border-color:#eab308;box-shadow:0 0 0 3px rgba(234,179,8,.12)}@media print{body *{visibility:hidden}.min-h-\\[calc\\(100vh-120px\\)\\],.min-h-\\[calc\\(100vh-120px\\)\\] *{visibility:visible}.min-h-\\[calc\\(100vh-120px\\)\\]{position:absolute;left:0;top:0;width:100%}}`}</style>
+  </div>;
 }
