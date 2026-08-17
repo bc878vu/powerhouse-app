@@ -1,3 +1,6 @@
+import { signOut } from "firebase/auth";
+import { auth } from "../firebase";
+
 export const setToken = (user) => {
   try {
     if (user == null) {
@@ -28,7 +31,6 @@ export const getUser = () => {
     if (!data) return null;
 
     const user = JSON.parse(data);
-
     if (!user || typeof user !== "object") {
       localStorage.removeItem("user");
       return null;
@@ -43,9 +45,10 @@ export const getUser = () => {
 };
 
 export const logout = () => {
-  try {
-    localStorage.removeItem("user");
-  } catch (error) {
-    console.error("Failed to clear user session:", error);
-  }
+  localStorage.removeItem("user");
+  // Firebase signOut is intentionally best-effort so the UI still logs out
+  // even if the network is temporarily unavailable.
+  return signOut(auth).catch((error) => {
+    console.warn("Firebase sign-out warning:", error?.message || error);
+  });
 };
