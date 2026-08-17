@@ -1,4 +1,5 @@
 PowerHouse backend deployment marker
-Version: 1.0.1
-Panel API routes included: /api/panels
-Panel API network route included: /api/panels/network/status
+Version: 1.0.2
+Staff Duty API routes: /api/duty/summary, /api/duty/staff, /api/duty/user/:userId
+Firebase-first frontend data layer enabled
+Deployment refresh: 2026-08-18
