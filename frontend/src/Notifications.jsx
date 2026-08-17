@@ -14,7 +14,9 @@ export default function Notifications() {
   const user = getUser();
   const uid = getCurrentNotificationUid() || user?.firebaseUid || user?.uid;
   const [notifications, setNotifications] = useState([]);
-  const [pushState, setPushState] = useState(Notification.permission === "granted" ? "enabled" : "idle");
+  const [pushState, setPushState] = useState(
+    typeof Notification !== "undefined" && Notification.permission === "granted" ? "enabled" : "idle"
+  );
   const [error, setError] = useState("");
 
   useEffect(() => subscribeToNotifications(uid, setNotifications), [uid]);
