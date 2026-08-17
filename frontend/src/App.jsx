@@ -21,6 +21,8 @@ const PanelHistory = lazy(() => import("./pages/PanelHistory"));
 const InteractivePanelMap = lazy(() => import("./InteractivePanelMap"));
 const FuelManagement = lazy(() => import("./FuelManagement"));
 const Notifications = lazy(() => import("./Notifications"));
+const Machines = lazy(() => import("./pages/Machines"));
+const AddMachine = lazy(() => import("./pages/AddMachine"));
 
 function PageLoader() {
   return (
@@ -63,6 +65,9 @@ export default function App() {
             <Route path="panel-history" element={adminOnly(<PanelHistory />)} />
             <Route path="interactive-panel-map" element={authOnly(<InteractivePanelMap />)} />
             <Route path="fuel-management" element={adminOnly(<FuelManagement />)} />
+            <Route path="machines" element={authOnly(<Machines />)} />
+            <Route path="machines/add" element={adminOnly(<AddMachine />)} />
+            <Route path="machines/edit/:id" element={adminOnly(<AddMachine />)} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
