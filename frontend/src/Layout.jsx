@@ -5,12 +5,13 @@ import { logout, getUser } from "./utils/auth";
 import { getCurrentNotificationUid, subscribeToNotifications } from "./services/notificationService";
 import {
   LayoutDashboard, UserPlus, ClipboardList, LogOut, Users, UserCircle,
-  Menu, X, ChevronRight, Map, CircuitBoard, PanelsTopLeft,
-  CalendarClock, Wrench, Fuel, Bell
+  Menu, X, ChevronRight, ChevronDown, Map, CircuitBoard, PanelsTopLeft,
+  CalendarClock, Wrench, Fuel, Bell, Cpu, Plus, Gauge
 } from "lucide-react";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [machinesOpen, setMachinesOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
@@ -18,6 +19,9 @@ export default function Layout() {
   const publicMode = isPublic();
 
   useEffect(() => setSidebarOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (location.pathname.startsWith("/machines")) setMachinesOpen(true);
+  }, [location.pathname]);
 
   useEffect(() => {
     const uid = getCurrentNotificationUid() || user?.firebaseUid || user?.uid || user?.id;
@@ -48,6 +52,9 @@ export default function Layout() {
   ];
 
   const isActive = (path) => path === "/" ? location.pathname === "/" : location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const machinesActive = location.pathname === "/machines" || location.pathname.startsWith("/machines/");
+  const canViewMachines = ["superadmin", "admin", "electrician", "cro"].includes(user?.role);
+  const canManageMachines = ["superadmin", "admin"].includes(user?.role);
 
   if (publicMode) {
     return (
@@ -95,6 +102,20 @@ export default function Layout() {
               </Link>
             );
           })}
+
+          {canViewMachines && (
+            <div className="space-y-1">
+              <button onClick={() => setMachinesOpen(open => !open)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${machinesActive ? "bg-yellow-500 text-black font-bold shadow-xl shadow-yellow-500/10" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
+                <div className="flex items-center gap-4"><span className={machinesActive ? "text-black" : "text-yellow-500"}><Cpu size={20}/></span><span className="text-sm tracking-wide">Machines</span></div>
+                {machinesOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>} 
+              </button>
+              {machinesOpen && <div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1">
+                <Link to="/machines" className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold ${location.pathname === "/machines" ? "bg-white/10 text-yellow-400" : "text-slate-500 hover:text-white"}`}><Gauge size={15}/> Dashboard</Link>
+                {canManageMachines && <Link to="/machines/add" className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold ${location.pathname === "/machines/add" ? "bg-white/10 text-yellow-400" : "text-slate-500 hover:text-white"}`}><Plus size={15}/> Add Machine</Link>}
+              </div>}
+            </div>
+          )}
+
           <Link to="/notifications" className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${isActive("/notifications") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
             <div className="flex items-center gap-4"><span className={isActive("/notifications") ? "text-black" : "text-yellow-500"}><Bell size={20} /></span><span className="text-sm tracking-wide">Notifications</span></div>
             {unreadCount > 0 && <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isActive("/notifications") ? "bg-black text-yellow-500" : "bg-red-500 text-white"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span>}
