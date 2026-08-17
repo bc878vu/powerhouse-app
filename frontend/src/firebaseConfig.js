@@ -1,5 +1,17 @@
 // Backward-compatible Firebase entry point.
-// The project previously initialized a second Firebase app here, which caused
-// duplicate Firestore initialization in production. Keep all initialization
-// centralized in ./firebase.js.
-export { app as default, app, db, messaging, getFCMToken, onMessageListener } from "./firebase";
+// Keep all Firebase initialization centralized in ./firebase.js so every
+// module shares the same Firebase App/Auth/Firestore/Storage instances.
+export {
+  app,
+  db,
+  auth,
+  storage,
+  messaging,
+  firebaseConfig,
+  missingConfig,
+  isFirebaseConfigured,
+  getFCMToken,
+  onMessageListener
+} from "./firebase";
+
+export { app as default } from "./firebase";

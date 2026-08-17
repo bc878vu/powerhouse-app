@@ -3,17 +3,16 @@ importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-messaging-comp
 
 const params = new URLSearchParams(self.location.search);
 const firebaseConfig = {
-  apiKey: params.get("apiKey") || "",
-  authDomain: params.get("authDomain") || "",
-  projectId: params.get("projectId") || "",
-  storageBucket: params.get("storageBucket") || "",
-  messagingSenderId: params.get("messagingSenderId") || "",
-  appId: params.get("appId") || ""
+  apiKey: params.get("apiKey") || "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
+  authDomain: params.get("authDomain") || "powerhouse-app-47c4a.firebaseapp.com",
+  projectId: params.get("projectId") || "powerhouse-app-47c4a",
+  storageBucket: params.get("storageBucket") || "powerhouse-app-47c4a.firebasestorage.app",
+  messagingSenderId: params.get("messagingSenderId") || "428354200600",
+  appId: params.get("appId") || "1:428354200600:web:a73756991c3df0275b8f6d"
 };
 
-// Never throw during worker evaluation. A malformed/stale registration must
-// not break the main application. The configured worker will be registered
-// again when the user explicitly enables push notifications.
+// Never throw during worker evaluation. A stale/unconfigured worker must not
+// crash the page or repeatedly generate Firebase Installations errors.
 const hasFirebaseConfig = Boolean(
   firebaseConfig.apiKey &&
   firebaseConfig.projectId &&
