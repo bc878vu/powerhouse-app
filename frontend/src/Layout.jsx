@@ -2,20 +2,30 @@ import React, { useEffect, useState } from "react";
 import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
 import { isPublic } from "./utils/publicMode";
 import { logout, getUser } from "./utils/auth";
+import { getCurrentNotificationUid, subscribeToNotifications } from "./services/notificationService";
 import {
   LayoutDashboard, UserPlus, ClipboardList, LogOut, Users, UserCircle,
   Menu, X, ChevronRight, Map, CircuitBoard, PanelsTopLeft,
-  CalendarClock, Wrench, Fuel
+  CalendarClock, Wrench, Fuel, Bell
 } from "lucide-react";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const user = getUser();
   const publicMode = isPublic();
 
   useEffect(() => setSidebarOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    const uid = getCurrentNotificationUid() || user?.firebaseUid || user?.uid || user?.id;
+    if (!uid) return undefined;
+    return subscribeToNotifications(uid, (items) => {
+      setUnreadCount(items.filter((item) => !item.read).length);
+    });
+  }, [user?.firebaseUid, user?.uid, user?.id]);
 
   const handleLogout = () => {
     logout();
@@ -55,7 +65,13 @@ export default function Layout() {
     <div className="flex h-screen w-full bg-[#0a0f1e] text-white font-sans overflow-hidden">
       <header className="md:hidden fixed top-0 left-0 w-full z-[60] flex items-center justify-between px-6 py-4 bg-[#020617]/90 backdrop-blur-xl border-b border-white/5">
         <h1 className="text-xl font-black tracking-tighter italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1>
-        <button onClick={() => setSidebarOpen(true)} className="p-2 bg-yellow-500 rounded-xl text-black"><Menu size={20} /></button>
+        <div className="flex items-center gap-2">
+          <Link to="/notifications" aria-label="Notifications" className="relative rounded-xl p-2 text-slate-200 hover:bg-white/5">
+            <Bell size={21} />
+            {unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-black text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+          </Link>
+          <button onClick={() => setSidebarOpen(true)} className="p-2 bg-yellow-500 rounded-xl text-black"><Menu size={20} /></button>
+        </div>
       </header>
 
       {sidebarOpen && <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] md:hidden" onClick={() => setSidebarOpen(false)} />}
@@ -79,6 +95,10 @@ export default function Layout() {
               </Link>
             );
           })}
+          <Link to="/notifications" className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${isActive("/notifications") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
+            <div className="flex items-center gap-4"><span className={isActive("/notifications") ? "text-black" : "text-yellow-500"}><Bell size={20} /></span><span className="text-sm tracking-wide">Notifications</span></div>
+            {unreadCount > 0 && <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isActive("/notifications") ? "bg-black text-yellow-500" : "bg-red-500 text-white"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span>}
+          </Link>
         </nav>
 
         <div className="mt-auto pt-5 border-t border-white/5 space-y-3">
