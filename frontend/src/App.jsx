@@ -20,6 +20,7 @@ const Panels = lazy(() => import("./pages/Panels"));
 const PanelHistory = lazy(() => import("./pages/PanelHistory"));
 const InteractivePanelMap = lazy(() => import("./InteractivePanelMap"));
 const FuelManagement = lazy(() => import("./FuelManagement"));
+const Notifications = lazy(() => import("./Notifications"));
 
 function PageLoader() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="my-tasks" element={authOnly(<MyTasks />)} />
             <Route path="task-view/:id" element={<TaskView />} />
             <Route path="profile" element={authOnly(<Profile />)} />
+            <Route path="notifications" element={authOnly(<Notifications />)} />
             <Route path="assign-tools" element={adminOnly(<AssignTools />)} />
             <Route path="add-panel" element={adminOnly(<AddPanel />)} />
             <Route path="add-panel/:id" element={adminOnly(<AddPanel />)} />
