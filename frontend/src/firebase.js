@@ -1,9 +1,15 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager
+} from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -23,17 +29,17 @@ if (missingConfig.length) {
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
-// This module is the single owner of Firestore initialization. Other modules
-// import `db` instead of calling initializeFirestore/getFirestore themselves.
+// Single Firestore owner. The fallback prevents duplicate initialization during HMR.
 let dbInstance;
 try {
   dbInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
+    localCache: persistentLocalCache({
+      tabManager: persistentSingleTabManager()
+    })
   });
 } catch (error) {
-  // Handles HMR/module re-evaluation without creating a second Firestore
-  // instance with different options.
   dbInstance = getFirestore(app);
 }
 export const db = dbInstance;
@@ -52,13 +58,17 @@ export const getFCMToken = async () => {
     if (typeof Notification === "undefined") return null;
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
-    const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
+    const token = await getToken(messaging, {
+      vapidKey: import.meta.env.VITE_VAPID_KEY
+    });
     if (!token) return null;
     const user = JSON.parse(localStorage.getItem("user") || "null");
     if (user?.id) {
       const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
       await setDoc(doc(db, "powerhouse_fcm_tokens", String(user.id)), {
-        token, userId: String(user.id), updatedAt: serverTimestamp()
+        token,
+        userId: String(user.id),
+        updatedAt: serverTimestamp()
       }, { merge: true });
     }
     return token;
