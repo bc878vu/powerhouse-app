@@ -11,27 +11,35 @@ const firebaseConfig = {
   appId: params.get("appId") || ""
 };
 
-if (!firebaseConfig.apiKey || !firebaseConfig.projectId || !firebaseConfig.messagingSenderId || !firebaseConfig.appId) {
-  throw new Error("PowerHouse Firebase Messaging worker is missing public Firebase configuration.");
-}
+// Never throw during worker evaluation. A malformed/stale registration must
+// not break the main application. The configured worker will be registered
+// again when the user explicitly enables push notifications.
+const hasFirebaseConfig = Boolean(
+  firebaseConfig.apiKey &&
+  firebaseConfig.projectId &&
+  firebaseConfig.messagingSenderId &&
+  firebaseConfig.appId
+);
 
-firebase.initializeApp(firebaseConfig);
-const messaging = firebase.messaging();
+if (hasFirebaseConfig) {
+  firebase.initializeApp(firebaseConfig);
+  const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  const title = payload.notification?.title || payload.data?.title || "PowerHouse";
-  const body = payload.notification?.body || payload.data?.body || "You have a new PowerHouse notification.";
-  const route = payload.data?.route || (payload.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications");
+  messaging.onBackgroundMessage((payload) => {
+    const title = payload.notification?.title || payload.data?.title || "PowerHouse";
+    const body = payload.notification?.body || payload.data?.body || "You have a new PowerHouse notification.";
+    const route = payload.data?.route || (payload.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications");
 
-  self.registration.showNotification(title, {
-    body,
-    icon: "/favicon.svg",
-    badge: "/favicon.svg",
-    tag: payload.data?.notificationId || "powerhouse-notification",
-    renotify: true,
-    data: { route }
+    self.registration.showNotification(title, {
+      body,
+      icon: "/favicon.svg",
+      badge: "/favicon.svg",
+      tag: payload.data?.notificationId || "powerhouse-notification",
+      renotify: true,
+      data: { route }
+    });
   });
-});
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
