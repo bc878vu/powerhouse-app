@@ -45,6 +45,7 @@ export default function Login() {
             <input
               type="email"
               placeholder="Official Email"
+              autoComplete="email"
               className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50"
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -56,6 +57,7 @@ export default function Login() {
             <input
               type="password"
               placeholder="Password"
+              autoComplete="current-password"
               className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50"
               onChange={(e) => setPassword(e.target.value)}
               required
