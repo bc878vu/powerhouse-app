@@ -31,8 +31,6 @@ export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
-// One shared Firestore instance for the whole frontend. Multi-tab persistence
-// prevents the exclusive-owner warning when the portal is open in more than one tab.
 let dbInstance;
 try {
   dbInstance = initializeFirestore(app, {
@@ -41,8 +39,6 @@ try {
     })
   });
 } catch (error) {
-  // HMR, older browser storage implementations, or an already initialized
-  // Firestore instance should not prevent the application from starting.
   dbInstance = getFirestore(app);
 }
 export const db = dbInstance;
@@ -61,22 +57,33 @@ export const getFCMToken = async () => {
     if (typeof Notification === "undefined") return null;
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
+    if (!import.meta.env.VITE_VAPID_KEY) {
+      console.warn("VITE_VAPID_KEY is missing; FCM push cannot be enabled.");
+      return null;
+    }
+
+    const serviceWorkerRegistration = "serviceWorker" in navigator
+      ? await navigator.serviceWorker.ready
+      : undefined;
+
     const token = await getToken(messaging, {
-      vapidKey: import.meta.env.VITE_VAPID_KEY
+      vapidKey: import.meta.env.VITE_VAPID_KEY,
+      serviceWorkerRegistration
     });
     if (!token) return null;
-    const user = JSON.parse(localStorage.getItem("user") || "null");
-    if (user?.id) {
+
+    const currentUser = auth.currentUser;
+    if (currentUser?.uid) {
       const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
-      await setDoc(doc(db, "powerhouse_fcm_tokens", String(user.id)), {
+      await setDoc(doc(db, "powerhouse_fcm_tokens", currentUser.uid), {
         token,
-        userId: String(user.id),
+        userId: currentUser.uid,
         updatedAt: serverTimestamp()
       }, { merge: true });
     }
     return token;
   } catch (err) {
-    console.log("FCM Error:", err);
+    console.warn("FCM setup failed:", err?.message || err);
     return null;
   }
 };
