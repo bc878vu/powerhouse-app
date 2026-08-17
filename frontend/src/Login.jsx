@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import API from './api';
 import { setToken } from './utils/auth';
 import { Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
@@ -8,18 +7,18 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
+
     try {
       const res = await API.post('/auth/login', { email, password });
-      setToken(JSON.stringify(res.data.user));
-      window.location.href = "/"; 
+      setToken(res.data.user);
+      window.location.href = '/';
     } catch (err) {
-  alert(err?.response?.data?.msg || "Login Failed");
-} finally {
+      alert(err?.response?.data?.msg || 'Login Failed');
+    } finally {
       setLoading(false);
     }
   };
@@ -44,25 +43,31 @@ export default function Login() {
           <div className="relative group">
             <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors" size={20} />
             <input
-              type="email" placeholder="Official Email"
+              type="email"
+              placeholder="Official Email"
               className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50"
-              onChange={(e) => setEmail(e.target.value)} required
+              onChange={(e) => setEmail(e.target.value)}
+              required
             />
           </div>
 
           <div className="relative group">
             <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors" size={20} />
             <input
-              type="password" placeholder="Password"
+              type="password"
+              placeholder="Password"
               className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50"
-              onChange={(e) => setPassword(e.target.value)} required
+              onChange={(e) => setPassword(e.target.value)}
+              required
             />
           </div>
 
-          <button type="submit" disabled={loading}
+          <button
+            type="submit"
+            disabled={loading}
             className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 text-slate-950 font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95"
           >
-            {loading ? "Verifying..." : "Login Access"}
+            {loading ? 'Verifying...' : 'Login Access'}
             <ArrowRight size={20} />
           </button>
         </form>
