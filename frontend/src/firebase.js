@@ -4,7 +4,7 @@ import {
   getFirestore,
   initializeFirestore,
   persistentLocalCache,
-  persistentSingleTabManager
+  persistentMultipleTabManager
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
@@ -31,15 +31,18 @@ export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
-// Single Firestore owner. The fallback prevents duplicate initialization during HMR.
+// One shared Firestore instance for the whole frontend. Multi-tab persistence
+// prevents the exclusive-owner warning when the portal is open in more than one tab.
 let dbInstance;
 try {
   dbInstance = initializeFirestore(app, {
     localCache: persistentLocalCache({
-      tabManager: persistentSingleTabManager()
+      tabManager: persistentMultipleTabManager()
     })
   });
 } catch (error) {
+  // HMR, older browser storage implementations, or an already initialized
+  // Firestore instance should not prevent the application from starting.
   dbInstance = getFirestore(app);
 }
 export const db = dbInstance;
