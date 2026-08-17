@@ -17,7 +17,7 @@ import AddPanel from "./pages/AddPanel";
 import Panels from "./pages/Panels";
 import PanelHistory from "./pages/PanelHistory";
 import InteractivePanelMap from "./InteractivePanelMap";
-import FuelManagement from "./pages/FuelManagement";
+import FuelManagement from "./FuelManagement";
 import { getToken, getUser } from "./utils/auth";
 
 export default function App() {
