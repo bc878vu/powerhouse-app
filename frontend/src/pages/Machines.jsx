@@ -28,13 +28,10 @@ export default function Machines() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [deleting, setDeleting] = useState(null);
-
-  const load = () => {
-    setLoading(true);
-    setMessage("");
-  };
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
     const unsubscribe = subscribeToMachines((items) => {
       setMachines(items);
       setLoading(false);
@@ -44,7 +41,7 @@ export default function Machines() {
       setLoading(false);
     });
     return () => unsubscribe?.();
-  }, []);
+  }, [refreshKey]);
 
   const categories = useMemo(() => [...new Set(machines.map(item => item.category).filter(Boolean))].sort(), [machines]);
 
@@ -99,7 +96,7 @@ export default function Machines() {
           <div><h1 className="text-2xl md:text-3xl font-black text-white">Machines Dashboard</h1><p className="text-slate-500 text-sm mt-1">Central machine register, live status and maintenance overview</p></div>
         </div>
         <div className="flex gap-2">
-          <button onClick={load} className="p-3 bg-white/5 border border-white/10 rounded-xl text-slate-300 hover:text-white" title="Refresh"><RefreshCw size={18} className={loading ? "animate-spin" : ""}/></button>
+          <button onClick={() => setRefreshKey(key => key + 1)} className="p-3 bg-white/5 border border-white/10 rounded-xl text-slate-300 hover:text-white" title="Refresh"><RefreshCw size={18} className={loading ? "animate-spin" : ""}/></button>
           <button onClick={() => navigate("/machines/add")} className="flex items-center gap-2 px-5 py-3 bg-yellow-500 text-black rounded-xl text-xs font-black uppercase tracking-wide"><Plus size={17}/> Add Machine</button>
         </div>
       </div>
@@ -107,7 +104,7 @@ export default function Machines() {
       {message && <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 font-bold text-sm">{message}</div>}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        {statCards.map(([label, value, Icon, color]) => <button key={label} onClick={() => label === "Total Machines" ? setStatusFilter("all") : label === "Maintenance Due" ? setStatusFilter("all") : setStatusFilter(label === "Out of Service" ? "out_of_service" : label.toLowerCase())} className="text-left rounded-2xl border border-white/5 bg-[#020617] p-4 hover:bg-white/[0.03] transition"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">{label}</p><p className={`mt-2 text-2xl md:text-3xl font-black ${color}`}>{value}</p><Icon size={16} className={`mt-2 ${color}`}/></button>)}
+        {statCards.map(([label, value, Icon, color]) => <button key={label} onClick={() => label === "Total Machines" || label === "Maintenance Due" ? setStatusFilter("all") : setStatusFilter(label === "Out of Service" ? "out_of_service" : label.toLowerCase())} className="text-left rounded-2xl border border-white/5 bg-[#020617] p-4 hover:bg-white/[0.03] transition"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">{label}</p><p className={`mt-2 text-2xl md:text-3xl font-black ${color}`}>{value}</p><Icon size={16} className={`mt-2 ${color}`}/></button>)}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
