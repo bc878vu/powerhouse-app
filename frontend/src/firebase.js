@@ -7,7 +7,6 @@ import {
   persistentMultipleTabManager
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -44,28 +43,69 @@ try {
 export const db = dbInstance;
 
 let messagingInstance = null;
-try {
+
+const getMessagingInstance = async () => {
+  if (messagingInstance) return messagingInstance;
+  if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) {
+    return null;
+  }
+  if (missingConfig.length) {
+    throw new Error(`Firebase configuration is incomplete: ${missingConfig.join(", ")}`);
+  }
+
+  const { getMessaging } = await import("firebase/messaging");
   messagingInstance = getMessaging(app);
-} catch (error) {
-  console.warn("Firebase Messaging unavailable:", error?.message || error);
-}
-export const messaging = messagingInstance;
+  return messagingInstance;
+};
+
+const getMessagingServiceWorker = async () => {
+  if (!("serviceWorker" in navigator)) return null;
+  if (missingConfig.length) {
+    throw new Error(`Firebase configuration is incomplete: ${missingConfig.join(", ")}`);
+  }
+
+  // The service worker cannot read Vite environment variables directly.
+  // Pass the public Firebase web config through its registration URL instead.
+  const swUrl = new URL("/firebase-messaging-sw.js", window.location.origin);
+  const publicConfig = {
+    apiKey: firebaseConfig.apiKey,
+    authDomain: firebaseConfig.authDomain,
+    projectId: firebaseConfig.projectId,
+    storageBucket: firebaseConfig.storageBucket,
+    messagingSenderId: firebaseConfig.messagingSenderId,
+    appId: firebaseConfig.appId
+  };
+  Object.entries(publicConfig).forEach(([key, value]) => swUrl.searchParams.set(key, value));
+
+  // Remove an older notification worker that was installed without apiKey.
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(
+    registrations
+      .filter((registration) => registration.scope === `${window.location.origin}/` && registration.active?.scriptURL.includes("/firebase-messaging-sw.js"))
+      .map((registration) => registration.unregister())
+  );
+
+  const registration = await navigator.serviceWorker.register(swUrl.toString(), { scope: "/" });
+  await navigator.serviceWorker.ready;
+  return registration;
+};
 
 export const getFCMToken = async () => {
-  if (!messaging) return null;
   try {
+    const messaging = await getMessagingInstance();
+    if (!messaging) return null;
     if (typeof Notification === "undefined") return null;
+
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
     if (!import.meta.env.VITE_VAPID_KEY) {
-      console.warn("VITE_VAPID_KEY is missing; FCM push cannot be enabled.");
-      return null;
+      throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
     }
 
-    const serviceWorkerRegistration = "serviceWorker" in navigator
-      ? await navigator.serviceWorker.ready
-      : undefined;
+    const serviceWorkerRegistration = await getMessagingServiceWorker();
+    if (!serviceWorkerRegistration) return null;
 
+    const { getToken } = await import("firebase/messaging");
     const token = await getToken(messaging, {
       vapidKey: import.meta.env.VITE_VAPID_KEY,
       serviceWorkerRegistration
@@ -84,11 +124,13 @@ export const getFCMToken = async () => {
     return token;
   } catch (err) {
     console.warn("FCM setup failed:", err?.message || err);
-    return null;
+    throw err;
   }
 };
 
-export const onMessageListener = () => {
+export const onMessageListener = async () => {
+  const messaging = await getMessagingInstance();
   if (!messaging) return Promise.resolve(null);
+  const { onMessage } = await import("firebase/messaging");
   return new Promise((resolve) => onMessage(messaging, (payload) => resolve(payload)));
 };
