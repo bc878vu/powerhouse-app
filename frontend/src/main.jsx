@@ -4,6 +4,14 @@ import App from "./App.jsx";
 import "./index.css";
 import { panelRequest } from "./services/firebasePanelStore";
 
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/firebase-messaging-sw.js").catch((error) => {
+      console.warn("Firebase messaging service worker unavailable:", error?.message || error);
+    });
+  });
+}
+
 if (typeof window !== "undefined" && !window.__POWERHOUSE_SAFE_FETCH__) {
   const nativeFetch = window.fetch.bind(window);
 
@@ -14,8 +22,6 @@ if (typeof window !== "undefined" && !window.__POWERHOUSE_SAFE_FETCH__) {
     const method = String(requestOptions.method || "GET").toUpperCase();
     const isPanelApi = /\/api\/panels(?:\/|$)/.test(requestUrl);
 
-    // Panel management is now Firestore-backed. This keeps legacy fetch-based
-    // screens (notably AddPanel) working without contacting Railway.
     if (isPanelApi) {
       try {
         let body = undefined;
