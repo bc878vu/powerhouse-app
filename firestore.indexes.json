@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "powerhouse_panels",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "is_deleted", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "powerhouse_panel_history",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "panel_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "powerhouse_panel_routes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "panel_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
