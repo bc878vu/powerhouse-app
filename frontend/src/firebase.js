@@ -18,12 +18,34 @@ export const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-const missingConfig = Object.entries(firebaseConfig)
-  .filter(([key, value]) => key !== "measurementId" && !value)
-  .map(([key]) => key);
+const requiredConfigKeys = [
+  "apiKey",
+  "authDomain",
+  "projectId",
+  "storageBucket",
+  "messagingSenderId",
+  "appId"
+];
 
-if (missingConfig.length) {
+export const missingConfig = requiredConfigKeys.filter((key) => !firebaseConfig[key]);
+export const isFirebaseConfigured = missingConfig.length === 0;
+
+if (!isFirebaseConfigured) {
   console.warn(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
+
+  // A previous build could have registered the messaging worker before the
+  // Firebase web config was available. Remove that broken worker so it cannot
+  // keep producing "Installations: Missing App configuration value: apiKey"
+  // errors on every page load.
+  if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(
+        registrations
+          .filter((registration) => registration.active?.scriptURL.includes("/firebase-messaging-sw.js"))
+          .map((registration) => registration.unregister())
+      ))
+      .catch(() => {});
+  }
 }
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -49,8 +71,8 @@ const getMessagingInstance = async () => {
   if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) {
     return null;
   }
-  if (missingConfig.length) {
-    throw new Error(`Firebase configuration is incomplete: ${missingConfig.join(", ")}`);
+  if (!isFirebaseConfigured) {
+    throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
   }
 
   const { getMessaging } = await import("firebase/messaging");
@@ -60,8 +82,8 @@ const getMessagingInstance = async () => {
 
 const getMessagingServiceWorker = async () => {
   if (!("serviceWorker" in navigator)) return null;
-  if (missingConfig.length) {
-    throw new Error(`Firebase configuration is incomplete: ${missingConfig.join(", ")}`);
+  if (!isFirebaseConfigured) {
+    throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
   }
 
   // The service worker cannot read Vite environment variables directly.
@@ -77,7 +99,7 @@ const getMessagingServiceWorker = async () => {
   };
   Object.entries(publicConfig).forEach(([key, value]) => swUrl.searchParams.set(key, value));
 
-  // Remove an older notification worker that was installed without apiKey.
+  // Replace an older notification worker with the current configured worker.
   const registrations = await navigator.serviceWorker.getRegistrations();
   await Promise.all(
     registrations
@@ -129,8 +151,9 @@ export const getFCMToken = async () => {
 };
 
 export const onMessageListener = async () => {
+  if (!isFirebaseConfigured) return null;
   const messaging = await getMessagingInstance();
-  if (!messaging) return Promise.resolve(null);
+  if (!messaging) return null;
   const { onMessage } = await import("firebase/messaging");
   return new Promise((resolve) => onMessage(messaging, (payload) => resolve(payload)));
 };
