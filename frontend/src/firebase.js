@@ -1,4 +1,5 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
@@ -12,7 +13,16 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+const missingConfig = Object.entries(firebaseConfig)
+  .filter(([key, value]) => key !== "measurementId" && !value)
+  .map(([key]) => key);
+
+if (missingConfig.length) {
+  console.warn(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
+}
+
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const auth = getAuth(app);
 
 // This module is the single owner of Firestore initialization. Other modules
 // import `db` instead of calling initializeFirestore/getFirestore themselves.
@@ -22,7 +32,7 @@ try {
     localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
   });
 } catch (error) {
-  // Handles module re-evaluation/HMR without creating a second Firestore
+  // Handles HMR/module re-evaluation without creating a second Firestore
   // instance with different options.
   dbInstance = getFirestore(app);
 }
