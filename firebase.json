@@ -9,6 +9,7 @@
   "hosting": {
     "public": "frontend/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "predeploy": ["npm --prefix frontend ci", "npm --prefix frontend run build"],
     "rewrites": [{ "source": "**", "destination": "/index.html" }]
   }
 }
