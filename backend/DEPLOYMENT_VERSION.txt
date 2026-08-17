@@ -1,0 +1,4 @@
+PowerHouse backend deployment marker
+Version: 1.0.1
+Panel API routes included: /api/panels
+Panel API network route included: /api/panels/network/status
