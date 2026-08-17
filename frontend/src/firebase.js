@@ -8,11 +8,9 @@ import {
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// The Firebase Web configuration is public client configuration. Environment
-// variables are preferred, but the production Vercel project currently has
-// stale/missing VITE_FIREBASE_* values. Keep the verified config for this
-// Firebase Web App as a fallback so the app can initialize against the correct
-// project even before Vercel variables are refreshed.
+// Firebase Web configuration is public client configuration. Keep the verified
+// PowerHouse Firebase project as the source of truth so stale Vercel variables
+// from another Firebase project can never initialize this app.
 const VERIFIED_FIREBASE_CONFIG = {
   apiKey: "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
   authDomain: "powerhouse-app-47c4a.firebaseapp.com",
@@ -46,9 +44,6 @@ const hasCompleteConfig = (config) => requiredConfigKeys.every(
   (key) => typeof config[key] === "string" && config[key].trim().length > 0
 );
 
-// Never let an old Firebase project from Vercel silently override the new
-// PowerHouse Firebase project. A complete env config is accepted only when it
-// points at the verified production project.
 const useEnvConfig = hasCompleteConfig(envConfig) && envConfig.projectId === VERIFIED_FIREBASE_CONFIG.projectId;
 
 export const firebaseConfig = useEnvConfig
@@ -86,27 +81,42 @@ export const db = dbInstance;
 let messagingInstance = null;
 export let messaging = null;
 
-const removeBrokenMessagingWorkers = async () => {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+const LEGACY_MESSAGING_WORKER = "/firebase-messaging-sw.js";
+const CURRENT_MESSAGING_WORKER = "/firebase-messaging-sw-v2.js";
+
+// The old worker used a query-string Firebase config. Existing registrations
+// can survive deployments and continue throwing Installations/apiKey errors.
+// Remove only the legacy worker; never unregister the current v2 worker on
+// every page load, otherwise background push notifications would stop working.
+const removeLegacyMessagingWorker = async () => {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
   try {
     const registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all(
       registrations
         .filter((registration) => {
-          const scriptUrl = registration.active?.scriptURL || registration.installing?.scriptURL || registration.waiting?.scriptURL || "";
-          if (!scriptUrl.includes("/firebase-messaging-sw.js")) return false;
-          // Keep a worker that was explicitly configured with a Firebase apiKey.
-          return !scriptUrl.includes("?apiKey=");
+          const urls = [
+            registration.active?.scriptURL,
+            registration.installing?.scriptURL,
+            registration.waiting?.scriptURL
+          ].filter(Boolean);
+          return urls.some((url) => {
+            try {
+              return new URL(url).pathname === LEGACY_MESSAGING_WORKER;
+            } catch {
+              return false;
+            }
+          });
         })
         .map((registration) => registration.unregister())
     );
   } catch {
-    // Service-worker cleanup is best effort and must never block the app.
+    // Best effort only. Messaging must never block application startup.
   }
 };
 
 if (typeof window !== "undefined") {
-  void removeBrokenMessagingWorkers();
+  void removeLegacyMessagingWorker();
 }
 
 const getMessagingInstance = async () => {
@@ -130,31 +140,9 @@ const getMessagingServiceWorker = async () => {
     throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
   }
 
-  // The service worker cannot read Vite environment variables directly.
-  // Pass the public Firebase web config through its registration URL instead.
-  const swUrl = new URL("/firebase-messaging-sw.js", window.location.origin);
-  const publicConfig = {
-    apiKey: firebaseConfig.apiKey,
-    authDomain: firebaseConfig.authDomain,
-    projectId: firebaseConfig.projectId,
-    storageBucket: firebaseConfig.storageBucket,
-    messagingSenderId: firebaseConfig.messagingSenderId,
-    appId: firebaseConfig.appId
-  };
-  Object.entries(publicConfig).forEach(([key, value]) => swUrl.searchParams.set(key, value));
-
-  // Replace only stale/unconfigured notification workers.
-  const registrations = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(
-    registrations
-      .filter((registration) => {
-        const scriptUrl = registration.active?.scriptURL || registration.installing?.scriptURL || registration.waiting?.scriptURL || "";
-        return scriptUrl.includes("/firebase-messaging-sw.js") && !scriptUrl.includes("?apiKey=");
-      })
-      .map((registration) => registration.unregister())
-  );
-
-  const registration = await navigator.serviceWorker.register(swUrl.toString(), { scope: "/" });
+  // Use a versioned, deterministic worker with its own verified Firebase
+  // config. Do not pass config through a URL query string.
+  const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, { scope: "/" });
   await navigator.serviceWorker.ready;
   return registration;
 };
