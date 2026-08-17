@@ -1,5 +1,5 @@
-import { initializeApp } from "firebase/app";
-import { initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
+import { getApp, getApps, initializeApp } from "firebase/app";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {
@@ -12,14 +12,34 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-export const app = initializeApp(firebaseConfig);
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
-});
-export const messaging = getMessaging(app);
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+// This module is the single owner of Firestore initialization. Other modules
+// import `db` instead of calling initializeFirestore/getFirestore themselves.
+let dbInstance;
+try {
+  dbInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
+  });
+} catch (error) {
+  // Handles module re-evaluation/HMR without creating a second Firestore
+  // instance with different options.
+  dbInstance = getFirestore(app);
+}
+export const db = dbInstance;
+
+let messagingInstance = null;
+try {
+  messagingInstance = getMessaging(app);
+} catch (error) {
+  console.warn("Firebase Messaging unavailable:", error?.message || error);
+}
+export const messaging = messagingInstance;
 
 export const getFCMToken = async () => {
+  if (!messaging) return null;
   try {
+    if (typeof Notification === "undefined") return null;
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
     const token = await getToken(messaging, { vapidKey: import.meta.env.VITE_VAPID_KEY });
@@ -27,7 +47,9 @@ export const getFCMToken = async () => {
     const user = JSON.parse(localStorage.getItem("user") || "null");
     if (user?.id) {
       const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
-      await setDoc(doc(db, "powerhouse_fcm_tokens", String(user.id)), { token, userId: String(user.id), updatedAt: serverTimestamp() }, { merge: true });
+      await setDoc(doc(db, "powerhouse_fcm_tokens", String(user.id)), {
+        token, userId: String(user.id), updatedAt: serverTimestamp()
+      }, { merge: true });
     }
     return token;
   } catch (err) {
@@ -36,6 +58,7 @@ export const getFCMToken = async () => {
   }
 };
 
-export const onMessageListener = () => new Promise((resolve) => {
-  onMessage(messaging, (payload) => resolve(payload));
-});
+export const onMessageListener = () => {
+  if (!messaging) return Promise.resolve(null);
+  return new Promise((resolve) => onMessage(messaging, (payload) => resolve(payload)));
+};
