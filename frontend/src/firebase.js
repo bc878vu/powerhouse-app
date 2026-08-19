@@ -1,11 +1,6 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import {
-  getFirestore,
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager
-} from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 // Firebase Web configuration is public client configuration. Keep the verified
@@ -31,25 +26,11 @@ const envConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-const requiredConfigKeys = [
-  "apiKey",
-  "authDomain",
-  "projectId",
-  "storageBucket",
-  "messagingSenderId",
-  "appId"
-];
-
-const hasCompleteConfig = (config) => requiredConfigKeys.every(
-  (key) => typeof config[key] === "string" && config[key].trim().length > 0
-);
-
+const requiredConfigKeys = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"];
+const hasCompleteConfig = (config) => requiredConfigKeys.every((key) => typeof config[key] === "string" && config[key].trim().length > 0);
 const useEnvConfig = hasCompleteConfig(envConfig) && envConfig.projectId === VERIFIED_FIREBASE_CONFIG.projectId;
 
-export const firebaseConfig = useEnvConfig
-  ? { ...VERIFIED_FIREBASE_CONFIG, ...envConfig }
-  : VERIFIED_FIREBASE_CONFIG;
-
+export const firebaseConfig = useEnvConfig ? { ...VERIFIED_FIREBASE_CONFIG, ...envConfig } : VERIFIED_FIREBASE_CONFIG;
 export const missingConfig = requiredConfigKeys.filter((key) => !firebaseConfig[key]);
 export const isFirebaseConfigured = missingConfig.length === 0;
 
@@ -61,48 +42,36 @@ if (!isFirebaseConfigured) {
   console.warn(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
 }
 
+// IMPORTANT: use the normal Firestore instance during application startup.
+// Persistent IndexedDB cache was causing a client-side Firebase crash in the
+// deployed build (TypeError: r.indexOf is not a function). Firestore itself
+// remains fully online/realtime; this removes the failing startup path.
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
-
-let dbInstance;
-try {
-  dbInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
-  });
-} catch (error) {
-  console.warn("Firestore persistence initialization failed; falling back to the default Firestore instance.", error);
-  dbInstance = getFirestore(app);
-}
-export const db = dbInstance;
+export const db = getFirestore(app);
 
 let messagingInstance = null;
 export let messaging = null;
 
-const LEGACY_MESSAGING_WORKER = "/firebase-messaging-sw.js";
+const MESSAGING_WORKER_PREFIX = "/firebase-messaging-sw";
 const CURRENT_MESSAGING_WORKER = "/firebase-messaging-sw-v2.js";
 
-// The old worker used a query-string Firebase config. Existing registrations
-// can survive deployments and continue throwing Installations/apiKey errors.
-// Remove only the legacy worker; never unregister the current v2 worker on
-// every page load, otherwise background push notifications would stop working.
-const removeLegacyMessagingWorker = async () => {
-  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+// Clean every old PowerHouse messaging worker. Old deployments registered
+// workers with incomplete query-string configuration; those workers can keep
+// running after a new deployment and generate Installations/missing-apiKey
+// errors independently of the current application bundle.
+const cleanupOldMessagingWorkers = async () => {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   try {
     const registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all(
       registrations
         .filter((registration) => {
-          const urls = [
-            registration.active?.scriptURL,
-            registration.installing?.scriptURL,
-            registration.waiting?.scriptURL
-          ].filter(Boolean);
+          const urls = [registration.active?.scriptURL, registration.installing?.scriptURL, registration.waiting?.scriptURL].filter(Boolean);
           return urls.some((url) => {
             try {
-              return new URL(url).pathname === LEGACY_MESSAGING_WORKER;
+              return new URL(url).pathname.startsWith(MESSAGING_WORKER_PREFIX);
             } catch {
               return false;
             }
@@ -110,23 +79,19 @@ const removeLegacyMessagingWorker = async () => {
         })
         .map((registration) => registration.unregister())
     );
-  } catch {
-    // Best effort only. Messaging must never block application startup.
+  } catch (error) {
+    console.warn("Firebase messaging worker cleanup skipped:", error?.message || error);
   }
 };
 
 if (typeof window !== "undefined") {
-  void removeLegacyMessagingWorker();
+  void cleanupOldMessagingWorkers();
 }
 
 const getMessagingInstance = async () => {
   if (messagingInstance) return messagingInstance;
-  if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) {
-    return null;
-  }
-  if (!isFirebaseConfigured) {
-    throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-  }
+  if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) return null;
+  if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
 
   const { getMessaging } = await import("firebase/messaging");
   messagingInstance = getMessaging(app);
@@ -136,12 +101,10 @@ const getMessagingInstance = async () => {
 
 const getMessagingServiceWorker = async () => {
   if (!("serviceWorker" in navigator)) return null;
-  if (!isFirebaseConfigured) {
-    throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-  }
+  if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
 
-  // Use a versioned, deterministic worker with its own verified Firebase
-  // config. Do not pass config through a URL query string.
+  // Only create the worker after the user explicitly enables push. This keeps
+  // notification infrastructure completely out of normal page startup.
   const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, { scope: "/" });
   await navigator.serviceWorker.ready;
   return registration;
@@ -150,14 +113,11 @@ const getMessagingServiceWorker = async () => {
 export const getFCMToken = async () => {
   try {
     const messagingService = await getMessagingInstance();
-    if (!messagingService) return null;
-    if (typeof Notification === "undefined") return null;
+    if (!messagingService || typeof Notification === "undefined") return null;
 
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
-    if (!import.meta.env.VITE_VAPID_KEY) {
-      throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
-    }
+    if (!import.meta.env.VITE_VAPID_KEY) throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
 
     const serviceWorkerRegistration = await getMessagingServiceWorker();
     if (!serviceWorkerRegistration) return null;
