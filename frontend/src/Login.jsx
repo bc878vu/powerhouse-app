@@ -1,21 +1,25 @@
 import React, { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "./firebase";
-import { setToken } from "./utils/auth";
 import { Mail, Lock, ArrowRight, ShieldCheck } from "lucide-react";
+import { loginWithFirebase } from "./firebaseAuth";
+import { setToken } from "./utils/auth";
 
-const friendlyAuthError = (code) => {
+const friendlyAuthError = (error) => {
+  const code = error?.code;
   const messages = {
     "auth/invalid-credential": "Invalid email or password.",
-    "auth/user-not-found": "No account was found for this email.",
+    "auth/user-not-found": "No Firebase account exists for this email. Add the user in Firebase Authentication first.",
     "auth/wrong-password": "Invalid email or password.",
     "auth/too-many-requests": "Too many attempts. Please try again later.",
     "auth/network-request-failed": "Network error. Please check your internet connection.",
     "auth/invalid-email": "Please enter a valid email address.",
-    "auth/user-disabled": "This account has been disabled."
+    "auth/user-disabled": "This Firebase account has been disabled.",
+    "auth/operation-not-allowed": "Email/password sign-in is not enabled in Firebase Authentication.",
+    "auth/api-key-not-valid": "Firebase API configuration is invalid. Check the deployed Firebase project configuration."
   };
-  return messages[code] || "Login failed. Please try again.";
+
+  if (messages[code]) return messages[code];
+  if (error?.message === "Your account is inactive. Contact admin.") return error.message;
+  return "Login failed. Please try again.";
 };
 
 export default function Login() {
@@ -30,25 +34,12 @@ export default function Login() {
     setError("");
 
     try {
-      const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const firebaseUser = credential.user;
-      const profileSnapshot = await getDoc(doc(db, "powerhouse_users", firebaseUser.uid));
-      const profile = profileSnapshot.exists() ? profileSnapshot.data() : {};
-
-      const user = {
-        id: firebaseUser.uid,
-        uid: firebaseUser.uid,
-        email: firebaseUser.email || email.trim(),
-        name: profile.name || firebaseUser.displayName || email.split("@")[0],
-        role: profile.role || "electrician",
-        ...profile
-      };
-
+      const user = await loginWithFirebase(email, password);
       setToken(user);
       window.location.replace("/");
     } catch (authError) {
       console.error("Firebase login error:", authError);
-      setError(friendlyAuthError(authError?.code));
+      setError(friendlyAuthError(authError));
     } finally {
       setLoading(false);
     }
