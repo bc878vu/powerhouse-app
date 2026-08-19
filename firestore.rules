@@ -3,13 +3,30 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function isAdmin() {
-      return signedIn() && get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.role in ['admin', 'superadmin'];
+      return signedIn()
+        && get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.role in ['admin', 'superadmin'];
     }
 
     match /powerhouse_users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow update: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      // A user may bootstrap only their own profile, and new self-created
+      // profiles are always low-privilege. Admins can create staff profiles.
+      allow create: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          && request.resource.data.role == 'electrician');
+
+      // Users may update their own profile fields, but cannot promote
+      // themselves or change their account status. Admins retain full control.
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status);
+
       allow delete: if isAdmin();
     }
 
