@@ -40,7 +40,7 @@ export default function App() {
   const user = getUser();
   const isAdmin = user?.role === "superadmin" || user?.role === "admin";
   const adminOnly = (element) => (isAuth && isAdmin ? element : <Navigate to="/" replace />);
-  const authOnly = (element) => (isAuth ? element : <Navigate to="/" replace />);
+  const authOnly = (element) => (isAuth ? element : <Navigate to="/login" replace />);
 
   return (
     <Router>
@@ -48,14 +48,14 @@ export default function App() {
         <Routes>
           <Route path="/login" element={isAuth ? <Navigate to="/" replace /> : <Login />} />
           <Route path="/" element={<Layout />}>
-            <Route index element={isAuth ? (isAdmin ? <Dashboard /> : <UserDashboard />) : <Dashboard />} />
+            <Route index element={isAuth ? (isAdmin ? <Dashboard /> : <UserDashboard />) : <Navigate to="/login" replace />} />
             <Route path="add-staff" element={adminOnly(<AddUser />)} />
             <Route path="staff-records" element={adminOnly(<StaffRecord />)} />
-            <Route path="user/:id" element={<UserDetails />} />
+            <Route path="user/:id" element={adminOnly(<UserDetails />)} />
             <Route path="staff-duty" element={adminOnly(<StaffDutyManagement />)} />
             <Route path="assign-tasks" element={adminOnly(<AssignTasks />)} />
             <Route path="my-tasks" element={authOnly(<MyTasks />)} />
-            <Route path="task-view/:id" element={<TaskView />} />
+            <Route path="task-view/:id" element={authOnly(<TaskView />)} />
             <Route path="profile" element={authOnly(<Profile />)} />
             <Route path="notifications" element={authOnly(<Notifications />)} />
             <Route path="assign-tools" element={adminOnly(<AssignTools />)} />
@@ -69,7 +69,7 @@ export default function App() {
             <Route path="machines/add" element={adminOnly(<AddMachine />)} />
             <Route path="machines/edit/:id" element={adminOnly(<AddMachine />)} />
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to={isAuth ? "/" : "/login"} replace />} />
         </Routes>
       </Suspense>
     </Router>
