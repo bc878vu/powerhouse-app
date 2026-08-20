@@ -1,0 +1,2 @@
+export const routeLengthFeet=(points,width,height)=>{const w=+width||0,h=+height||0;if(!w||!h||!Array.isArray(points)||points.length<2)return 0;let t=0;for(let i=1;i<points.length;i++){const dx=(+points[i].x-+points[i-1].x)*w/100,dy=(+points[i].y-+points[i-1].y)*h/100;t+=Math.hypot(dx,dy)}return+t.toFixed(2)};
+export const mapPosition=(e,el)=>{const r=el.getBoundingClientRect();return{x:+Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100)).toFixed(3),y:+Math.max(0,Math.min(100,(e.clientY-r.top)/r.height*100)).toFixed(3)}};
