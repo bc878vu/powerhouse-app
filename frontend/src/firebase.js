@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -48,6 +48,11 @@ if (!isFirebaseConfigured) {
 // remains fully online/realtime; this removes the failing startup path.
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+// Keep the authenticated session across reloads and PWA launches without
+// changing the application's existing login/logout behavior.
+void setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.warn("Firebase auth persistence setup failed:", error?.message || error);
+});
 export const storage = getStorage(app);
 export const db = getFirestore(app);
 
