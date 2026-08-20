@@ -1,51 +1,64 @@
 import React, { useEffect, useState } from "react";
-import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Bell, ChevronDown, ChevronRight, CircuitBoard, ClipboardList, Cpu, Fuel, Home, LayoutDashboard, LogOut, Map, Menu, PanelsTopLeft, Plus, UserCircle, UserPlus, Users, Wrench, X, CalendarClock, SlidersHorizontal } from "lucide-react";
 import { isPublic } from "./utils/publicMode";
-import { logout, getUser } from "./utils/auth";
+import { getUser, logout } from "./utils/auth";
 import { getCurrentNotificationUid, subscribeToNotifications } from "./services/notificationService";
-import { LayoutDashboard, UserPlus, ClipboardList, LogOut, Users, UserCircle, Menu, X, ChevronRight, ChevronDown, Map, CircuitBoard, PanelsTopLeft, CalendarClock, Wrench, Fuel, Bell, Cpu, Plus, Gauge, Home, SlidersHorizontal } from "lucide-react";
 
 export default function Layout() {
-  const [sidebarOpen,setSidebarOpen]=useState(false); const [machinesOpen,setMachinesOpen]=useState(false); const [unreadCount,setUnreadCount]=useState(0);
-  const location=useLocation(); const navigate=useNavigate(); const user=getUser(); const publicMode=isPublic();
-  useEffect(()=>setSidebarOpen(false),[location.pathname]);
-  useEffect(()=>{if(location.pathname.startsWith("/machines"))setMachinesOpen(true)},[location.pathname]);
-  useEffect(()=>{const uid=getCurrentNotificationUid()||user?.firebaseUid||user?.uid||user?.id;if(!uid)return;return subscribeToNotifications(uid,items=>setUnreadCount(items.filter(x=>!x.read).length))},[user?.firebaseUid,user?.uid,user?.id]);
-  const handleLogout=()=>{logout();window.location.href="/"};
-  const menuItems=[
-    {name:"Dashboard",icon:<LayoutDashboard size={20}/>,path:"/",roles:["superadmin","admin","electrician","cro"]},
-    {name:"My Tasks",icon:<ClipboardList size={20}/>,path:"/my-tasks",roles:["electrician","cro"]},
-    {name:"Add Staff",icon:<UserPlus size={20}/>,path:"/add-staff",roles:["superadmin","admin"]},
-    {name:"Staff Records",icon:<Users size={20}/>,path:"/staff-records",roles:["superadmin","admin"]},
-    {name:"Staff Duty",icon:<CalendarClock size={20}/>,path:"/staff-duty",roles:["superadmin","admin"]},
-    {name:"Assign Tasks",icon:<ClipboardList size={20}/>,path:"/assign-tasks",roles:["superadmin","admin"]},
-    {name:"Assign Tools",icon:<Wrench size={20}/>,path:"/assign-tools",roles:["superadmin","admin"]},
-    {name:"Add Panel",icon:<CircuitBoard size={20}/>,path:"/add-panel",roles:["superadmin","admin"]},
-    {name:"Panels",icon:<PanelsTopLeft size={20}/>,path:"/panels",roles:["superadmin","admin"]},
-    {name:"Interactive Panel Map",icon:<Map size={20}/>,path:"/interactive-panel-map",roles:["superadmin","admin"]},
-    {name:"Fuel Management",icon:<Fuel size={20}/>,path:"/fuel-management",roles:["superadmin","admin"]},
-    {name:"Profile",icon:<UserCircle size={20}/>,path:"/profile",roles:["superadmin","admin","electrician","cro"]}
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [machinesOpen, setMachinesOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const user = getUser();
+  const publicMode = isPublic();
+  const isAdmin = ["admin", "superadmin"].includes(user?.role);
+  const canViewMachines = ["admin", "superadmin", "electrician", "cro"].includes(user?.role);
+  const canManageMachines = isAdmin;
+
+  useEffect(() => setSidebarOpen(false), [location.pathname]);
+  useEffect(() => { if (location.pathname.startsWith("/machines")) setMachinesOpen(true); }, [location.pathname]);
+  useEffect(() => {
+    const uid = getCurrentNotificationUid() || user?.firebaseUid || user?.uid || user?.id;
+    if (!uid) return undefined;
+    return subscribeToNotifications(uid, items => setUnreadCount(items.filter(item => !item.read).length));
+  }, [user?.firebaseUid, user?.uid, user?.id]);
+
+  const isActive = path => path === "/" ? location.pathname === "/" : location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const handleLogout = () => { logout(); window.location.href = "/"; };
+  const menuItems = [
+    ["Dashboard", LayoutDashboard, "/", ["admin", "superadmin", "electrician", "cro"]],
+    ["My Tasks", ClipboardList, "/my-tasks", ["electrician", "cro"]],
+    ["Add Staff", UserPlus, "/add-staff", ["admin", "superadmin"]],
+    ["Staff Records", Users, "/staff-records", ["admin", "superadmin"]],
+    ["Staff Duty", CalendarClock, "/staff-duty", ["admin", "superadmin"]],
+    ["Assign Tasks", ClipboardList, "/assign-tasks", ["admin", "superadmin"]],
+    ["Assign Tools", Wrench, "/assign-tools", ["admin", "superadmin"]],
+    ["Add Panel", CircuitBoard, "/add-panel", ["admin", "superadmin"]],
+    ["Panels", PanelsTopLeft, "/panels", ["admin", "superadmin"]],
+    ["Interactive Panel Map", Map, "/interactive-panel-map", ["admin", "superadmin"]],
+    ["Fuel Management", Fuel, "/fuel-management", ["admin", "superadmin"]],
+    ["Profile", UserCircle, "/profile", ["admin", "superadmin", "electrician", "cro"]]
   ];
-  const isActive=(path)=>path==="/"?location.pathname==="/":location.pathname===path||location.pathname.startsWith(`${path}/`);
-  const canViewMachines=["superadmin","admin","electrician","cro"].includes(user?.role); const canManageMachines=["superadmin","admin"].includes(user?.role); const isAdmin=["superadmin","admin"].includes(user?.role);
-  if(publicMode)return <div className="min-h-screen bg-[#0a0f1e] text-white"><div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[#020617]/90 backdrop-blur-xl border-b border-white/5"><h1 className="text-xl font-black tracking-tighter">POWER<span className="text-yellow-500">HOUSE LIVE</span></h1><button onClick={()=>navigate("/login")} className="bg-yellow-500 px-5 py-2 rounded-xl text-black font-bold">Login</button></div><main className="pt-24 px-4 md:px-10 pb-10"><div className="max-w-[1600px] mx-auto"><Outlet/></div></main></div>;
+
+  if (publicMode) return <div className="min-h-screen bg-[#0a0f1e] text-white"><div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[#020617]/95 backdrop-blur-xl border-b border-white/5"><h1 className="text-xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE LIVE</span></h1><button onClick={() => navigate("/login")} className="bg-yellow-500 px-5 py-2 rounded-xl text-black font-bold">Login</button></div><main className="pt-24 px-4 md:px-10 pb-10"><div className="max-w-[1700px] mx-auto"><Outlet/></div></main></div>;
+
   return <div className="min-h-screen w-full bg-[#0a0f1e] text-white font-sans">
-    <header className="fixed top-0 left-0 right-0 z-[90] h-20 flex items-center justify-between gap-3 px-4 md:px-7 bg-[#020617]/95 backdrop-blur-xl border-b border-white/5">
-      <div className="flex items-center gap-3 min-w-0"><button onClick={()=>setSidebarOpen(true)} className="w-11 h-11 rounded-xl bg-yellow-500 text-black flex items-center justify-center shrink-0" title="Open Home / Modules"><Home size={20}/></button><div className="hidden sm:block"><h1 className="text-xl md:text-2xl font-black italic tracking-tight">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[8px] text-slate-600 uppercase tracking-[0.3em] font-black">Management Portal</p></div></div>
-      <div className="flex-1 flex justify-center"><div className="flex items-center gap-1 p-1 rounded-2xl bg-white/[0.03] border border-white/5"><Link to="/" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide ${isActive("/")?"bg-yellow-500 text-black":"text-slate-400 hover:text-white"}`}><span className="hidden md:inline">Main </span>Dashboard</Link>{isAdmin&&<><Link to="/fuel-management" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide ${isActive("/fuel-management")?"bg-yellow-500 text-black":"text-slate-400 hover:text-white"}`}><Fuel size={14} className="inline mr-1"/>Fuel</Link><Link to="/machines" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide ${isActive("/machines")?"bg-yellow-500 text-black":"text-slate-400 hover:text-white"}`}><Cpu size={14} className="inline mr-1"/>Machines</Link></>}</div></div>
-      <div className="flex items-center gap-1 md:gap-2"><Link to="/notifications" className="relative p-2.5 rounded-xl text-slate-300 hover:bg-white/5"><Bell size={19}/>{unreadCount>0&&<span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-black">{unreadCount>99?"99+":unreadCount}</span>}</Link><button onClick={()=>setSidebarOpen(true)} className="md:hidden p-2.5 rounded-xl text-slate-300 hover:bg-white/5"><Menu size={21}/></button></div>
+    <header className="fixed top-0 left-0 right-0 z-[90] h-20 flex items-center gap-3 px-3 md:px-6 bg-[#020617]/95 backdrop-blur-xl border-b border-white/5">
+      <button onClick={() => setSidebarOpen(true)} className="h-11 rounded-xl bg-yellow-500 text-black flex items-center gap-2 px-3 md:px-4 shrink-0 shadow-lg shadow-yellow-500/10" title="Open Home / Modules"><Home size={20}/><span className="hidden md:inline text-[10px] font-black uppercase tracking-wide">Modules</span></button>
+      <div className="hidden lg:block shrink-0"><h1 className="text-xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[8px] text-slate-600 uppercase tracking-[0.3em] font-black">Management Portal</p></div>
+      <div className="flex-1 flex justify-center min-w-0"><div className="flex items-center gap-1 p-1 rounded-2xl bg-white/[0.03] border border-white/5 max-w-full overflow-x-auto">{<Link to="/" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide whitespace-nowrap ${isActive("/") ? "bg-yellow-500 text-black" : "text-slate-400 hover:text-white"}`}><span className="hidden md:inline">Main </span>Dashboard</Link>}{isAdmin && <><Link to="/fuel-management" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide whitespace-nowrap ${isActive("/fuel-management") ? "bg-yellow-500 text-black" : "text-slate-400 hover:text-white"}`}><Fuel size={14} className="inline mr-1"/>Fuel</Link><Link to="/machines" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide whitespace-nowrap ${isActive("/machines") ? "bg-yellow-500 text-black" : "text-slate-400 hover:text-white"}`}><Cpu size={14} className="inline mr-1"/>Machines</Link></>}</div></div>
+      <div className="flex items-center gap-1 shrink-0"><Link to="/notifications" className="relative p-2.5 rounded-xl text-slate-300 hover:bg-white/5"><Bell size={19}/>{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link><button onClick={() => setSidebarOpen(true)} className="p-2.5 rounded-xl text-slate-300 hover:bg-white/5" title="Open Modules"><Menu size={21}/></button></div>
     </header>
 
-    {sidebarOpen&&<div className="fixed inset-0 z-[100] bg-black/65 backdrop-blur-sm" onClick={()=>setSidebarOpen(false)}/>} 
-    <aside className={`fixed top-0 left-0 bottom-0 z-[110] w-80 max-w-[88vw] bg-[#020617] border-r border-white/5 flex flex-col p-6 shadow-2xl transition-transform duration-300 ${sidebarOpen?"translate-x-0":"-translate-x-full"}`}>
-      <div className="flex items-center justify-between mb-7 px-2"><div><h1 className="text-2xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[9px] text-slate-500 uppercase tracking-[0.3em] font-black mt-1">Home / Modules</p></div><button onClick={()=>setSidebarOpen(false)} className="p-2 text-slate-400"><X size={22}/></button></div>
-      <div className="grid grid-cols-3 gap-2 mb-5"><Link to="/" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><LayoutDashboard size={15} className="mx-auto mb-1 text-yellow-500"/>Home</Link>{isAdmin&&<><Link to="/fuel-management" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Fuel size={15} className="mx-auto mb-1 text-yellow-500"/>Fuel</Link><Link to="/machines" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Cpu size={15} className="mx-auto mb-1 text-yellow-500"/>Machines</Link></>}</div>
-      <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">{menuItems.filter(item=>item.roles.includes(user?.role)).map(item=>{const active=isActive(item.path);return <Link key={item.path} to={item.path} className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${active?"bg-yellow-500 text-black font-bold shadow-xl shadow-yellow-500/10":"text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><span className={active?"text-black":"text-yellow-500"}>{item.icon}</span><span className="text-sm tracking-wide">{item.name}</span></div>{active&&<ChevronRight size={14} className="opacity-50"/>}</Link>})}
-        {canViewMachines&&<div className="space-y-1"><button onClick={()=>setMachinesOpen(x=>!x)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl ${location.pathname.startsWith("/machines")?"bg-yellow-500 text-black font-bold":"text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Cpu size={20}/><span className="text-sm">Machines</span></div>{machinesOpen?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button>{machinesOpen&&<div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1"><Link to="/machines" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Gauge size={15}/>Dashboard</Link>{canManageMachines&&<Link to="/machines/add" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Plus size={15}/>Add Machine</Link>}</div>}</div>}
-        <Link to="/notifications" className="flex items-center justify-between px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white"><div className="flex items-center gap-4"><Bell size={20} className="text-yellow-500"/><span className="text-sm">Notifications</span></div>{unreadCount>0&&<span className="rounded-full px-2 py-0.5 text-[10px] font-black bg-red-500">{unreadCount>99?"99+":unreadCount}</span>}</Link>
-      </nav>
-      <div className="mt-4 pt-5 border-t border-white/5 space-y-3"><Link to="/profile" className="flex items-center gap-3 px-3 py-3 bg-white/[0.03] rounded-2xl border border-white/5"><div className="w-10 h-10 bg-yellow-500 rounded-2xl flex items-center justify-center text-black font-black shrink-0">{user?.name?.[0]?.toUpperCase()||"U"}</div><div className="overflow-hidden"><p className="text-xs font-black truncate">{user?.name||"User"}</p><p className="text-[9px] uppercase tracking-tighter text-yellow-500 font-black mt-0.5">{user?.role||"user"}</p></div></Link><button onClick={handleLogout} className="flex items-center gap-4 px-6 py-4 w-full text-slate-500 hover:text-red-400 hover:bg-red-500/5 rounded-2xl font-bold text-xs uppercase tracking-widest"><LogOut size={18}/>Logout</button></div>
+    {sidebarOpen && <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm" onClick={() => setSidebarOpen(false)}/>} 
+    <aside className={`fixed top-0 left-0 bottom-0 z-[110] w-80 max-w-[88vw] bg-[#020617] border-r border-white/5 flex flex-col p-6 shadow-2xl transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className="flex items-center justify-between mb-6 px-2"><div><h1 className="text-2xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[9px] text-slate-500 uppercase tracking-[0.3em] font-black mt-1">Home / Modules</p></div><button onClick={() => setSidebarOpen(false)} className="p-2 text-slate-400"><X size={22}/></button></div>
+      <div className="grid grid-cols-3 gap-2 mb-5"><Link to="/" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><LayoutDashboard size={15} className="mx-auto mb-1 text-yellow-500"/>Home</Link>{isAdmin && <><Link to="/fuel-management" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Fuel size={15} className="mx-auto mb-1 text-yellow-500"/>Fuel</Link><Link to="/machines" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Cpu size={15} className="mx-auto mb-1 text-yellow-500"/>Machines</Link></>}</div>
+      <nav className="flex-1 space-y-2 overflow-y-auto pr-2">{menuItems.filter(item => item[3].includes(user?.role)).map(([name, Icon, path]) => <Link key={path} to={path} className={`flex items-center justify-between px-4 py-3.5 rounded-2xl ${isActive(path) ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Icon size={20} className={isActive(path) ? "text-black" : "text-yellow-500"}/><span className="text-sm tracking-wide">{name}</span></div>{isActive(path) && <ChevronRight size={14} className="opacity-50"/>}</Link>)}{canViewMachines && <div><button onClick={() => setMachinesOpen(value => !value)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl ${location.pathname.startsWith("/machines") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Cpu size={20}/><span className="text-sm">Machines</span></div>{machinesOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}</button>{machinesOpen && <div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1"><Link to="/machines" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><SlidersHorizontal size={15}/>Dashboard</Link>{canManageMachines && <Link to="/machines/add" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Plus size={15}/>Add Machine</Link>}</div>}</div>}</nav>
+      <div className="mt-4 pt-5 border-t border-white/5 space-y-3"><Link to="/profile" className="flex items-center gap-3 px-3 py-3 bg-white/[0.03] rounded-2xl border border-white/5"><div className="w-10 h-10 bg-yellow-500 rounded-2xl flex items-center justify-center text-black font-black shrink-0">{user?.name?.[0]?.toUpperCase() || "U"}</div><div className="overflow-hidden"><p className="text-xs font-black truncate">{user?.name || "User"}</p><p className="text-[9px] uppercase tracking-tighter text-yellow-500 font-black mt-0.5">{user?.role || "user"}</p></div></Link><button onClick={handleLogout} className="flex items-center gap-4 px-6 py-4 w-full text-slate-500 hover:text-red-400 hover:bg-red-500/5 rounded-2xl font-bold text-xs uppercase tracking-widest"><LogOut size={18}/>Logout</button></div>
     </aside>
-    <main className="pt-24 px-4 md:px-8 pb-10"><div className="max-w-[1700px] mx-auto min-h-[calc(100vh-130px)]"><Outlet/></div></main>
+    <main className="pt-24 px-3 md:px-6 lg:px-8 pb-10"><div className="max-w-[1700px] mx-auto min-h-[calc(100vh-130px)]"><Outlet/></div></main>
   </div>;
 }

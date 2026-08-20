@@ -1,129 +1,196 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, BarChart3, CalendarClock, Cpu, Gauge, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, Wrench, Zap, X, Save, MapPin, Factory, Hash, Timer, TrendingUp } from "lucide-react";
-import { addMachineLoadLog, deleteMachine, subscribeToMachineLoadLogs, subscribeToMachines } from "../services/machineService";
+import { Activity, AlertTriangle, BarChart3, CalendarClock, Cpu, Gauge, Loader2, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, Wrench, X, Zap } from "lucide-react";
+import { addMachineCategory, addMachineLoadLog, deleteMachine, deleteMachineLoadLog, subscribeToMachineCategories, subscribeToMachineLoadLogs, subscribeToMachines } from "../services/machineService";
+import { getUser } from "../utils/auth";
 
 const STATUS = {
-  running: { label: "Running", icon: Zap, cls: "text-green-400 bg-green-500/10 border-green-500/20" },
-  standby: { label: "Standby", icon: Activity, cls: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
-  stopped: { label: "Stopped", icon: Gauge, cls: "text-slate-400 bg-slate-500/10 border-slate-500/20" },
-  maintenance: { label: "Maintenance", icon: Wrench, cls: "text-yellow-400 bg-yellow-500/10 border-yellow-500/20" },
-  out_of_service: { label: "Out of Service", icon: AlertTriangle, cls: "text-red-400 bg-red-500/10 border-red-500/20" }
+  running: ["Running", "text-green-400 bg-green-500/10 border-green-500/20"],
+  standby: ["Standby", "text-blue-400 bg-blue-500/10 border-blue-500/20"],
+  stopped: ["Stopped", "text-slate-400 bg-slate-500/10 border-slate-500/20"],
+  maintenance: ["Maintenance", "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"],
+  out_of_service: ["Out of Service", "text-red-400 bg-red-500/10 border-red-500/20"]
 };
 
-const isMaintenanceDue = (date) => {
-  if (!date) return false;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const due = new Date(`${date}T00:00:00`);
-  return !Number.isNaN(due.getTime()) && due <= today;
-};
+const today = () => new Date().toISOString().slice(0, 10);
+const asNumber = (value) => Number(value) || 0;
+const inputClass = "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:border-yellow-500/60 placeholder:text-slate-600";
+const labelClass = "mb-2 block text-[9px] font-black uppercase tracking-widest text-slate-500";
 
-const toDateKey = (value) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value || "").slice(0, 10);
-const rangeFor = (period, selected) => {
+function rangeFor(period, selected, customFrom, customTo) {
+  if (period === "custom") return [customFrom || selected, customTo || selected];
   const d = new Date(`${selected}T00:00:00`);
   if (Number.isNaN(d.getTime())) return [selected, selected];
   if (period === "daily") return [selected, selected];
-  if (period === "monthly") return [new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10), new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10)];
-  const day = d.getDay(); const start = new Date(d); start.setDate(d.getDate() - day); const end = new Date(start); end.setDate(start.getDate() + 6);
-  return [toDateKey(start), toDateKey(end)];
-};
+  if (period === "monthly") return [new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10), new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)];
+  const start = new Date(d);
+  start.setDate(d.getDate() - d.getDay());
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)];
+}
 
-const inputClass = "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:border-yellow-500/60";
+const within = (date, from, to) => String(date || "") >= from && String(date || "") <= to;
+const logEnergy = (log) => asNumber(log.energyConsumed) || asNumber(log.actualLoad) * asNumber(log.operatingHours);
+
+function StatusBadge({ status }) {
+  const [label, cls] = STATUS[status] || STATUS.standby;
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${cls}`}>{label}</span>;
+}
+
+function MetricCard({ title, value, unit, icon: Icon, tone = "yellow", hint }) {
+  const tones = { yellow: "text-yellow-400", green: "text-green-400", blue: "text-blue-400", orange: "text-orange-400", red: "text-red-400", white: "text-white" };
+  return <div className="rounded-2xl border border-white/5 bg-[#020617] p-4 md:p-5"><div className="flex items-center justify-between"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">{title}</p><Icon size={16} className={tones[tone] || tones.yellow}/></div><p className={`mt-2 text-2xl md:text-3xl font-black ${tones[tone] || tones.yellow}`}>{value}<span className="ml-1 text-[10px] text-slate-500">{unit || ""}</span></p>{hint && <p className="mt-1 text-[9px] text-slate-600">{hint}</p>}</div>;
+}
 
 export default function Machines() {
   const navigate = useNavigate();
+  const user = getUser();
   const [machines, setMachines] = useState([]);
   const [logs, setLogs] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
   const [period, setPeriod] = useState("daily");
-  const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(today());
+  const [customFrom, setCustomFrom] = useState(today());
+  const [customTo, setCustomTo] = useState(today());
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [deleting, setDeleting] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [expanded, setExpanded] = useState(null);
+  const [detail, setDetail] = useState(null);
   const [logMachine, setLogMachine] = useState(null);
-  const [logForm, setLogForm] = useState({ date: toDateKey(new Date()), actualLoad: "", peakLoad: "", operatingHours: "", note: "" });
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [logForm, setLogForm] = useState({ date: today(), actualLoad: "", peakLoad: "", operatingHours: "", meterStart: "", meterEnd: "", energyConsumed: "", status: "running", note: "" });
   const [savingLog, setSavingLog] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    const unsub = subscribeToMachines((items) => { setMachines(items); setLoading(false); }, (e) => { setMessage(e.message || "Unable to load machines."); setLoading(false); });
-    const unsubLogs = subscribeToMachineLoadLogs(setLogs, (e) => setMessage(e.message || "Unable to load machine load history."));
-    const unsubCats = subscribeToMachineLoadLogs ? undefined : undefined;
-    return () => { unsub?.(); unsubLogs?.(); unsubCats?.(); };
-  }, [refreshKey]);
+    const unsubs = [
+      subscribeToMachines(items => { setMachines(items); setLoading(false); }, error => { setMessage(error.message || "Unable to read machine records."); setLoading(false); }),
+      subscribeToMachineLoadLogs(setLogs, error => setMessage(error.message || "Unable to read machine load history.")),
+      subscribeToMachineCategories(setCategories, error => setMessage(error.message || "Unable to read machine categories."))
+    ];
+    return () => unsubs.forEach(unsub => unsub?.());
+  }, []);
 
-  const allCategories = useMemo(() => [...new Set([...categories.map(c => c.name), ...machines.map(m => m.category)].filter(Boolean))].sort(), [categories, machines]);
-  const [catUnsub, setCatUnsub] = useState(null);
-  useEffect(() => { return () => catUnsub?.(); }, [catUnsub]);
+  const allCategories = useMemo(() => [...new Set([...categories.map(x => x.name), ...machines.map(x => x.category)].filter(Boolean))].sort((a, b) => a.localeCompare(b)), [categories, machines]);
+  const allAreas = useMemo(() => [...new Set(machines.map(x => x.location).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [machines]);
 
-  const filtered = useMemo(() => {
+  const visibleMachines = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return machines.filter((m) => {
-      const text = [m.name,m.code,m.category,m.type,m.manufacturer,m.model,m.serialNumber,m.location,m.department].filter(Boolean).join(" ").toLowerCase();
-      return (statusFilter === "all" || (m.status || "standby") === statusFilter) && (categoryFilter === "all" || m.category === categoryFilter) && (!term || text.includes(term));
+    return machines.filter(m => {
+      const hay = [m.name, m.code, m.category, m.type, m.manufacturer, m.model, m.serialNumber, m.location, m.department].filter(Boolean).join(" ").toLowerCase();
+      return (!term || hay.includes(term)) && (statusFilter === "all" || (m.status || "standby") === statusFilter) && (categoryFilter === "all" || m.category === categoryFilter) && (areaFilter === "all" || m.location === areaFilter);
     });
-  }, [machines, search, statusFilter, categoryFilter]);
+  }, [machines, search, statusFilter, categoryFilter, areaFilter]);
 
-  const [from, to] = rangeFor(period, selectedDate);
-  const periodLogs = useMemo(() => logs.filter(l => String(l.date || "") >= from && String(l.date || "") <= to), [logs, from, to]);
-  const machineConsumption = useMemo(() => {
+  const [from, to] = rangeFor(period, selectedDate, customFrom, customTo);
+  const periodLogs = useMemo(() => logs.filter(log => within(log.date, from, to) && visibleMachines.some(machine => machine.id === log.machineId)), [logs, from, to, visibleMachines]);
+
+  const periodByMachine = useMemo(() => {
     const map = {};
-    periodLogs.forEach(l => { const id = l.machineId; map[id] = (map[id] || 0) + (Number(l.energyConsumed) || Number(l.actualLoad || 0) * Number(l.operatingHours || 0)); });
+    periodLogs.forEach(log => {
+      if (!map[log.machineId]) map[log.machineId] = { energy: 0, hours: 0, peak: 0, loadTotal: 0, records: 0 };
+      map[log.machineId].energy += logEnergy(log);
+      map[log.machineId].hours += asNumber(log.operatingHours);
+      map[log.machineId].peak = Math.max(map[log.machineId].peak, asNumber(log.peakLoad) || asNumber(log.actualLoad));
+      map[log.machineId].loadTotal += asNumber(log.actualLoad);
+      map[log.machineId].records += 1;
+    });
     return map;
   }, [periodLogs]);
 
   const stats = useMemo(() => {
-    const rated = machines.reduce((s,m) => s + (Number(m.capacity)||0), 0);
-    const running = machines.reduce((s,m) => s + (m.status === "running" ? Number(m.currentRunningLoad)||0 : 0), 0);
-    const actual = machines.reduce((s,m) => s + (Number(m.currentRunningLoad)||0), 0);
-    const consumed = periodLogs.reduce((s,l) => s + (Number(l.energyConsumed) || Number(l.actualLoad||0)*Number(l.operatingHours||0)), 0);
-    return { total: machines.length, running: machines.filter(m=>m.status==="running").length, standby: machines.filter(m=>m.status==="standby").length, maintenance: machines.filter(m=>m.status==="maintenance").length, out: machines.filter(m=>m.status==="out_of_service").length, due: machines.filter(m=>isMaintenanceDue(m.nextMaintenance)).length, rated, running, actual, consumed, utilization: rated ? (running/rated)*100 : 0 };
-  }, [machines, periodLogs]);
+    const rated = visibleMachines.reduce((sum, m) => sum + asNumber(m.capacity), 0);
+    const runningLoad = visibleMachines.filter(m => m.status === "running").reduce((sum, m) => sum + asNumber(m.currentRunningLoad), 0);
+    const actualLoad = visibleMachines.reduce((sum, m) => sum + asNumber(m.currentRunningLoad), 0);
+    const energy = periodLogs.reduce((sum, log) => sum + logEnergy(log), 0);
+    const hours = periodLogs.reduce((sum, log) => sum + asNumber(log.operatingHours), 0);
+    const due = visibleMachines.filter(m => m.nextMaintenance && new Date(`${m.nextMaintenance}T00:00:00`) <= new Date(`${today()}T00:00:00`)).length;
+    return { total: visibleMachines.length, running: visibleMachines.filter(m => m.status === "running").length, standby: visibleMachines.filter(m => m.status === "standby").length, maintenance: visibleMachines.filter(m => m.status === "maintenance").length, out: visibleMachines.filter(m => m.status === "out_of_service").length, rated, runningLoad, actualLoad, energy, hours, due, utilization: rated ? (actualLoad / rated) * 100 : 0 };
+  }, [visibleMachines, periodLogs]);
 
-  const openLog = (machine) => { setLogMachine(machine); setLogForm({ date: selectedDate, actualLoad: machine.currentRunningLoad || "", peakLoad: "", operatingHours: "", note: "" }); };
-  const saveLog = async (e) => {
-    e.preventDefault(); setSavingLog(true); setMessage("");
-    try { await addMachineLoadLog({ ...logForm, machineId: logMachine.id, machineName: logMachine.name, machineCode: logMachine.code }); setLogMachine(null); setMessage("Machine load record saved successfully."); }
-    catch (err) { setMessage(err.message || "Could not save load record."); } finally { setSavingLog(false); }
-  };
-  const remove = async (machine) => {
-    if (!window.confirm(`Delete ${machine.name || machine.code}? This machine record will be permanently removed.`)) return;
-    setDeleting(machine.id); try { await deleteMachine(machine.id); } catch (e) { setMessage(e.message || "Could not delete machine."); } finally { setDeleting(null); }
+  const openLog = machine => {
+    setLogMachine(machine);
+    setLogForm({ date: selectedDate, actualLoad: machine.currentRunningLoad || "", peakLoad: "", operatingHours: "", meterStart: "", meterEnd: "", energyConsumed: "", status: machine.status === "running" ? "running" : "standby", note: "" });
   };
 
-  const statCards = [["Total Machines",stats.total,Cpu,"text-yellow-400"],["Running",stats.running,Zap,"text-green-400"],["Standby",stats.standby,Activity,"text-blue-400"],["Maintenance",stats.maintenance,Wrench,"text-yellow-400"],["Out of Service",stats.out,AlertTriangle,"text-red-400"],["Maintenance Due",stats.due,CalendarClock,"text-orange-400"]];
+  const saveLog = async event => {
+    event.preventDefault();
+    setSavingLog(true); setMessage("");
+    try {
+      await addMachineLoadLog({ ...logForm, machineId: logMachine.id, machineName: logMachine.name, machineCode: logMachine.code, recordedBy: user?.name || user?.email || "Admin" });
+      setLogMachine(null); setMessage("Machine load record saved. Current running load and analytics were updated.");
+    } catch (error) { setMessage(error.message || "Could not save machine load record."); }
+    finally { setSavingLog(false); }
+  };
 
-  return <div className="space-y-6 animate-in fade-in duration-500">
+  const removeMachine = async machine => {
+    if (!window.confirm(`Delete ${machine.name || machine.code}? This removes the machine master record.`)) return;
+    try { await deleteMachine(machine.id); setMessage("Machine deleted successfully."); } catch (error) { setMessage(error.message || "Could not delete machine."); }
+  };
+
+  const removeLog = async log => {
+    if (!window.confirm("Delete this load history record?")) return;
+    try { await deleteMachineLoadLog(log.id); setMessage("Load history record deleted."); } catch (error) { setMessage(error.message || "Could not delete load record."); }
+  };
+
+  const saveCategory = async event => {
+    event.preventDefault();
+    try { await addMachineCategory(categoryName); setCategoryName(""); setCategoryOpen(false); setMessage("Custom machine category saved to Firestore."); } catch (error) { setMessage(error.message || "Could not create category."); }
+  };
+
+  const exportCsv = () => {
+    const rows = visibleMachines.map(machine => {
+      const item = periodByMachine[machine.id] || {};
+      return [machine.name, machine.code, machine.category, machine.type, machine.location, machine.status, machine.capacity, machine.currentRunningLoad, item.energy || 0, item.hours || 0, item.peak || 0, item.records || 0];
+    });
+    const esc = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [["Machine","Code","Category","Type","Area","Status","Rated Load","Actual Load","Period Energy kWh","Hours","Peak Load","Records"], ...rows].map(row => row.map(esc).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = `machine-load-report-${from}-to-${to}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+
+  return <div className="space-y-6 animate-in fade-in duration-500 print:bg-white print:text-black">
     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-      <div className="flex items-center gap-4"><div className="w-12 h-12 bg-yellow-500 rounded-2xl flex items-center justify-center text-black"><Cpu size={24}/></div><div><h1 className="text-2xl md:text-3xl font-black text-white">Machines Dashboard</h1><p className="text-slate-500 text-sm mt-1">Complete machine register, live load, utilization, energy consumption and maintenance control</p></div></div>
-      <div className="flex gap-2"><button onClick={()=>setRefreshKey(k=>k+1)} className="p-3 bg-white/5 border border-white/10 rounded-xl text-slate-300" title="Refresh"><RefreshCw size={18} className={loading?"animate-spin":""}/></button><button onClick={()=>navigate("/machines/add")} className="flex items-center gap-2 px-5 py-3 bg-yellow-500 text-black rounded-xl text-xs font-black uppercase"><Plus size={17}/> Add Machine</button></div>
+      <div className="flex items-center gap-4"><div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center"><Cpu size={24}/></div><div><h1 className="text-2xl md:text-3xl font-black">Machines Dashboard</h1><p className="text-slate-500 text-sm mt-1">Machine register, rated load, actual running load, energy consumption and maintenance control</p></div></div>
+      <div className="flex flex-wrap gap-2"><button onClick={() => window.location.reload()} className="p-3 rounded-xl bg-white/5 border border-white/10" title="Refresh"><RefreshCw size={17} className={loading ? "animate-spin" : ""}/></button><button onClick={() => setCategoryOpen(true)} className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-xs font-black"><Plus size={15} className="inline mr-1"/> CATEGORY</button><button onClick={() => navigate("/machines/add")} className="px-5 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black"><Plus size={17} className="inline mr-1"/> ADD MACHINE</button></div>
     </div>
-    {message && <div className="p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 font-bold text-sm">{message}</div>}
 
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">{statCards.map(([label,value,Icon,color])=><button key={label} onClick={()=>label.includes("Total")||label.includes("Due")?setStatusFilter("all"):setStatusFilter(label.toLowerCase().replaceAll(" ","_"))} className="text-left rounded-2xl border border-white/5 bg-[#020617] p-4 hover:bg-white/[0.03]"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">{label}</p><p className={`mt-2 text-2xl md:text-3xl font-black ${color}`}>{value}</p><Icon size={16} className={`mt-2 ${color}`}/></button>)}</div>
+    {message && <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 text-sm font-bold text-yellow-300">{message}</div>}
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-      <div className="rounded-2xl border border-white/5 bg-[#020617] p-5"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">Total Rated / Installed Load</p><p className="text-2xl font-black text-white mt-2">{stats.rated.toLocaleString()} <span className="text-xs text-slate-500">kW</span></p><p className="text-[10px] text-slate-600 mt-1">Calculated from all machine capacities.</p></div>
-      <div className="rounded-2xl border border-green-500/10 bg-green-500/[0.03] p-5"><p className="text-[9px] uppercase tracking-widest text-green-400 font-black">Running Load</p><p className="text-2xl font-black text-white mt-2">{stats.running.toLocaleString()} <span className="text-xs text-slate-500">kW</span></p><p className="text-[10px] text-slate-600 mt-1">Sum of actual load for running machines.</p></div>
-      <div className="rounded-2xl border border-yellow-500/10 bg-yellow-500/[0.03] p-5"><p className="text-[9px] uppercase tracking-widest text-yellow-400 font-black">Actual Registered Running Load</p><p className="text-2xl font-black text-white mt-2">{stats.actual.toLocaleString()} <span className="text-xs text-slate-500">kW</span></p><p className="text-[10px] text-slate-600 mt-1">All machine current-load values combined.</p></div>
-      <div className="rounded-2xl border border-blue-500/10 bg-blue-500/[0.03] p-5"><p className="text-[9px] uppercase tracking-widest text-blue-400 font-black">Utilization</p><p className="text-2xl font-black text-white mt-2">{stats.utilization.toFixed(1)}%</p><p className="text-[10px] text-slate-600 mt-1">Current running load ÷ rated load.</p></div>
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <MetricCard title="Total Machines" value={stats.total} icon={Cpu} tone="yellow"/>
+      <MetricCard title="Running" value={stats.running} icon={Zap} tone="green"/>
+      <MetricCard title="Standby" value={stats.standby} icon={Activity} tone="blue"/>
+      <MetricCard title="Maintenance" value={stats.maintenance} icon={Wrench} tone="yellow"/>
+      <MetricCard title="Out of Service" value={stats.out} icon={AlertTriangle} tone="red"/>
+      <MetricCard title="Maintenance Due" value={stats.due} icon={CalendarClock} tone="orange"/>
+    </div>
+
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <MetricCard title="Total / Rated Load" value={stats.rated.toLocaleString()} unit="kW" icon={Gauge} tone="white" hint="Sum of all visible machine capacities"/>
+      <MetricCard title="Running Load" value={stats.runningLoad.toLocaleString()} unit="kW" icon={Zap} tone="green" hint="Only machines currently marked Running"/>
+      <MetricCard title="Actual Registered Load" value={stats.actualLoad.toLocaleString()} unit="kW" icon={Activity} tone="yellow" hint="Current load of all visible machines"/>
+      <MetricCard title="Utilization" value={`${stats.utilization.toFixed(1)}%`} icon={BarChart3} tone="blue" hint="Actual load ÷ rated load"/>
     </div>
 
     <section className="rounded-[2rem] border border-white/5 bg-[#020617] p-5">
-      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4"><div><div className="flex items-center gap-2"><BarChart3 size={18} className="text-yellow-500"/><h2 className="text-white font-black">Load & Energy Analytics</h2></div><p className="text-slate-500 text-xs mt-1">Daily, weekly and monthly consumption for each machine and the complete plant.</p></div><div className="flex flex-wrap gap-2"><select value={period} onChange={e=>setPeriod(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select><input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white"/></div></div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5"><div className="bg-white/[0.03] rounded-xl p-4"><p className="text-[9px] text-slate-500 uppercase font-black">Period</p><p className="text-white font-black mt-1">{period[0].toUpperCase()+period.slice(1)}</p><p className="text-[9px] text-slate-600 mt-1">{from} → {to}</p></div><div className="bg-white/[0.03] rounded-xl p-4"><p className="text-[9px] text-slate-500 uppercase font-black">Total Energy Consumed</p><p className="text-yellow-400 text-xl font-black mt-1">{stats.consumed.toLocaleString()} <span className="text-xs">kWh</span></p></div><div className="bg-white/[0.03] rounded-xl p-4"><p className="text-[9px] text-slate-500 uppercase font-black">Load Records</p><p className="text-white text-xl font-black mt-1">{periodLogs.length}</p></div><div className="bg-white/[0.03] rounded-xl p-4"><p className="text-[9px] text-slate-500 uppercase font-black">Avg Logged Load</p><p className="text-white text-xl font-black mt-1">{periodLogs.length ? (periodLogs.reduce((s,l)=>s+(Number(l.actualLoad)||0),0)/periodLogs.length).toFixed(1) : "0"} <span className="text-xs text-slate-500">kW</span></p></div></div>
-      <div className="overflow-x-auto mt-5"><table className="w-full min-w-[850px]"><thead><tr className="border-b border-white/5">{["Machine","Location","Rated Load","Current Load","Period Energy","Hours","Peak Load"].map(h=><th key={h} className="text-left px-4 py-3 text-[9px] uppercase tracking-widest text-slate-500">{h}</th>)}</tr></thead><tbody>{machines.map(m=>{const ml=periodLogs.filter(l=>l.machineId===m.id);const hours=ml.reduce((s,l)=>s+(Number(l.operatingHours)||0),0);const peak=ml.reduce((s,l)=>Math.max(s,Number(l.peakLoad)||Number(l.actualLoad)||0),0);return <tr key={m.id} className="border-b border-white/[0.04]"><td className="px-4 py-3"><p className="text-white text-xs font-black">{m.name}</p><p className="text-yellow-500 text-[9px]">{m.code}</p></td><td className="px-4 py-3 text-xs text-slate-400">{m.location||"—"}</td><td className="px-4 py-3 text-xs font-bold text-white">{Number(m.capacity||0).toLocaleString()} kW</td><td className="px-4 py-3 text-xs font-bold text-green-400">{Number(m.currentRunningLoad||0).toLocaleString()} kW</td><td className="px-4 py-3 text-xs font-bold text-yellow-400">{(machineConsumption[m.id]||0).toLocaleString()} kWh</td><td className="px-4 py-3 text-xs text-slate-300">{hours.toFixed(1)} h</td><td className="px-4 py-3 text-xs text-orange-400">{peak.toLocaleString()} kW</td></tr>})}</tbody></table></div>
+      <div className="flex flex-col 2xl:flex-row 2xl:items-end justify-between gap-4"><div><div className="flex items-center gap-2"><BarChart3 size={18} className="text-yellow-500"/><h2 className="font-black">Load & Energy Analytics</h2></div><p className="text-slate-500 text-xs mt-1">Daily, weekly, monthly or custom energy consumption for each machine and the complete filtered plant.</p></div><div className="flex flex-wrap gap-2"><select value={period} onChange={e => setPeriod(e.target.value)} className={inputClass + " w-auto min-w-28"}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="custom">Custom</option></select>{period === "custom" ? <><input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className={inputClass + " w-auto"}/><input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className={inputClass + " w-auto"}/></> : <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={inputClass + " w-auto"}/>}<button onClick={exportCsv} className="px-4 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black">EXPORT CSV</button></div></div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5"><div className="rounded-xl bg-white/[0.03] p-4"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">Selected Period</p><p className="text-white font-black mt-1">{period[0].toUpperCase() + period.slice(1)}</p><p className="text-[9px] text-slate-600 mt-1">{from} → {to}</p></div><div className="rounded-xl bg-white/[0.03] p-4"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">Energy Consumed</p><p className="text-yellow-400 text-xl font-black mt-1">{stats.energy.toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-xs">kWh</span></p></div><div className="rounded-xl bg-white/[0.03] p-4"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">Operating Hours</p><p className="text-white text-xl font-black mt-1">{stats.hours.toFixed(2)} <span className="text-xs text-slate-500">h</span></p></div><div className="rounded-xl bg-white/[0.03] p-4"><p className="text-[9px] uppercase tracking-widest text-slate-500 font-black">Load Records</p><p className="text-white text-xl font-black mt-1">{periodLogs.length}</p></div></div>
+
+      <div className="overflow-x-auto mt-5"><table className="w-full min-w-[1100px]"><thead><tr className="border-b border-white/5">{["Machine","Area","Rated Load","Actual Load","Status","Period kWh","Hours","Avg Load","Peak","Records","Actions"].map(h => <th key={h} className="px-3 py-3 text-left text-[9px] uppercase tracking-widest text-slate-500">{h}</th>)}</tr></thead><tbody>{visibleMachines.map(machine => { const item = periodByMachine[machine.id] || { energy: 0, hours: 0, peak: 0, loadTotal: 0, records: 0 }; const avg = item.records ? item.loadTotal / item.records : 0; return <tr key={machine.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]"><td className="px-3 py-3"><button onClick={() => setDetail(machine)} className="text-left"><p className="text-xs font-black text-white hover:text-yellow-400">{machine.name || "Unnamed"}</p><p className="text-[9px] text-yellow-500">{machine.code}</p><p className="text-[9px] text-slate-600">{machine.category} · {machine.type || "General"}</p></button></td><td className="px-3 py-3 text-xs text-slate-400">{machine.location || "—"}</td><td className="px-3 py-3 text-xs font-bold">{asNumber(machine.capacity).toLocaleString()} {machine.capacityUnit || "kW"}</td><td className="px-3 py-3 text-xs font-bold text-yellow-300">{asNumber(machine.currentRunningLoad).toLocaleString()} {machine.loadUnit || "kW"}</td><td className="px-3 py-3"><StatusBadge status={machine.status}/></td><td className="px-3 py-3 text-xs font-black text-yellow-400">{item.energy.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td className="px-3 py-3 text-xs text-slate-300">{item.hours.toFixed(2)}</td><td className="px-3 py-3 text-xs text-slate-300">{avg.toFixed(1)}</td><td className="px-3 py-3 text-xs text-orange-300">{item.peak.toFixed(1)}</td><td className="px-3 py-3 text-xs text-slate-400">{item.records}</td><td className="px-3 py-3"><div className="flex gap-1"><button onClick={() => openLog(machine)} className="p-2 rounded-lg bg-green-500/10 text-green-400" title="Log load"><Activity size={14}/></button><button onClick={() => navigate(`/machines/edit/${machine.id}`)} className="p-2 rounded-lg bg-white/5 text-slate-300" title="Edit"><Pencil size={14}/></button><button onClick={() => removeMachine(machine)} className="p-2 rounded-lg bg-red-500/10 text-red-400" title="Delete"><Trash2 size={14}/></button></div></td></tr>; })}</tbody></table>{!loading && visibleMachines.length === 0 && <div className="py-16 text-center"><Cpu size={35} className="mx-auto text-slate-700"/><p className="mt-3 text-xs font-black uppercase tracking-widest text-slate-600">No machines match the current filters</p><button onClick={() => navigate("/machines/add")} className="mt-4 text-xs font-black text-yellow-400">ADD YOUR FIRST MACHINE</button></div>}</div>
     </section>
 
-    <div className="rounded-2xl border border-white/5 bg-[#020617] p-4 flex flex-col lg:flex-row gap-3"><div className="relative flex-1"><Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search machine, code, manufacturer, location, serial..." className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-sm text-white outline-none"/></div><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white"><option value="all">All Statuses</option>{Object.entries(STATUS).map(([v,x])=><option key={v} value={v}>{x.label}</option>)}</select><select value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white"><option value="all">All Categories</option>{allCategories.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+    <section className="rounded-[2rem] border border-white/5 bg-[#020617] p-5"><div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3"><div className="xl:col-span-2 relative"><Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"/><input value={search} onChange={e => setSearch(e.target.value)} className={inputClass + " pl-11"} placeholder="Search machine, code, manufacturer, model, serial, area..."/></div><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={inputClass}><option value="all">All Statuses</option>{Object.entries(STATUS).map(([value, [label]]) => <option key={value} value={value}>{label}</option>)}</select><select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className={inputClass}><option value="all">All Categories</option>{allCategories.map(category => <option key={category}>{category}</option>)}</select><select value={areaFilter} onChange={e => setAreaFilter(e.target.value)} className={inputClass}><option value="all">All Areas / Locations</option>{allAreas.map(area => <option key={area}>{area}</option>)}</select></div></section>
 
-    <div className="rounded-[2rem] overflow-hidden border border-white/5 bg-[#020617]"><div className="px-5 py-4 border-b border-white/5 flex items-center justify-between"><div><h2 className="text-white font-black text-sm uppercase">All Machines</h2><p className="text-slate-500 text-[10px] mt-1">Showing {filtered.length} of {machines.length} registered machines</p></div><span className="text-[10px] font-black uppercase tracking-widest text-yellow-500">Firestore Live</span></div>{loading?<div className="min-h-[300px] flex items-center justify-center"><Loader2 size={30} className="animate-spin text-yellow-500"/></div>:filtered.length===0?<div className="min-h-[300px] flex flex-col items-center justify-center gap-3 text-slate-500"><Cpu size={36}/><p className="font-black text-xs uppercase">No machines found</p><button onClick={()=>navigate("/machines/add")} className="text-yellow-500 text-xs font-black uppercase">Add your first machine</button></div>:<div className="overflow-x-auto"><table className="w-full min-w-[1250px]"><thead><tr className="border-b border-white/5">{["Machine","Category / Type","Location / Area","Rated Load","Running Load","Period Consumption","Status","Maintenance","Actions"].map(h=><th key={h} className="text-left px-5 py-4 text-[9px] uppercase tracking-widest text-slate-500">{h}</th>)}</tr></thead><tbody>{filtered.map(machine=>{const cfg=STATUS[machine.status]||STATUS.standby;const Icon=cfg.icon;const due=isMaintenanceDue(machine.nextMaintenance);return <React.Fragment key={machine.id}><tr className="border-b border-white/[0.04] hover:bg-white/[0.025]"><td className="px-5 py-4"><button onClick={()=>setExpanded(expanded===machine.id?null:machine.id)} className="text-left"><p className="text-white text-sm font-black">{machine.name||"Unnamed Machine"}</p><p className="text-yellow-500 text-[10px] font-black mt-1">{machine.code||"No code"}</p><p className="text-slate-600 text-[10px] mt-1">{machine.manufacturer||""} {machine.model||""}</p></button></td><td className="px-5 py-4"><p className="text-white text-xs">{machine.category||"General"}</p><p className="text-slate-500 text-[10px] mt-1">{machine.type||"No type"}</p></td><td className="px-5 py-4"><p className="text-white text-xs">{machine.location||"No area"}</p><p className="text-slate-500 text-[10px] mt-1">{machine.department||""}</p></td><td className="px-5 py-4 text-xs text-white font-bold">{Number(machine.capacity||0).toLocaleString()} {machine.capacityUnit||"kW"}</td><td className="px-5 py-4"><p className="text-green-400 text-xs font-black">{Number(machine.currentRunningLoad||0).toLocaleString()} {machine.loadUnit||"kW"}</p><p className="text-slate-600 text-[9px]">{Number(machine.normalLoadFactor||0).toFixed(0)}% normal</p></td><td className="px-5 py-4 text-xs font-black text-yellow-400">{(machineConsumption[machine.id]||0).toLocaleString()} kWh</td><td className="px-5 py-4"><span className={`inline-flex items-center gap-2 px-3 py-2 rounded-full text-[9px] uppercase font-black border ${cfg.cls}`}><Icon size={12}/>{cfg.label}</span></td><td className="px-5 py-4"><p className={`text-xs font-bold ${due?"text-orange-400":"text-slate-300"}`}>{machine.nextMaintenance||"Not scheduled"}</p>{due&&<p className="text-[9px] text-orange-500 uppercase font-black mt-1">Due</p>}</td><td className="px-5 py-4"><div className="flex gap-2"><button onClick={()=>openLog(machine)} className="w-9 h-9 bg-green-500/10 text-green-400 rounded-xl flex items-center justify-center" title="Record Load"><TrendingUp size={15}/></button><button onClick={()=>navigate(`/machines/edit/${machine.id}`)} className="w-9 h-9 bg-yellow-500/10 text-yellow-400 rounded-xl flex items-center justify-center" title="Edit"><Pencil size={15}/></button><button onClick={()=>remove(machine)} disabled={deleting===machine.id} className="w-9 h-9 bg-red-500/10 text-red-400 rounded-xl flex items-center justify-center disabled:opacity-50" title="Delete"><Trash2 size={15}/></button></div></td></tr>{expanded===machine.id&&<tr className="bg-white/[0.015]"><td colSpan="9" className="px-5 py-5"><div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">{[["Serial",machine.serialNumber||"—",Hash],["Manufacturer",machine.manufacturer||"—",Factory],["Model",machine.model||"—",Cpu],["Area",machine.location||"—",MapPin],["Department",machine.department||"—",Factory],["Install",machine.installDate||"—",CalendarClock],["Last Service",machine.lastMaintenance||"—",Wrench],["Hours Logged",`${periodLogs.filter(l=>l.machineId===machine.id).reduce((s,l)=>s+(Number(l.operatingHours)||0),0).toFixed(1)} h`,Timer]].map(([l,v,I])=><div key={l} className="rounded-xl border border-white/5 bg-[#020617] p-3"><I size={14} className="text-yellow-500"/><p className="text-[8px] uppercase text-slate-600 font-black mt-2">{l}</p><p className="text-xs text-white font-bold mt-1 break-words">{v}</p></div>)}</div>{machine.notes&&<p className="text-xs text-slate-400 mt-4"><span className="text-slate-600 uppercase font-black">Notes:</span> {machine.notes}</p>}</td></tr>}</React.Fragment>})}</tbody></table></div>}</div>
+    {detail && <div className="fixed inset-0 z-[130] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDetail(null)}><div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-[2rem] border border-white/10 bg-[#020617] p-6 shadow-2xl" onClick={e => e.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><p className="text-[9px] uppercase tracking-widest text-yellow-500 font-black">Machine Detail</p><h2 className="text-2xl font-black mt-1">{detail.name}</h2><p className="text-slate-500 text-xs mt-1">{detail.code} · {detail.location || "No area assigned"}</p></div><button onClick={() => setDetail(null)} className="p-2 rounded-xl bg-white/5"><X size={19}/></button></div><div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6"><MetricCard title="Rated Load" value={asNumber(detail.capacity).toLocaleString()} unit={detail.capacityUnit} icon={Gauge}/><MetricCard title="Actual Load" value={asNumber(detail.currentRunningLoad).toLocaleString()} unit={detail.loadUnit} icon={Zap} tone="green"/><MetricCard title="Utilization" value={`${detail.capacity ? ((asNumber(detail.currentRunningLoad) / asNumber(detail.capacity)) * 100).toFixed(1) : "0.0"}%`} icon={BarChart3} tone="blue"/><MetricCard title="Period Energy" value={(periodByMachine[detail.id]?.energy || 0).toFixed(2)} unit="kWh" icon={Activity} tone="yellow"/></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">{[["Category",detail.category],["Type",detail.type], ["Manufacturer",detail.manufacturer],["Model",detail.model],["Serial Number",detail.serialNumber],["Department",detail.department],["Area / Location",detail.location],["Installation Date",detail.installDate],["Last Maintenance",detail.lastMaintenance],["Next Maintenance",detail.nextMaintenance],["Maintenance Interval",detail.maintenanceIntervalDays ? `${detail.maintenanceIntervalDays} days` : "—"],["Status",detail.status]].map(([label,value]) => <div key={label} className="rounded-xl border border-white/5 bg-white/[0.02] p-4"><p className="text-[9px] uppercase tracking-widest text-slate-600 font-black">{label}</p><p className="text-sm font-bold text-white mt-1">{value || "—"}</p></div>)}</div>{detail.notes && <div className="mt-4 rounded-xl bg-white/[0.03] p-4"><p className="text-[9px] uppercase tracking-widest text-slate-600 font-black">Notes</p><p className="text-sm text-slate-300 mt-2 whitespace-pre-wrap">{detail.notes}</p></div>}<div className="mt-5 flex gap-2"><button onClick={() => openLog(detail)} className="px-4 py-3 rounded-xl bg-green-500 text-black text-xs font-black">LOG LOAD</button><button onClick={() => navigate(`/machines/edit/${detail.id}`)} className="px-4 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black">EDIT MACHINE</button></div></div></div>}
 
-    {logMachine&&<div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"><form onSubmit={saveLog} className="w-full max-w-xl rounded-[2rem] border border-white/10 bg-[#07101f] shadow-2xl p-6"><div className="flex items-center justify-between"><div><p className="text-[9px] uppercase tracking-widest text-yellow-500 font-black">Load Register</p><h3 className="text-xl font-black text-white mt-1">{logMachine.name}</h3><p className="text-xs text-slate-500">{logMachine.code} · {logMachine.location||"No area"}</p></div><button type="button" onClick={()=>setLogMachine(null)} className="p-2 text-slate-400 hover:text-white"><X/></button></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6"><div><label className="text-[9px] uppercase font-black text-slate-500">Date</label><input required type="date" className={inputClass+" mt-2"} value={logForm.date} onChange={e=>setLogForm({...logForm,date:e.target.value})}/></div><div><label className="text-[9px] uppercase font-black text-slate-500">Actual Load (kW)</label><input required type="number" min="0" step="0.01" className={inputClass+" mt-2"} value={logForm.actualLoad} onChange={e=>setLogForm({...logForm,actualLoad:e.target.value})}/></div><div><label className="text-[9px] uppercase font-black text-slate-500">Peak Load (kW)</label><input type="number" min="0" step="0.01" className={inputClass+" mt-2"} value={logForm.peakLoad} onChange={e=>setLogForm({...logForm,peakLoad:e.target.value})}/></div><div><label className="text-[9px] uppercase font-black text-slate-500">Operating Hours</label><input required type="number" min="0" step="0.01" className={inputClass+" mt-2"} value={logForm.operatingHours} onChange={e=>setLogForm({...logForm,operatingHours:e.target.value})}/></div><div className="md:col-span-2"><label className="text-[9px] uppercase font-black text-slate-500">Note</label><textarea rows="3" className={inputClass+" mt-2 resize-y"} value={logForm.note} onChange={e=>setLogForm({...logForm,note:e.target.value})} placeholder="Shift, production run, abnormal load, remarks..."/></div></div><div className="mt-5 rounded-xl bg-yellow-500/5 border border-yellow-500/10 p-4"><p className="text-[9px] uppercase text-yellow-500 font-black">Calculated Energy</p><p className="text-2xl font-black text-white mt-1">{((Number(logForm.actualLoad)||0)*(Number(logForm.operatingHours)||0)).toFixed(2)} <span className="text-xs text-slate-500">kWh</span></p></div><button disabled={savingLog} className="w-full mt-5 flex items-center justify-center gap-2 rounded-xl bg-yellow-500 text-black py-3 font-black text-xs uppercase disabled:opacity-60"><Save size={16}/>{savingLog?"Saving...":"Save Load Record"}</button></form></div>}
+    {logMachine && <div className="fixed inset-0 z-[140] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setLogMachine(null)}><form onSubmit={saveLog} className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-[2rem] border border-white/10 bg-[#020617] p-6" onClick={e => e.stopPropagation()}><div className="flex items-start justify-between"><div><p className="text-[9px] uppercase tracking-widest text-green-400 font-black">Load History</p><h2 className="text-xl font-black mt-1">{logMachine.name}</h2><p className="text-slate-500 text-xs">{logMachine.code} · {logMachine.location || "No area"}</p></div><button type="button" onClick={() => setLogMachine(null)} className="p-2 rounded-xl bg-white/5"><X size={18}/></button></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6"><div><label className={labelClass}>Date *</label><input required type="date" className={inputClass} value={logForm.date} onChange={e => setLogForm(f => ({ ...f, date: e.target.value }))}/></div><div><label className={labelClass}>Actual Load ({logMachine.loadUnit || "kW"}) *</label><input required type="number" min="0" step="0.01" className={inputClass} value={logForm.actualLoad} onChange={e => setLogForm(f => ({ ...f, actualLoad: e.target.value }))}/></div><div><label className={labelClass}>Peak Load</label><input type="number" min="0" step="0.01" className={inputClass} value={logForm.peakLoad} onChange={e => setLogForm(f => ({ ...f, peakLoad: e.target.value }))}/></div><div><label className={labelClass}>Operating Hours</label><input type="number" min="0" step="0.01" className={inputClass} value={logForm.operatingHours} onChange={e => setLogForm(f => ({ ...f, operatingHours: e.target.value }))}/></div><div><label className={labelClass}>Energy Meter Start (kWh)</label><input type="number" min="0" step="0.01" className={inputClass} value={logForm.meterStart} onChange={e => setLogForm(f => ({ ...f, meterStart: e.target.value }))}/></div><div><label className={labelClass}>Energy Meter End (kWh)</label><input type="number" min="0" step="0.01" className={inputClass} value={logForm.meterEnd} onChange={e => setLogForm(f => ({ ...f, meterEnd: e.target.value }))}/></div><div><label className={labelClass}>Direct Energy (kWh)</label><input type="number" min="0" step="0.01" className={inputClass} value={logForm.energyConsumed} onChange={e => setLogForm(f => ({ ...f, energyConsumed: e.target.value }))}/><p className="text-[9px] text-slate-600 mt-1">Used only when meter values are not supplied.</p></div><div><label className={labelClass}>Current Status</label><select className={inputClass} value={logForm.status} onChange={e => setLogForm(f => ({ ...f, status: e.target.value }))}>{Object.entries(STATUS).map(([value, [label]]) => <option key={value} value={value}>{label}</option>)}</select></div></div><div className="mt-4"><label className={labelClass}>Notes</label><textarea rows="3" className={inputClass} value={logForm.note} onChange={e => setLogForm(f => ({ ...f, note: e.target.value }))} placeholder="Shift, load condition, meter notes..."/></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setLogMachine(null)} className="px-5 py-3 rounded-xl bg-white/5 text-xs font-black">Cancel</button><button disabled={savingLog} className="px-6 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black">{savingLog ? "Saving..." : "SAVE LOAD RECORD"}</button></div></form></div>}
+
+    {categoryOpen && <div className="fixed inset-0 z-[150] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setCategoryOpen(false)}><form onSubmit={saveCategory} className="w-full max-w-md rounded-[2rem] border border-white/10 bg-[#020617] p-6" onClick={e => e.stopPropagation()}><div className="flex items-center justify-between"><div><p className="text-[9px] uppercase tracking-widest text-yellow-500 font-black">Machine Categories</p><h2 className="text-xl font-black mt-1">Create Custom Category</h2></div><button type="button" onClick={() => setCategoryOpen(false)} className="p-2 rounded-xl bg-white/5"><X size={18}/></button></div><p className="text-xs text-slate-500 mt-2">Pre-defined categories remain available. Custom categories are stored in Firestore and become available immediately.</p><input autoFocus required value={categoryName} onChange={e => setCategoryName(e.target.value)} className={inputClass + " mt-5"} placeholder="e.g. Textile Machine"/><button className="w-full mt-3 px-5 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black">SAVE CATEGORY</button></form></div>}
   </div>;
 }

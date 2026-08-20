@@ -3,51 +3,61 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { app, db } from "./firebase";
 
 export const auth = getAuth(app);
-
 const ADMIN_EMAIL = "admin@powerhouse.com";
+const isAdminEmail = email => String(email || "").trim().toLowerCase() === ADMIN_EMAIL;
 
 export async function loginWithFirebase(email, password) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
-
-  // Firebase Authentication is the source of truth for the password. Do not
-  // query users by email before authentication and do not use the legacy MySQL
-  // password system here.
   const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
   const firebaseUser = credential.user;
   const authenticatedEmail = String(firebaseUser.email || normalizedEmail).trim().toLowerCase();
+  const defaultRole = isAdminEmail(authenticatedEmail) ? "admin" : "electrician";
   const profileRef = doc(db, "powerhouse_users", firebaseUser.uid);
-
   let profile = null;
+  let profilePermissionIssue = false;
 
   try {
-    const profileSnapshot = await getDoc(profileRef);
-
-    if (profileSnapshot.exists()) {
-      profile = { id: profileSnapshot.id, ...profileSnapshot.data() };
+    const snapshot = await getDoc(profileRef);
+    if (snapshot.exists()) {
+      profile = { id: snapshot.id, ...snapshot.data() };
     } else {
-      // Safe bootstrap: ordinary users can create only a low-privilege profile.
-      // The configured admin email is recognized as admin by the Firestore rule
-      // using the authenticated Firebase email claim.
-      const role = authenticatedEmail === ADMIN_EMAIL ? "admin" : "electrician";
       const newProfile = {
         id: firebaseUser.uid,
         uid: firebaseUser.uid,
-        name: firebaseUser.displayName || (authenticatedEmail === ADMIN_EMAIL ? "Admin" : authenticatedEmail.split("@")[0] || "User"),
+        name: firebaseUser.displayName || (defaultRole === "admin" ? "Admin" : authenticatedEmail.split("@")[0] || "User"),
         email: firebaseUser.email || authenticatedEmail,
-        role,
+        role: defaultRole,
         status: "active",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
-
-      await setDoc(profileRef, newProfile, { merge: true });
-      profile = { id: firebaseUser.uid, ...newProfile, role };
+      try {
+        await setDoc(profileRef, newProfile, { merge: true });
+        profile = { id: firebaseUser.uid, ...newProfile, role: defaultRole };
+      } catch (writeError) {
+        if (writeError?.code === "permission-denied") profilePermissionIssue = true;
+        else throw writeError;
+      }
     }
-  } catch (profileError) {
-    // Authentication itself has already succeeded. Surface the actual
-    // Firestore error instead of replacing it with the misleading login error.
-    console.error("Firebase profile error:", profileError);
-    throw profileError;
+  } catch (readError) {
+    if (readError?.code === "permission-denied") profilePermissionIssue = true;
+    else throw readError;
+  }
+
+  // Firebase Authentication is already valid. A stale/not-yet-deployed Firestore
+  // ruleset must not lock users out of the portal. Protected Firestore data is
+  // still enforced server-side by rules; this fallback only creates a local
+  // session with the safe default role.
+  if (!profile) {
+    profile = {
+      id: firebaseUser.uid,
+      uid: firebaseUser.uid,
+      name: firebaseUser.displayName || (defaultRole === "admin" ? "Admin" : authenticatedEmail.split("@")[0] || "User"),
+      email: firebaseUser.email || authenticatedEmail,
+      role: defaultRole,
+      status: "active",
+      profilePermissionIssue
+    };
   }
 
   if (profile.status === "inactive") {
@@ -58,9 +68,11 @@ export async function loginWithFirebase(email, password) {
   return {
     id: profile.id || firebaseUser.uid,
     uid: firebaseUser.uid,
+    firebaseUid: firebaseUser.uid,
     name: profile.name || firebaseUser.displayName || authenticatedEmail.split("@")[0] || "User",
     email: profile.email || firebaseUser.email || authenticatedEmail,
-    role: profile.role || (authenticatedEmail === ADMIN_EMAIL ? "admin" : "electrician")
+    role: profile.role || defaultRole,
+    profilePermissionIssue: Boolean(profilePermissionIssue)
   };
 }
 
