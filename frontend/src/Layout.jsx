@@ -3,139 +3,49 @@ import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
 import { isPublic } from "./utils/publicMode";
 import { logout, getUser } from "./utils/auth";
 import { getCurrentNotificationUid, subscribeToNotifications } from "./services/notificationService";
-import {
-  LayoutDashboard, UserPlus, ClipboardList, LogOut, Users, UserCircle,
-  Menu, X, ChevronRight, ChevronDown, Map, CircuitBoard, PanelsTopLeft,
-  CalendarClock, Wrench, Fuel, Bell, Cpu, Plus, Gauge
-} from "lucide-react";
+import { LayoutDashboard, UserPlus, ClipboardList, LogOut, Users, UserCircle, Menu, X, ChevronRight, ChevronDown, Map, CircuitBoard, PanelsTopLeft, CalendarClock, Wrench, Fuel, Bell, Cpu, Plus, Gauge, Home, SlidersHorizontal } from "lucide-react";
 
 export default function Layout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [machinesOpen, setMachinesOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const user = getUser();
-  const publicMode = isPublic();
-
-  useEffect(() => setSidebarOpen(false), [location.pathname]);
-  useEffect(() => {
-    if (location.pathname.startsWith("/machines")) setMachinesOpen(true);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    const uid = getCurrentNotificationUid() || user?.firebaseUid || user?.uid || user?.id;
-    if (!uid) return undefined;
-    return subscribeToNotifications(uid, (items) => {
-      setUnreadCount(items.filter((item) => !item.read).length);
-    });
-  }, [user?.firebaseUid, user?.uid, user?.id]);
-
-  const handleLogout = () => {
-    logout();
-    window.location.href = "/";
-  };
-
-  const menuItems = [
-    { name: "Dashboard", icon: <LayoutDashboard size={20} />, path: "/", roles: ["superadmin", "admin", "electrician", "cro"] },
-    { name: "My Tasks", icon: <ClipboardList size={20} />, path: "/my-tasks", roles: ["electrician", "cro"] },
-    { name: "Add Staff", icon: <UserPlus size={20} />, path: "/add-staff", roles: ["superadmin", "admin"] },
-    { name: "Staff Records", icon: <Users size={20} />, path: "/staff-records", roles: ["superadmin", "admin"] },
-    { name: "Staff Duty", icon: <CalendarClock size={20} />, path: "/staff-duty", roles: ["superadmin", "admin"] },
-    { name: "Assign Tasks", icon: <ClipboardList size={20} />, path: "/assign-tasks", roles: ["superadmin", "admin"] },
-    { name: "Assign Tools", icon: <Wrench size={20} />, path: "/assign-tools", roles: ["superadmin", "admin"] },
-    { name: "Add Panel", icon: <CircuitBoard size={20} />, path: "/add-panel", roles: ["superadmin", "admin"] },
-    { name: "Panels", icon: <PanelsTopLeft size={20} />, path: "/panels", roles: ["superadmin", "admin"] },
-    { name: "Interactive Panel Map", icon: <Map size={20} />, path: "/interactive-panel-map", roles: ["superadmin", "admin"] },
-    { name: "Fuel Management", icon: <Fuel size={20} />, path: "/fuel-management", roles: ["superadmin", "admin"] },
-    { name: "Profile", icon: <UserCircle size={20} />, path: "/profile", roles: ["superadmin", "admin", "electrician", "cro"] },
+  const [sidebarOpen,setSidebarOpen]=useState(false); const [machinesOpen,setMachinesOpen]=useState(false); const [unreadCount,setUnreadCount]=useState(0);
+  const location=useLocation(); const navigate=useNavigate(); const user=getUser(); const publicMode=isPublic();
+  useEffect(()=>setSidebarOpen(false),[location.pathname]);
+  useEffect(()=>{if(location.pathname.startsWith("/machines"))setMachinesOpen(true)},[location.pathname]);
+  useEffect(()=>{const uid=getCurrentNotificationUid()||user?.firebaseUid||user?.uid||user?.id;if(!uid)return;return subscribeToNotifications(uid,items=>setUnreadCount(items.filter(x=>!x.read).length))},[user?.firebaseUid,user?.uid,user?.id]);
+  const handleLogout=()=>{logout();window.location.href="/"};
+  const menuItems=[
+    {name:"Dashboard",icon:<LayoutDashboard size={20}/>,path:"/",roles:["superadmin","admin","electrician","cro"]},
+    {name:"My Tasks",icon:<ClipboardList size={20}/>,path:"/my-tasks",roles:["electrician","cro"]},
+    {name:"Add Staff",icon:<UserPlus size={20}/>,path:"/add-staff",roles:["superadmin","admin"]},
+    {name:"Staff Records",icon:<Users size={20}/>,path:"/staff-records",roles:["superadmin","admin"]},
+    {name:"Staff Duty",icon:<CalendarClock size={20}/>,path:"/staff-duty",roles:["superadmin","admin"]},
+    {name:"Assign Tasks",icon:<ClipboardList size={20}/>,path:"/assign-tasks",roles:["superadmin","admin"]},
+    {name:"Assign Tools",icon:<Wrench size={20}/>,path:"/assign-tools",roles:["superadmin","admin"]},
+    {name:"Add Panel",icon:<CircuitBoard size={20}/>,path:"/add-panel",roles:["superadmin","admin"]},
+    {name:"Panels",icon:<PanelsTopLeft size={20}/>,path:"/panels",roles:["superadmin","admin"]},
+    {name:"Interactive Panel Map",icon:<Map size={20}/>,path:"/interactive-panel-map",roles:["superadmin","admin"]},
+    {name:"Fuel Management",icon:<Fuel size={20}/>,path:"/fuel-management",roles:["superadmin","admin"]},
+    {name:"Profile",icon:<UserCircle size={20}/>,path:"/profile",roles:["superadmin","admin","electrician","cro"]}
   ];
+  const isActive=(path)=>path==="/"?location.pathname==="/":location.pathname===path||location.pathname.startsWith(`${path}/`);
+  const canViewMachines=["superadmin","admin","electrician","cro"].includes(user?.role); const canManageMachines=["superadmin","admin"].includes(user?.role); const isAdmin=["superadmin","admin"].includes(user?.role);
+  if(publicMode)return <div className="min-h-screen bg-[#0a0f1e] text-white"><div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[#020617]/90 backdrop-blur-xl border-b border-white/5"><h1 className="text-xl font-black tracking-tighter">POWER<span className="text-yellow-500">HOUSE LIVE</span></h1><button onClick={()=>navigate("/login")} className="bg-yellow-500 px-5 py-2 rounded-xl text-black font-bold">Login</button></div><main className="pt-24 px-4 md:px-10 pb-10"><div className="max-w-[1600px] mx-auto"><Outlet/></div></main></div>;
+  return <div className="min-h-screen w-full bg-[#0a0f1e] text-white font-sans">
+    <header className="fixed top-0 left-0 right-0 z-[90] h-20 flex items-center justify-between gap-3 px-4 md:px-7 bg-[#020617]/95 backdrop-blur-xl border-b border-white/5">
+      <div className="flex items-center gap-3 min-w-0"><button onClick={()=>setSidebarOpen(true)} className="w-11 h-11 rounded-xl bg-yellow-500 text-black flex items-center justify-center shrink-0" title="Open Home / Modules"><Home size={20}/></button><div className="hidden sm:block"><h1 className="text-xl md:text-2xl font-black italic tracking-tight">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[8px] text-slate-600 uppercase tracking-[0.3em] font-black">Management Portal</p></div></div>
+      <div className="flex-1 flex justify-center"><div className="flex items-center gap-1 p-1 rounded-2xl bg-white/[0.03] border border-white/5"><Link to="/" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide ${isActive("/")?"bg-yellow-500 text-black":"text-slate-400 hover:text-white"}`}><span className="hidden md:inline">Main </span>Dashboard</Link>{isAdmin&&<><Link to="/fuel-management" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide ${isActive("/fuel-management")?"bg-yellow-500 text-black":"text-slate-400 hover:text-white"}`}><Fuel size={14} className="inline mr-1"/>Fuel</Link><Link to="/machines" className={`px-3 md:px-5 py-2.5 rounded-xl text-[10px] md:text-xs font-black uppercase tracking-wide ${isActive("/machines")?"bg-yellow-500 text-black":"text-slate-400 hover:text-white"}`}><Cpu size={14} className="inline mr-1"/>Machines</Link></>}</div></div>
+      <div className="flex items-center gap-1 md:gap-2"><Link to="/notifications" className="relative p-2.5 rounded-xl text-slate-300 hover:bg-white/5"><Bell size={19}/>{unreadCount>0&&<span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-black">{unreadCount>99?"99+":unreadCount}</span>}</Link><button onClick={()=>setSidebarOpen(true)} className="md:hidden p-2.5 rounded-xl text-slate-300 hover:bg-white/5"><Menu size={21}/></button></div>
+    </header>
 
-  const isActive = (path) => path === "/" ? location.pathname === "/" : location.pathname === path || location.pathname.startsWith(`${path}/`);
-  const machinesActive = location.pathname === "/machines" || location.pathname.startsWith("/machines/");
-  const canViewMachines = ["superadmin", "admin", "electrician", "cro"].includes(user?.role);
-  const canManageMachines = ["superadmin", "admin"].includes(user?.role);
-
-  if (publicMode) {
-    return (
-      <div className="min-h-screen bg-[#0a0f1e] text-white">
-        <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-[#020617]/90 backdrop-blur-xl border-b border-white/5">
-          <h1 className="text-xl font-black tracking-tighter">POWER<span className="text-yellow-500">HOUSE LIVE</span></h1>
-          <button onClick={() => navigate("/login")} className="bg-yellow-500 px-5 py-2 rounded-xl text-black font-bold">Login</button>
-        </div>
-        <main className="pt-24 px-4 md:px-10 pb-10"><div className="max-w-[1600px] mx-auto"><Outlet /></div></main>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-screen w-full bg-[#0a0f1e] text-white font-sans overflow-hidden">
-      <header className="md:hidden fixed top-0 left-0 w-full z-[60] flex items-center justify-between px-6 py-4 bg-[#020617]/90 backdrop-blur-xl border-b border-white/5">
-        <h1 className="text-xl font-black tracking-tighter italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1>
-        <div className="flex items-center gap-2">
-          <Link to="/notifications" aria-label="Notifications" className="relative rounded-xl p-2 text-slate-200 hover:bg-white/5">
-            <Bell size={21} />
-            {unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-black text-white">{unreadCount > 99 ? "99+" : unreadCount}</span>}
-          </Link>
-          <button onClick={() => setSidebarOpen(true)} className="p-2 bg-yellow-500 rounded-xl text-black"><Menu size={20} /></button>
-        </div>
-      </header>
-
-      {sidebarOpen && <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] md:hidden" onClick={() => setSidebarOpen(false)} />}
-
-      <aside className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"} fixed md:relative inset-y-0 left-0 z-[80] w-72 bg-[#020617] border-r border-white/5 flex flex-col p-6 shadow-2xl transition-transform duration-300`}>
-        <div className="flex items-center justify-between mb-8 px-2">
-          <div>
-            <h1 className="text-2xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-[0.3em] font-black mt-1">Management Portal</p>
-          </div>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden p-2 text-slate-400"><X size={24} /></button>
-        </div>
-
-        <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
-          {menuItems.filter(item => item.roles.includes(user?.role)).map(item => {
-            const active = isActive(item.path);
-            return (
-              <Link key={item.path} to={item.path} className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${active ? "bg-yellow-500 text-black font-bold shadow-xl shadow-yellow-500/10" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
-                <div className="flex items-center gap-4"><span className={active ? "text-black" : "text-yellow-500"}>{item.icon}</span><span className="text-sm tracking-wide">{item.name}</span></div>
-                {active && <ChevronRight size={14} className="opacity-50" />}
-              </Link>
-            );
-          })}
-
-          {canViewMachines && (
-            <div className="space-y-1">
-              <button onClick={() => setMachinesOpen(open => !open)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${machinesActive ? "bg-yellow-500 text-black font-bold shadow-xl shadow-yellow-500/10" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
-                <div className="flex items-center gap-4"><span className={machinesActive ? "text-black" : "text-yellow-500"}><Cpu size={20}/></span><span className="text-sm tracking-wide">Machines</span></div>
-                {machinesOpen ? <ChevronDown size={16}/> : <ChevronRight size={16}/>} 
-              </button>
-              {machinesOpen && <div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1">
-                <Link to="/machines" className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold ${location.pathname === "/machines" ? "bg-white/10 text-yellow-400" : "text-slate-500 hover:text-white"}`}><Gauge size={15}/> Dashboard</Link>
-                {canManageMachines && <Link to="/machines/add" className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold ${location.pathname === "/machines/add" ? "bg-white/10 text-yellow-400" : "text-slate-500 hover:text-white"}`}><Plus size={15}/> Add Machine</Link>}
-              </div>}
-            </div>
-          )}
-
-          <Link to="/notifications" className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${isActive("/notifications") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}>
-            <div className="flex items-center gap-4"><span className={isActive("/notifications") ? "text-black" : "text-yellow-500"}><Bell size={20} /></span><span className="text-sm tracking-wide">Notifications</span></div>
-            {unreadCount > 0 && <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${isActive("/notifications") ? "bg-black text-yellow-500" : "bg-red-500 text-white"}`}>{unreadCount > 99 ? "99+" : unreadCount}</span>}
-          </Link>
-        </nav>
-
-        <div className="mt-auto pt-5 border-t border-white/5 space-y-3">
-          <Link to="/profile" className="flex items-center gap-3 px-3 py-3 bg-white/[0.03] rounded-2xl border border-white/5 hover:bg-white/5">
-            <div className="w-10 h-10 bg-yellow-500 rounded-2xl flex items-center justify-center text-black font-black shrink-0">{user?.name?.[0]?.toUpperCase() || "U"}</div>
-            <div className="overflow-hidden"><p className="text-xs font-black truncate">{user?.name || "User"}</p><p className="text-[9px] uppercase tracking-tighter text-yellow-500 font-black mt-0.5">{user?.role || "user"}</p></div>
-          </Link>
-          <button onClick={handleLogout} className="flex items-center gap-4 px-6 py-4 w-full text-slate-500 hover:text-red-400 hover:bg-red-500/5 rounded-2xl font-bold text-xs uppercase tracking-widest"><LogOut size={18} /> Logout</button>
-        </div>
-      </aside>
-
-      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden">
-        <main className="flex-1 overflow-y-auto px-4 md:px-10 pt-24 md:pt-10 pb-10 scroll-smooth">
-          <div className="max-w-[1600px] mx-auto min-h-[calc(100vh-160px)]"><Outlet /></div>
-        </main>
-      </div>
-    </div>
-  );
+    {sidebarOpen&&<div className="fixed inset-0 z-[100] bg-black/65 backdrop-blur-sm" onClick={()=>setSidebarOpen(false)}/>} 
+    <aside className={`fixed top-0 left-0 bottom-0 z-[110] w-80 max-w-[88vw] bg-[#020617] border-r border-white/5 flex flex-col p-6 shadow-2xl transition-transform duration-300 ${sidebarOpen?"translate-x-0":"-translate-x-full"}`}>
+      <div className="flex items-center justify-between mb-7 px-2"><div><h1 className="text-2xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[9px] text-slate-500 uppercase tracking-[0.3em] font-black mt-1">Home / Modules</p></div><button onClick={()=>setSidebarOpen(false)} className="p-2 text-slate-400"><X size={22}/></button></div>
+      <div className="grid grid-cols-3 gap-2 mb-5"><Link to="/" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><LayoutDashboard size={15} className="mx-auto mb-1 text-yellow-500"/>Home</Link>{isAdmin&&<><Link to="/fuel-management" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Fuel size={15} className="mx-auto mb-1 text-yellow-500"/>Fuel</Link><Link to="/machines" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Cpu size={15} className="mx-auto mb-1 text-yellow-500"/>Machines</Link></>}</div>
+      <nav className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">{menuItems.filter(item=>item.roles.includes(user?.role)).map(item=>{const active=isActive(item.path);return <Link key={item.path} to={item.path} className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all ${active?"bg-yellow-500 text-black font-bold shadow-xl shadow-yellow-500/10":"text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><span className={active?"text-black":"text-yellow-500"}>{item.icon}</span><span className="text-sm tracking-wide">{item.name}</span></div>{active&&<ChevronRight size={14} className="opacity-50"/>}</Link>})}
+        {canViewMachines&&<div className="space-y-1"><button onClick={()=>setMachinesOpen(x=>!x)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl ${location.pathname.startsWith("/machines")?"bg-yellow-500 text-black font-bold":"text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Cpu size={20}/><span className="text-sm">Machines</span></div>{machinesOpen?<ChevronDown size={16}/>:<ChevronRight size={16}/>}</button>{machinesOpen&&<div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1"><Link to="/machines" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Gauge size={15}/>Dashboard</Link>{canManageMachines&&<Link to="/machines/add" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Plus size={15}/>Add Machine</Link>}</div>}</div>}
+        <Link to="/notifications" className="flex items-center justify-between px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 hover:text-white"><div className="flex items-center gap-4"><Bell size={20} className="text-yellow-500"/><span className="text-sm">Notifications</span></div>{unreadCount>0&&<span className="rounded-full px-2 py-0.5 text-[10px] font-black bg-red-500">{unreadCount>99?"99+":unreadCount}</span>}</Link>
+      </nav>
+      <div className="mt-4 pt-5 border-t border-white/5 space-y-3"><Link to="/profile" className="flex items-center gap-3 px-3 py-3 bg-white/[0.03] rounded-2xl border border-white/5"><div className="w-10 h-10 bg-yellow-500 rounded-2xl flex items-center justify-center text-black font-black shrink-0">{user?.name?.[0]?.toUpperCase()||"U"}</div><div className="overflow-hidden"><p className="text-xs font-black truncate">{user?.name||"User"}</p><p className="text-[9px] uppercase tracking-tighter text-yellow-500 font-black mt-0.5">{user?.role||"user"}</p></div></Link><button onClick={handleLogout} className="flex items-center gap-4 px-6 py-4 w-full text-slate-500 hover:text-red-400 hover:bg-red-500/5 rounded-2xl font-bold text-xs uppercase tracking-widest"><LogOut size={18}/>Logout</button></div>
+    </aside>
+    <main className="pt-24 px-4 md:px-8 pb-10"><div className="max-w-[1700px] mx-auto min-h-[calc(100vh-130px)]"><Outlet/></div></main>
+  </div>;
 }
