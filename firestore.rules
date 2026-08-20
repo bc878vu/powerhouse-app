@@ -4,14 +4,17 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isAdmin() {
       return signedIn()
-        && get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.role in ['admin', 'superadmin'];
+        && (
+          request.auth.token.email == 'admin@powerhouse.com'
+          || get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.role in ['admin', 'superadmin']
+        );
     }
 
     match /powerhouse_users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
 
-      // A user may bootstrap only their own profile, and new self-created
-      // profiles are always low-privilege. Admins can create staff profiles.
+      // The dedicated Firebase admin account can bootstrap its own admin
+      // profile. Other users may only bootstrap themselves as electricians.
       allow create: if isAdmin()
         || (signedIn()
           && request.auth.uid == uid
