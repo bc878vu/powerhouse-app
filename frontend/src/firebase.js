@@ -4,8 +4,9 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 // Firebase Web configuration is public client configuration. Keep the verified
-// PowerHouse Firebase project as the source of truth so stale Vercel variables
-// from another Firebase project can never initialize this app.
+// PowerHouse Firebase project as the single source of truth. Do not allow a
+// stale/invalid VITE_FIREBASE_API_KEY from a local .env/Vercel environment to
+// override the working Firebase Web App configuration.
 const VERIFIED_FIREBASE_CONFIG = {
   apiKey: "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
   authDomain: "powerhouse-app-47c4a.firebaseapp.com",
@@ -16,31 +17,9 @@ const VERIFIED_FIREBASE_CONFIG = {
   measurementId: "G-T9KELG6TG6"
 };
 
-const envConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
-};
-
-const requiredConfigKeys = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"];
-const hasCompleteConfig = (config) => requiredConfigKeys.every((key) => typeof config[key] === "string" && config[key].trim().length > 0);
-const useEnvConfig = hasCompleteConfig(envConfig) && envConfig.projectId === VERIFIED_FIREBASE_CONFIG.projectId;
-
-export const firebaseConfig = useEnvConfig ? { ...VERIFIED_FIREBASE_CONFIG, ...envConfig } : VERIFIED_FIREBASE_CONFIG;
-export const missingConfig = requiredConfigKeys.filter((key) => !firebaseConfig[key]);
-export const isFirebaseConfigured = missingConfig.length === 0;
-
-if (!useEnvConfig && hasCompleteConfig(envConfig)) {
-  console.warn("Ignoring stale Firebase environment variables; using the verified PowerHouse Firebase project configuration.");
-}
-
-if (!isFirebaseConfigured) {
-  console.warn(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-}
+export const firebaseConfig = VERIFIED_FIREBASE_CONFIG;
+export const missingConfig = [];
+export const isFirebaseConfigured = true;
 
 // IMPORTANT: use the normal Firestore instance during application startup.
 // Persistent IndexedDB cache was causing a client-side Firebase crash in the
