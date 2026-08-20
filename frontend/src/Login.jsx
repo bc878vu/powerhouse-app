@@ -6,20 +6,21 @@ import { setToken } from "./utils/auth";
 const friendlyAuthError = (error) => {
   const code = error?.code;
   const messages = {
-    "auth/invalid-credential": "Invalid email or password.",
+    "auth/invalid-credential": "Invalid Firebase email or password. Reset the Firebase user password and try again.",
     "auth/user-not-found": "No Firebase account exists for this email. Add the user in Firebase Authentication first.",
-    "auth/wrong-password": "Invalid email or password.",
+    "auth/wrong-password": "Invalid Firebase email or password. Reset the Firebase user password and try again.",
     "auth/too-many-requests": "Too many attempts. Please try again later.",
     "auth/network-request-failed": "Network error. Please check your internet connection.",
     "auth/invalid-email": "Please enter a valid email address.",
     "auth/user-disabled": "This Firebase account has been disabled.",
     "auth/operation-not-allowed": "Email/password sign-in is not enabled in Firebase Authentication.",
-    "auth/api-key-not-valid": "Firebase API configuration is invalid. Check the deployed Firebase project configuration."
+    "auth/api-key-not-valid": "Firebase API configuration is invalid. Check the deployed Firebase project configuration.",
+    "permission-denied": "Firebase login succeeded, but Firestore denied the profile operation. Deploy the latest Firestore rules."
   };
 
   if (messages[code]) return messages[code];
   if (error?.message === "Your account is inactive. Contact admin.") return error.message;
-  return "Login failed. Please try again.";
+  return error?.message || "Login failed. Please try again.";
 };
 
 export default function Login() {
@@ -70,35 +71,15 @@ export default function Login() {
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="relative group">
             <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors" size={20} />
-            <input
-              type="email"
-              placeholder="Official Email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50"
-              required
-            />
+            <input type="email" placeholder="Official Email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50" required />
           </div>
 
           <div className="relative group">
             <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors" size={20} />
-            <input
-              type="password"
-              placeholder="Password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50"
-              required
-            />
+            <input type="password" placeholder="Password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:ring-2 focus:ring-yellow-500/50" required />
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 text-slate-950 font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
+          <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 text-slate-950 font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
             {loading ? "Verifying..." : "Login Access"}
             <ArrowRight size={20} />
           </button>
