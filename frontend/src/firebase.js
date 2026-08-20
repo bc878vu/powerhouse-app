@@ -60,7 +60,7 @@ let messagingInstance = null;
 export let messaging = null;
 
 const MESSAGING_WORKER_PREFIX = "/firebase-messaging-sw";
-const CURRENT_MESSAGING_WORKER = "/firebase-messaging-sw-v2.js";
+const CURRENT_MESSAGING_WORKER = "/powerhouse-sw.js";
 
 // Clean every old PowerHouse messaging worker. Old deployments registered
 // workers with incomplete query-string configuration; those workers can keep
@@ -108,8 +108,8 @@ const getMessagingServiceWorker = async () => {
   if (!("serviceWorker" in navigator)) return null;
   if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
 
-  // Only create the worker after the user explicitly enables push. This keeps
-  // notification infrastructure completely out of normal page startup.
+  // Reuse the single root-scope PowerHouse worker so caching and push
+  // notifications coexist reliably.
   const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, { scope: "/" });
   await navigator.serviceWorker.ready;
   return registration;
