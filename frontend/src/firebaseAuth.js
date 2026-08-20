@@ -4,38 +4,50 @@ import { app, db } from "./firebase";
 
 export const auth = getAuth(app);
 
+const ADMIN_EMAIL = "admin@powerhouse.com";
+
 export async function loginWithFirebase(email, password) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
 
-  // IMPORTANT: authenticate with Firebase first, then read the profile by the
-  // authenticated UID. A collection query by email is incompatible with our
-  // Firestore security rule (users can only read their own profile), so the
-  // old query caused a successful Firebase login to be turned into a generic
-  // "Login failed" message.
+  // Firebase Authentication is the source of truth for the password. Do not
+  // query users by email before authentication and do not use the legacy MySQL
+  // password system here.
   const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
   const firebaseUser = credential.user;
+  const authenticatedEmail = String(firebaseUser.email || normalizedEmail).trim().toLowerCase();
   const profileRef = doc(db, "powerhouse_users", firebaseUser.uid);
-  const profileSnapshot = await getDoc(profileRef);
 
-  let profile;
+  let profile = null;
 
-  if (!profileSnapshot.exists()) {
-    // Least-privilege bootstrap. Admin/superadmin must be assigned explicitly
-    // in Firestore by an authorized administrator.
-    profile = {
-      id: firebaseUser.uid,
-      uid: firebaseUser.uid,
-      name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "User",
-      email: firebaseUser.email || normalizedEmail,
-      role: "electrician",
-      status: "active",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    };
+  try {
+    const profileSnapshot = await getDoc(profileRef);
 
-    await setDoc(profileRef, profile, { merge: true });
-  } else {
-    profile = { id: profileSnapshot.id, ...profileSnapshot.data() };
+    if (profileSnapshot.exists()) {
+      profile = { id: profileSnapshot.id, ...profileSnapshot.data() };
+    } else {
+      // Safe bootstrap: ordinary users can create only a low-privilege profile.
+      // The configured admin email is recognized as admin by the Firestore rule
+      // using the authenticated Firebase email claim.
+      const role = authenticatedEmail === ADMIN_EMAIL ? "admin" : "electrician";
+      const newProfile = {
+        id: firebaseUser.uid,
+        uid: firebaseUser.uid,
+        name: firebaseUser.displayName || (authenticatedEmail === ADMIN_EMAIL ? "Admin" : authenticatedEmail.split("@")[0] || "User"),
+        email: firebaseUser.email || authenticatedEmail,
+        role,
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(profileRef, newProfile, { merge: true });
+      profile = { id: firebaseUser.uid, ...newProfile, role };
+    }
+  } catch (profileError) {
+    // Authentication itself has already succeeded. Surface the actual
+    // Firestore error instead of replacing it with the misleading login error.
+    console.error("Firebase profile error:", profileError);
+    throw profileError;
   }
 
   if (profile.status === "inactive") {
@@ -46,9 +58,9 @@ export async function loginWithFirebase(email, password) {
   return {
     id: profile.id || firebaseUser.uid,
     uid: firebaseUser.uid,
-    name: profile.name || firebaseUser.displayName || "User",
-    email: profile.email || firebaseUser.email,
-    role: profile.role || "electrician"
+    name: profile.name || firebaseUser.displayName || authenticatedEmail.split("@")[0] || "User",
+    email: profile.email || firebaseUser.email || authenticatedEmail,
+    role: profile.role || (authenticatedEmail === ADMIN_EMAIL ? "admin" : "electrician")
   };
 }
 
