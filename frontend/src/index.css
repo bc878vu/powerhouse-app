@@ -2,11 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 🔥 TEXT SHARPNESS FIX */
+/* PowerHouse mobile/performance baseline */
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 body {
+  margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  overscroll-behavior-x: none;
+}
+
+/* Keep existing responsive layouts from creating horizontal page overflow. */
+img,
+video,
+canvas {
+  max-width: 100%;
+}
+
+iframe {
+  max-width: 100%;
+}
+
+table {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+/* Recharts containers should shrink with their parent on small screens. */
+.recharts-responsive-container {
+  max-width: 100% !important;
+}
+
+/* Safe-area support for Android/iOS standalone PWA mode. */
+@media (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    min-height: 40px;
+  }
 }
 
 /* remove any blur effect */
@@ -15,13 +80,11 @@ body {
   filter: none !important;
 }
 
-
 /* =========================================================
    STAFF PROFILE REPORT PRINT FIX
    ========================================================= */
 
 @media print {
-
   @page {
     size: A4 portrait;
     margin: 10mm;
@@ -50,19 +113,14 @@ body {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
-
     width: 100% !important;
     max-width: none !important;
-
     margin: 0 !important;
     padding: 0 !important;
-
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
-
     overflow: visible !important;
-
     background: white !important;
     color: black !important;
   }
@@ -70,16 +128,12 @@ body {
   #staff-report-overlay {
     position: static !important;
     display: block !important;
-
     width: 100% !important;
     min-height: auto !important;
-
     padding: 0 !important;
     margin: 0 !important;
-
     background: white !important;
     backdrop-filter: none !important;
-
     overflow: visible !important;
   }
 
@@ -149,7 +203,7 @@ body {
     margin-top: 8mm !important;
   }
 
-  .print\:hidden {
+  .print\\:hidden {
     display: none !important;
   }
 }
