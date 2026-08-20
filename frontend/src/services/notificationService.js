@@ -30,11 +30,7 @@ export function subscribeToNotifications(uid, callback) {
   const q = query(notificationsRef(safeUid), limit(50));
   return onSnapshot(q, (snapshot) => {
     const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-    items.sort((a, b) => {
-      const aTime = a.createdAt?.toMillis?.() || 0;
-      const bTime = b.createdAt?.toMillis?.() || 0;
-      return bTime - aTime;
-    });
+    items.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     callback(items);
   }, (error) => {
     console.warn("Notification subscription failed:", error?.message || error);
@@ -51,6 +47,7 @@ export async function createNotification(uid, payload = {}) {
     type: String(payload.type || "system"),
     route: String(payload.route || "/notifications"),
     taskId: payload.taskId ? String(payload.taskId) : null,
+    sourceId: payload.sourceId ? String(payload.sourceId) : null,
     read: false,
     createdAt: serverTimestamp()
   });
@@ -60,10 +57,7 @@ export async function createNotification(uid, payload = {}) {
 export async function markNotificationRead(uid, notificationId) {
   const safeUid = normalizeUid(uid);
   if (!safeUid || !notificationId) return;
-  await updateDoc(doc(db, "powerhouse_notifications", safeUid, "items", String(notificationId)), {
-    read: true,
-    readAt: serverTimestamp()
-  });
+  await updateDoc(doc(db, "powerhouse_notifications", safeUid, "items", String(notificationId)), { read: true, readAt: serverTimestamp() });
 }
 
 export async function markAllNotificationsRead(uid, notifications = []) {
@@ -72,12 +66,7 @@ export async function markAllNotificationsRead(uid, notifications = []) {
   const unread = notifications.filter((item) => !item.read);
   if (!unread.length) return;
   const batch = writeBatch(db);
-  unread.forEach((item) => {
-    batch.update(doc(db, "powerhouse_notifications", safeUid, "items", String(item.id)), {
-      read: true,
-      readAt: serverTimestamp()
-    });
-  });
+  unread.forEach((item) => batch.update(doc(db, "powerhouse_notifications", safeUid, "items", String(item.id)), { read: true, readAt: serverTimestamp() }));
   await batch.commit();
 }
 
@@ -87,6 +76,21 @@ export async function enablePushNotifications() {
   if (!isFirebaseConfigured) throw new Error(`Firebase web configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
   if (!import.meta.env.VITE_VAPID_KEY) throw new Error("VITE_VAPID_KEY is not configured");
   return getFCMToken();
+}
+
+export async function sendPushNotification({ title, body, route = "/notifications", userIds = [], notificationId = "" } = {}) {
+  const current = auth.currentUser;
+  const apiBase = String(import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
+  if (!current || !apiBase) return { success: false, skipped: true, reason: !current ? "not-authenticated" : "VITE_API_URL-not-configured" };
+  const idToken = await current.getIdToken();
+  const response = await fetch(`${apiBase}/api/notifications/push`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ title, body, route, userIds, notificationId })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || "Push notification request failed");
+  return data;
 }
 
 export function getCurrentNotificationUid() {
