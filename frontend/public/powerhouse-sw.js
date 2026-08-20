@@ -1,4 +1,7 @@
-const CACHE_VERSION = "powerhouse-static-v1";
+importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-messaging-compat.js");
+
+const CACHE_VERSION = "powerhouse-static-v2";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg", "/icon-192.svg", "/icon-512.svg"];
 const NETWORK_ONLY_HOSTS = [
   "firestore.googleapis.com",
@@ -9,6 +12,37 @@ const NETWORK_ONLY_HOSTS = [
   "firebase.google.com",
   "googleapis.com"
 ];
+
+// One service worker owns the root scope. This keeps PWA caching and FCM push
+// notifications compatible instead of allowing two root-scope workers to race.
+try {
+  firebase.initializeApp({
+    apiKey: "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
+    authDomain: "powerhouse-app-47c4a.firebaseapp.com",
+    projectId: "powerhouse-app-47c4a",
+    storageBucket: "powerhouse-app-47c4a.firebasestorage.app",
+    messagingSenderId: "428354200600",
+    appId: "1:428354200600:web:a73756991c3df0275b8f6d"
+  });
+
+  const messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    const title = payload.notification?.title || payload.data?.title || "PowerHouse";
+    const body = payload.notification?.body || payload.data?.body || "You have a new PowerHouse notification.";
+    const route = payload.data?.route || (payload.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications");
+
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icon-192.svg",
+      badge: "/icon-192.svg",
+      tag: payload.data?.notificationId || "powerhouse-notification",
+      renotify: true,
+      data: { route }
+    });
+  });
+} catch (error) {
+  console.warn("PowerHouse FCM worker initialization failed:", error?.message || error);
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
@@ -54,15 +88,26 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (request.mode === "navigate" || url.pathname === "/index.html") {
-    event.respondWith(
-      networkThenCache(request).then((response) => response || caches.match("/index.html"))
-    );
+    event.respondWith(networkThenCache(request).then((response) => response || caches.match("/index.html")));
     return;
   }
 
-  // Vite's hashed JS/CSS/assets are safe to cache aggressively. Firebase/API
-  // traffic is explicitly excluded above so live application data stays fresh.
   if (url.pathname.startsWith("/assets/") || /\.(?:js|css|woff2?|png|jpg|jpeg|svg|webp|ico)$/.test(url.pathname)) {
     event.respondWith(cacheThenNetwork(request));
   }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const route = event.notification.data?.route || "/notifications";
+  event.waitUntil((async () => {
+    const targetUrl = new URL(route, self.location.origin).href;
+    const clientsList = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = clientsList.find((client) => client.url.startsWith(self.location.origin));
+    if (existing) {
+      await existing.focus();
+      return existing.navigate(targetUrl);
+    }
+    return clients.openWindow(targetUrl);
+  })());
 });
