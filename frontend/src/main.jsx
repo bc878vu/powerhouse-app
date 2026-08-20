@@ -62,3 +62,13 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <App />
   </React.StrictMode>
 );
+
+// Register the app-shell service worker after the first render. It only caches
+// static same-origin assets; Firestore/Auth/FCM traffic remains network-first.
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/powerhouse-sw.js", { scope: "/" }).catch((error) => {
+      console.warn("PowerHouse app cache worker registration failed:", error?.message || error);
+    });
+  }, { once: true });
+}
