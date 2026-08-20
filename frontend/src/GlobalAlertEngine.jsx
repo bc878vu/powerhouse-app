@@ -27,10 +27,14 @@ async function claimEvent(eventId, meta) {
 async function notifyUsers(userIds, payload) {
   const ids = [...new Set(userIds.map(String).filter(Boolean))];
   if (!ids.length) return;
-  const eventId = String(payload.eventId);
-  const claimed = await claimEvent(eventId, { type: payload.type, sourceId: payload.sourceId || null, recipients: ids });
+  let claimed = false;
+  try {
+    claimed = await claimEvent(String(payload.eventId), { type: payload.type, sourceId: payload.sourceId || null, recipients: ids });
+  } catch (error) {
+    console.warn("Alert event claim failed:", error?.message || error);
+    return;
+  }
   if (!claimed) return;
-
   await Promise.all(ids.map((uid) => createNotification(uid, {
     title: payload.title,
     body: payload.body,
@@ -38,9 +42,8 @@ async function notifyUsers(userIds, payload) {
     route: payload.route || "/notifications",
     sourceId: payload.sourceId
   }).catch((error) => console.warn("In-app notification failed:", error?.message || error))));
-
   try {
-    await sendPushNotification({ title: payload.title, body: payload.body, route: payload.route || "/notifications", userIds: ids, notificationId: eventId });
+    await sendPushNotification({ title: payload.title, body: payload.body, route: payload.route || "/notifications", userIds: ids, notificationId: payload.eventId });
   } catch (error) {
     console.warn("Push delivery failed; in-app notification was still saved:", error?.message || error);
   }
@@ -59,13 +62,15 @@ async function getAllUserIds() {
 export default function GlobalAlertEngine() {
   const user = getUser();
   const enabled = user?.role === "admin" || user?.role === "superadmin";
-  const initialized = useRef(false);
   const panelStatuses = useRef(new Map());
   const taskAssignments = useRef(new Map());
 
   useEffect(() => {
     if (!enabled) return undefined;
     let cancelled = false;
+    let panelReady = false;
+    let fuelReady = false;
+    let taskReady = false;
     const cleanups = [];
 
     const start = async () => {
@@ -73,8 +78,9 @@ export default function GlobalAlertEngine() {
       if (cancelled || !allUserIds.length) return;
 
       const panelUnsub = onSnapshot(collection(db, "powerhouse_panels"), async (snapshot) => {
-        if (!initialized.current) {
+        if (!panelReady) {
           snapshot.docs.forEach((item) => panelStatuses.current.set(item.id, String(item.data()?.status || item.data()?.effective_status || "").toLowerCase()));
+          panelReady = true;
           return;
         }
         for (const change of snapshot.docChanges()) {
@@ -99,7 +105,7 @@ export default function GlobalAlertEngine() {
 
       const entriesQuery = query(collection(db, "entries"), orderBy("createdAt", "desc"), limit(50));
       const fuelUnsub = onSnapshot(entriesQuery, async (snapshot) => {
-        if (!initialized.current) return;
+        if (!fuelReady) { fuelReady = true; return; }
         for (const change of snapshot.docChanges()) {
           if (change.type !== "added") continue;
           const data = change.doc.data() || {};
@@ -119,9 +125,9 @@ export default function GlobalAlertEngine() {
       cleanups.push(fuelUnsub);
 
       const tasksUnsub = onSnapshot(collection(db, "tasks"), async (snapshot) => {
-        if (!initialized.current) {
+        if (!taskReady) {
           snapshot.docs.forEach((item) => taskAssignments.current.set(item.id, idsFromTask(item.data())));
-          initialized.current = true;
+          taskReady = true;
           return;
         }
         for (const change of snapshot.docChanges()) {
@@ -144,8 +150,6 @@ export default function GlobalAlertEngine() {
         }
       }, (error) => console.warn("Task alert listener failed:", error?.message || error));
       cleanups.push(tasksUnsub);
-
-      if (!initialized.current) initialized.current = true;
     };
 
     void start();
