@@ -1,9 +1,10 @@
+importScripts("/firebase-config.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-messaging-compat.js");
 
 // Bump this whenever the deployed Firebase/auth bundle is refreshed so stale
 // PWA assets cannot keep serving an older JavaScript bundle.
-const CACHE_VERSION = "powerhouse-static-v3";
+const CACHE_VERSION = "powerhouse-static-v4";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg", "/icon-192.svg", "/icon-512.svg"];
 const NETWORK_ONLY_HOSTS = [
   "firestore.googleapis.com",
@@ -15,33 +16,31 @@ const NETWORK_ONLY_HOSTS = [
   "googleapis.com"
 ];
 
-// One service worker owns the root scope. This keeps PWA caching and FCM push
-// notifications compatible instead of allowing two root-scope workers to race.
+// The worker uses the same VITE_FIREBASE_* configuration as the main Vite
+// bundle. The build step generates /firebase-config.js from Vercel Production
+// environment variables, preventing the worker from retaining an old key.
 try {
-  firebase.initializeApp({
-    apiKey: "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
-    authDomain: "powerhouse-app-47c4a.firebaseapp.com",
-    projectId: "powerhouse-app-47c4a",
-    storageBucket: "powerhouse-app-47c4a.firebasestorage.app",
-    messagingSenderId: "428354200600",
-    appId: "1:428354200600:web:a73756991c3df0275b8f6d"
-  });
+  const firebaseConfig = self.POWERHOUSE_FIREBASE_CONFIG;
+  if (firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.appId) {
+    firebase.initializeApp(firebaseConfig);
+    const messaging = firebase.messaging();
+    messaging.onBackgroundMessage((payload) => {
+      const title = payload.notification?.title || payload.data?.title || "PowerHouse";
+      const body = payload.notification?.body || payload.data?.body || "You have a new PowerHouse notification.";
+      const route = payload.data?.route || (payload.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications");
 
-  const messaging = firebase.messaging();
-  messaging.onBackgroundMessage((payload) => {
-    const title = payload.notification?.title || payload.data?.title || "PowerHouse";
-    const body = payload.notification?.body || payload.data?.body || "You have a new PowerHouse notification.";
-    const route = payload.data?.route || (payload.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications");
-
-    self.registration.showNotification(title, {
-      body,
-      icon: "/icon-192.svg",
-      badge: "/icon-192.svg",
-      tag: payload.data?.notificationId || "powerhouse-notification",
-      renotify: true,
-      data: { route }
+      self.registration.showNotification(title, {
+        body,
+        icon: "/icon-192.svg",
+        badge: "/icon-192.svg",
+        tag: payload.data?.notificationId || "powerhouse-notification",
+        renotify: true,
+        data: { route }
+      });
     });
-  });
+  } else {
+    console.warn("PowerHouse FCM worker skipped: Firebase configuration is incomplete.");
+  }
 } catch (error) {
   console.warn("PowerHouse FCM worker initialization failed:", error?.message || error);
 }
