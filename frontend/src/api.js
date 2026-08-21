@@ -103,7 +103,10 @@ const API = {
     const cleanUrl = String(url || "").split("?")[0];
 
     if (cleanUrl === "/user/all" || cleanUrl === "user/all") {
-      return getUsersFast();
+      const users = await getUsersFast();
+      // Keep the response compatible with both legacy Axios-style pages and
+      // newer Firebase-first pages.
+      return { data: users, users };
     }
 
     try {
