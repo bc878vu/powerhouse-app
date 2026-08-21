@@ -114,7 +114,7 @@ const API = {
         const users = await getUsersFast();
         const profile = users.find((user) => String(user.id) === String(id) || String(user.uid) === String(id));
         if (cleanUrl.startsWith("/user/full/") || cleanUrl.startsWith("user/full/")) {
-          return { ...result, user: { ...(profile || {}), ...(result?.user || {}) } };
+          return { data: { ...result, user: { ...(profile || {}), ...(result?.user || {}) } } };
         }
         return { ...(profile || {}), ...(result || {}) };
       }
@@ -144,7 +144,14 @@ const API = {
     } catch (firebaseError) {
       const legacyPath = cleanUrl.startsWith("/") ? cleanUrl : `/${cleanUrl}`;
       try {
-        return await legacyGet(legacyPath);
+        const legacyResult = await legacyGet(legacyPath);
+        if (cleanUrl.startsWith("/user/full/") || cleanUrl.startsWith("user/full/")) {
+          const id = cleanUrl.split("/")[2];
+          let tools = [];
+          try { tools = unwrapUsers(await legacyGet(`/tools/user/${id}`)); } catch {}
+          return { data: { user: legacyResult?.user || legacyResult, tasks: [], tools } };
+        }
+        return legacyResult;
       } catch {
         throw firebaseError;
       }
