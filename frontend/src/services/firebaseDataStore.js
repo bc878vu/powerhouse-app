@@ -389,7 +389,35 @@ export async function requestFirebase(method, url, data, params = {}) {
     if (method === "DELETE") { const target = await findById(tasksRef, id); if (!target) throw new Error("Task not found."); await deleteDoc(target.ref); return { success: true }; }
   }
   if (path === "tools" && method === "GET") return allDocs(toolsRef);
-  if (path === "tools" && method === "POST") { const r = await addDoc(toolsRef, { ...payload, created_at: nowIso() }); return { id: r.id, ...payload }; }
+  if (path === "tools" && method === "POST") {
+    const r = await addDoc(toolsRef, { ...payload, created_at: nowIso() });
+    return { id: r.id, ...payload };
+  }
+  if (path === "tools/assign" && method === "POST") {
+    const userId = String(payload.userId || payload.user_id || payload.assigned_to || "").trim();
+    const toolName = String(payload.toolName || payload.tool_name || "").trim();
+    if (!userId) throw new Error("Please select a staff member.");
+    if (!toolName) throw new Error("Tool name is required.");
+
+    const record = {
+      ...payload,
+      userId,
+      user_id: userId,
+      assigned_to: userId,
+      userName: String(payload.userName || ""),
+      toolName,
+      tool_name: toolName,
+      category: String(payload.category || "General"),
+      quantity: Math.max(1, Number(payload.quantity) || 1),
+      date: payload.date || new Date().toISOString().slice(0, 10),
+      status: payload.status || "assigned",
+      assigned_at: nowIso(),
+      created_at: nowIso(),
+      assigned_by: auth.currentUser?.uid || ""
+    };
+    const r = await addDoc(toolsRef, record);
+    return { id: r.id, ...record };
+  }
   if (path === "categories" && method === "GET") return allDocs(categoriesRef);
   if (path === "categories" && method === "POST") { const r = await addDoc(categoriesRef, payload); return { id: r.id, ...payload }; }
   throw new Error(`Firebase migration: unsupported endpoint ${method} ${url}`);
