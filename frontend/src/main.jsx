@@ -66,23 +66,24 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 // Hide the legacy employee-ID banner on the Add Staff page. The ID is still
 // generated and stored by the backend; it simply does not take UI space.
 if (typeof window !== "undefined") {
-  const hideLegacyEmployeeBanner = () => {
+  const observer = new MutationObserver(() => {
     if (window.location.pathname !== "/add-staff") return;
+
     const nodes = document.querySelectorAll("div, section");
     for (const node of nodes) {
       const text = String(node.textContent || "").replace(/\s+/g, " ").trim();
       if (text.includes("Automatic Employee ID") && text.includes("AUTO GENERATED") && text.length < 500) {
         const target = node.closest("section") || node;
         target.style.display = "none";
+        observer.disconnect();
         return;
       }
     }
-  };
+  });
 
-  const observer = new MutationObserver(hideLegacyEmployeeBanner);
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("load", hideLegacyEmployeeBanner, { once: true });
-  setTimeout(hideLegacyEmployeeBanner, 0);
+  window.addEventListener("load", () => observer.takeRecords(), { once: true });
+  setTimeout(() => observer.takeRecords(), 0);
 }
 
 // Register the app-shell service worker after the first render. It only caches
