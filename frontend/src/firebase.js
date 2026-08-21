@@ -7,6 +7,7 @@ import { getStorage } from "firebase/storage";
 // PowerHouse Firebase project as the single source of truth. Do not allow a
 // stale/invalid VITE_FIREBASE_API_KEY from a local .env/Vercel environment to
 // override the working Firebase Web App configuration.
+// DEPLOYMENT_MARKER: 2026-08-21-auth-config-refresh
 const VERIFIED_FIREBASE_CONFIG = {
   apiKey: "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
   authDomain: "powerhouse-app-47c4a.firebaseapp.com",
