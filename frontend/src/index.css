@@ -207,3 +207,11 @@ textarea {
     display: none !important;
   }
 }
+
+/* Refresh is automatic; keep manual refresh controls out of the UI. */
+button:has(svg.lucide-refresh-cw),
+button:has(svg.lucide-refresh-ccw),
+button:has(svg.lucide-refresh-cw-icon),
+button:has(svg.lucide-refresh-ccw-icon) {
+  display: none !important;
+}
