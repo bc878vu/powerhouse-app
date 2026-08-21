@@ -1,11 +1,175 @@
 import { requestFirebase } from "./services/firebaseDataStore";
 
+const CACHE_TTL = 30000;
+const userCache = { data: null, at: 0, promise: null };
+
+const getLegacyBase = () => {
+  const raw = String(import.meta.env.VITE_API_URL || "").trim();
+  if (!raw) return "";
+  return raw.replace(/\/+$/, "").replace(/\/api$/i, "");
+};
+
+const unwrapUsers = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.users)) return value.users;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.data?.users)) return value.data.users;
+  if (Array.isArray(value?.result)) return value.result;
+  return [];
+};
+
+const normalizeUser = (user) => ({
+  ...user,
+  id: String(user?.id ?? user?.uid ?? user?.user_id ?? ""),
+  uid: String(user?.uid ?? user?.id ?? user?.user_id ?? ""),
+  name: user?.name || user?.fullName || user?.full_name || user?.username || user?.email || "",
+  email: user?.email || "",
+  role: user?.role || user?.category || "staff",
+  status: user?.status || "active",
+  phone: user?.phone || user?.phone_number || "",
+  employeeID: user?.employeeID || user?.employee_id || "",
+  maritalStatus: user?.maritalStatus || user?.marital_status || "",
+  address: user?.address || "",
+  backgroundInfo: user?.backgroundInfo || user?.background_info || "",
+  profile_pic: user?.profile_pic || user?.profilePic || user?.profile_image || ""
+});
+
+const mergeUsers = (primary, legacy) => {
+  const map = new Map();
+  [...legacy, ...primary].map(normalizeUser).forEach((user) => {
+    const key = user.id || user.uid || user.email.toLowerCase();
+    if (!key) return;
+    map.set(key, { ...(map.get(key) || {}), ...user });
+  });
+  return [...map.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+};
+
+const legacyGet = async (path) => {
+  const base = getLegacyBase();
+  if (!base) return null;
+  const response = await fetch(`${base}/api${path}`, {
+    headers: { Accept: "application/json" },
+    credentials: "include"
+  });
+  if (!response.ok) throw new Error(`Legacy API ${response.status}`);
+  return response.json();
+};
+
+const invalidateUsers = () => {
+  userCache.data = null;
+  userCache.at = 0;
+  userCache.promise = null;
+};
+
+const getUsersFast = async () => {
+  if (userCache.data && Date.now() - userCache.at < CACHE_TTL) return userCache.data;
+  if (userCache.promise) return userCache.promise;
+
+  userCache.promise = (async () => {
+    const [firebaseResult, legacyResult] = await Promise.allSettled([
+      requestFirebase("GET", "/user/all"),
+      legacyGet("/user/all")
+    ]);
+
+    const firebaseUsers = firebaseResult.status === "fulfilled"
+      ? unwrapUsers(firebaseResult.value)
+      : [];
+    const legacyUsers = legacyResult.status === "fulfilled"
+      ? unwrapUsers(legacyResult.value)
+      : [];
+
+    if (firebaseResult.status === "rejected") {
+      console.warn("Firebase user list unavailable; using legacy user API.", firebaseResult.reason?.message || firebaseResult.reason);
+    }
+    if (legacyResult.status === "rejected" && legacyUsers.length === 0) {
+      console.warn("Legacy user list unavailable.", legacyResult.reason?.message || legacyResult.reason);
+    }
+
+    // Merge both sources so older MySQL staff and Firebase-first staff all
+    // remain visible while the migration is being completed.
+    const merged = mergeUsers(firebaseUsers, legacyUsers);
+    userCache.data = merged;
+    userCache.at = Date.now();
+    return merged;
+  })().finally(() => {
+    userCache.promise = null;
+  });
+
+  return userCache.promise;
+};
+
 const API = {
-  get: (url, config = {}) => requestFirebase("GET", url, undefined, config?.params || {}),
-  post: (url, data, config = {}) => requestFirebase("POST", url, data, config?.params || {}),
-  put: (url, data, config = {}) => requestFirebase("PUT", url, data, config?.params || {}),
+  get: async (url, config = {}) => {
+    const cleanUrl = String(url || "").split("?")[0];
+
+    if (cleanUrl === "/user/all" || cleanUrl === "user/all") {
+      return getUsersFast();
+    }
+
+    try {
+      const result = await requestFirebase("GET", url, undefined, config?.params || {});
+
+      if (cleanUrl.startsWith("/user/") || cleanUrl.startsWith("user/")) {
+        const id = cleanUrl.split("/")[2];
+        const users = await getUsersFast();
+        const profile = users.find((user) => String(user.id) === String(id) || String(user.uid) === String(id));
+        if (cleanUrl.startsWith("/user/full/") || cleanUrl.startsWith("user/full/")) {
+          return { ...result, user: { ...(profile || {}), ...(result?.user || {}) } };
+        }
+        return { ...(profile || {}), ...(result || {}) };
+      }
+
+      if (cleanUrl === "/duty/staff" || cleanUrl === "duty/staff") {
+        const staff = unwrapUsers(result?.staff);
+        return staff.length ? result : { ...result, staff: await getUsersFast() };
+      }
+
+      if (cleanUrl === "/duty/summary" || cleanUrl === "duty/summary") {
+        if (Number(result?.totalStaff || 0) > 0) return result;
+        const users = await getUsersFast();
+        return { ...result, totalStaff: users.length };
+      }
+
+      if (cleanUrl === "/activity/stats" || cleanUrl === "activity/stats") {
+        const users = await getUsersFast();
+        return { ...result, staffCount: users.length };
+      }
+
+      if (cleanUrl.startsWith("/tools/user/") || cleanUrl.startsWith("tools/user/")) {
+        if (Array.isArray(result) && result.length) return result;
+        try { return unwrapUsers(await legacyGet(cleanUrl.startsWith("/") ? cleanUrl : `/${cleanUrl}`)); } catch { return result; }
+      }
+
+      return result;
+    } catch (firebaseError) {
+      const legacyPath = cleanUrl.startsWith("/") ? cleanUrl : `/${cleanUrl}`;
+      try {
+        return await legacyGet(legacyPath);
+      } catch {
+        throw firebaseError;
+      }
+    }
+  },
+
+  post: async (url, data, config = {}) => {
+    const result = await requestFirebase("POST", url, data, config?.params || {});
+    if (String(url).includes("/user")) invalidateUsers();
+    return result;
+  },
+
+  put: async (url, data, config = {}) => {
+    const result = await requestFirebase("PUT", url, data, config?.params || {});
+    if (String(url).includes("/user/")) invalidateUsers();
+    return result;
+  },
+
   patch: (url, data, config = {}) => requestFirebase("PATCH", url, data, config?.params || {}),
-  delete: (url, config = {}) => requestFirebase("DELETE", url, undefined, config?.params || {})
+
+  delete: async (url, config = {}) => {
+    const result = await requestFirebase("DELETE", url, undefined, config?.params || {});
+    if (String(url).includes("/user/")) invalidateUsers();
+    return result;
+  }
 };
 
 export default API;
