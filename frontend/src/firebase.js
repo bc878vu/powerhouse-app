@@ -3,36 +3,54 @@ import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth"
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// Firebase Web configuration is public client configuration. Keep the verified
-// PowerHouse Firebase project as the single source of truth. Do not allow a
-// stale/invalid VITE_FIREBASE_API_KEY from a local .env/Vercel environment to
-// override the working Firebase Web App configuration.
-// DEPLOYMENT_MARKER: 2026-08-21-auth-config-refresh
-const VERIFIED_FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAJA_813bMbg_Dsydx09E8F7TZfzZteLHI",
-  authDomain: "powerhouse-app-47c4a.firebaseapp.com",
-  projectId: "powerhouse-app-47c4a",
-  storageBucket: "powerhouse-app-47c4a.firebasestorage.app",
-  messagingSenderId: "428354200600",
-  appId: "1:428354200600:web:a73756991c3df0275b8f6d",
-  measurementId: "G-T9KELG6TG6"
+// Firebase Web configuration must come from the deployment environment so
+// Vercel Production values are actually used. The previous version hard-coded
+// an old API key and explicitly ignored VITE_FIREBASE_* variables, so changing
+// Vercel environment variables could never affect the deployed Firebase client.
+const env = import.meta.env || {};
+const VERIFIED_PROJECT_ID = "powerhouse-app-47c4a";
+
+const envConfig = {
+  apiKey: String(env.VITE_FIREBASE_API_KEY || "").trim(),
+  authDomain: String(env.VITE_FIREBASE_AUTH_DOMAIN || "").trim(),
+  projectId: String(env.VITE_FIREBASE_PROJECT_ID || "").trim(),
+  storageBucket: String(env.VITE_FIREBASE_STORAGE_BUCKET || "").trim(),
+  messagingSenderId: String(env.VITE_FIREBASE_MESSAGING_SENDER_ID || "").trim(),
+  appId: String(env.VITE_FIREBASE_APP_ID || "").trim(),
+  measurementId: String(env.VITE_FIREBASE_MEASUREMENT_ID || "").trim()
 };
 
-export const firebaseConfig = VERIFIED_FIREBASE_CONFIG;
-export const missingConfig = [];
-export const isFirebaseConfigured = true;
+// Fail closed instead of silently connecting to a stale/wrong Firebase project.
+const requiredConfig = [
+  ["VITE_FIREBASE_API_KEY", envConfig.apiKey],
+  ["VITE_FIREBASE_AUTH_DOMAIN", envConfig.authDomain],
+  ["VITE_FIREBASE_PROJECT_ID", envConfig.projectId],
+  ["VITE_FIREBASE_STORAGE_BUCKET", envConfig.storageBucket],
+  ["VITE_FIREBASE_MESSAGING_SENDER_ID", envConfig.messagingSenderId],
+  ["VITE_FIREBASE_APP_ID", envConfig.appId]
+];
 
-// IMPORTANT: use the normal Firestore instance during application startup.
-// Persistent IndexedDB cache was causing a client-side Firebase crash in the
-// deployed build (TypeError: r.indexOf is not a function). Firestore itself
-// remains fully online/realtime; this removes the failing startup path.
+export const missingConfig = requiredConfig.filter(([, value]) => !value).map(([name]) => name);
+export const isFirebaseConfigured = missingConfig.length === 0 && envConfig.projectId === VERIFIED_PROJECT_ID;
+
+if (!isFirebaseConfigured) {
+  console.error("Firebase configuration is missing or points to the wrong project.", {
+    missingConfig,
+    projectId: envConfig.projectId || "missing",
+    expectedProjectId: VERIFIED_PROJECT_ID
+  });
+}
+
+export const firebaseConfig = envConfig;
+
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-// Keep the authenticated session across reloads and PWA launches without
-// changing the application's existing login/logout behavior.
+
+// Keep the authenticated session across reloads and PWA launches.
 void setPersistence(auth, browserLocalPersistence).catch((error) => {
   console.warn("Firebase auth persistence setup failed:", error?.message || error);
 });
+
 export const storage = getStorage(app);
 export const db = getFirestore(app);
 
@@ -42,10 +60,6 @@ export let messaging = null;
 const MESSAGING_WORKER_PREFIX = "/firebase-messaging-sw";
 const CURRENT_MESSAGING_WORKER = "/powerhouse-sw.js";
 
-// Clean every old PowerHouse messaging worker. Old deployments registered
-// workers with incomplete query-string configuration; those workers can keep
-// running after a new deployment and generate Installations/missing-apiKey
-// errors independently of the current application bundle.
 const cleanupOldMessagingWorkers = async () => {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   try {
@@ -88,8 +102,6 @@ const getMessagingServiceWorker = async () => {
   if (!("serviceWorker" in navigator)) return null;
   if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
 
-  // Reuse the single root-scope PowerHouse worker so caching and push
-  // notifications coexist reliably.
   const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, { scope: "/" });
   await navigator.serviceWorker.ready;
   return registration;
