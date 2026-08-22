@@ -2,10 +2,6 @@ const express = require("express");
 const router = express.Router();
 const db = require("../config/db");
 
-// ======================================================
-// HELPER: RUN MYSQL QUERY AS PROMISE
-// ======================================================
-
 const queryAsync = (sql, values = []) => {
   return new Promise((resolve, reject) => {
     db.query(sql, values, (err, results) => {
@@ -15,42 +11,20 @@ const queryAsync = (sql, values = []) => {
         reject(err);
         return;
       }
-
       resolve(results);
     });
   });
 };
 
-// ======================================================
-// HELPER: PARSE MEDIA FILES
-// ======================================================
-
 const parseMedia = (fileUrl) => {
   try {
-    if (!fileUrl) {
-      return [];
-    }
-
-    // Already an array
-    if (Array.isArray(fileUrl)) {
-      return fileUrl;
-    }
-
-    // JSON array string
-    if (
-      typeof fileUrl === "string" &&
-      fileUrl.trim().startsWith("[")
-    ) {
+    if (!fileUrl) return [];
+    if (Array.isArray(fileUrl)) return fileUrl;
+    if (typeof fileUrl === "string" && fileUrl.trim().startsWith("[")) {
       const parsed = JSON.parse(fileUrl);
       return Array.isArray(parsed) ? parsed : [];
     }
-
-    // Single file
-    return [
-      {
-        path: fileUrl,
-      },
-    ];
+    return [{ path: fileUrl }];
   } catch (error) {
     console.error("❌ Media parse error:", error.message);
     return [];
@@ -59,62 +33,25 @@ const parseMedia = (fileUrl) => {
 
 // ======================================================
 // GET DASHBOARD STATS
-// GET /api/activity/stats
 // ======================================================
-
 router.get("/stats", async (req, res) => {
   try {
-    // ==================================================
-    // OPTIONAL FILTERS
-    // ==================================================
-
     const { status, category } = req.query;
 
-    // ==================================================
-    // 1. COUNT QUERY
-    // ==================================================
-
+    // Keep dashboard staff count consistent with /api/user/all.
+    // The previous query excluded superadmin and could disagree
+    // with Staff Records. Active/inactive counts are also exposed.
     const countQuery = `
       SELECT
-        (
-          SELECT COUNT(*)
-          FROM users
-          WHERE role != 'superadmin'
-        ) AS staffCount,
-
-        (
-          SELECT COUNT(*)
-          FROM tasks
-        ) AS taskCount,
-
-        (
-          SELECT COUNT(*)
-          FROM tasks
-          WHERE status = 'Completed'
-        ) AS completedCount,
-
-        (
-          SELECT COUNT(*)
-          FROM tasks
-          WHERE status = 'In Progress'
-        ) AS inProgressCount,
-
-        (
-          SELECT COUNT(*)
-          FROM tasks
-          WHERE status = 'Pending'
-        ) AS pendingCount,
-
-        (
-          SELECT COUNT(*)
-          FROM tasks
-          WHERE status = 'Rejected'
-        ) AS rejectedCount
+        (SELECT COUNT(*) FROM users) AS staffCount,
+        (SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(status, 'active')) = 'active') AS activeStaffCount,
+        (SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(status, 'active')) != 'active') AS inactiveStaffCount,
+        (SELECT COUNT(*) FROM tasks) AS taskCount,
+        (SELECT COUNT(*) FROM tasks WHERE status = 'Completed') AS completedCount,
+        (SELECT COUNT(*) FROM tasks WHERE status = 'In Progress') AS inProgressCount,
+        (SELECT COUNT(*) FROM tasks WHERE status = 'Pending') AS pendingCount,
+        (SELECT COUNT(*) FROM tasks WHERE status = 'Rejected') AS rejectedCount
     `;
-
-    // ==================================================
-    // 2. ACTIVITY / TASK QUERY
-    // ==================================================
 
     let activityQuery = `
       SELECT
@@ -128,18 +65,11 @@ router.get("/stats", async (req, res) => {
         t.category_id,
         t.panel_id,
         t.file_url,
-
-        IFNULL(
-          t.rejection_reason,
-          ''
-        ) AS rejection_reason,
-
+        IFNULL(t.rejection_reason, '') AS rejection_reason,
         u.name AS staff_name,
         u.profile_pic,
         u.employeeID AS staff_employee_id,
-
         ta.user_id,
-
         p.panel_code,
         p.panel_name,
         p.panel_type,
@@ -147,59 +77,30 @@ router.get("/stats", async (req, res) => {
         p.location AS panel_location,
         p.status AS panel_status,
         p.status_reason AS panel_status_reason
-
       FROM tasks t
-
-      LEFT JOIN task_assignments ta
-        ON t.id = ta.task_id
-
-      LEFT JOIN users u
-        ON ta.user_id = u.id
-
-      LEFT JOIN panels p
-        ON t.panel_id = p.id
-        AND p.is_deleted = 0
+      LEFT JOIN task_assignments ta ON t.id = ta.task_id
+      LEFT JOIN users u ON ta.user_id = u.id
+      LEFT JOIN panels p ON t.panel_id = p.id AND p.is_deleted = 0
     `;
-
-    // ==================================================
-    // SAFE FILTER CONDITIONS
-    // ==================================================
 
     const conditions = [];
     const queryValues = [];
 
-    if (
-      status &&
-      status !== "All" &&
-      status !== "All Statuses"
-    ) {
+    if (status && status !== "All" && status !== "All Statuses") {
       conditions.push("t.status = ?");
       queryValues.push(status);
     }
 
-    if (
-      category &&
-      category !== "All" &&
-      category !== "All Categories"
-    ) {
+    if (category && category !== "All" && category !== "All Categories") {
       conditions.push("t.category = ?");
       queryValues.push(category);
     }
 
-    if (conditions.length > 0) {
-      activityQuery +=
-        " WHERE " + conditions.join(" AND ");
+    if (conditions.length) {
+      activityQuery += " WHERE " + conditions.join(" AND ");
     }
 
-    activityQuery += `
-      ORDER BY
-        t.created_at DESC,
-        t.id DESC
-    `;
-
-    // ==================================================
-    // 3. ON DUTY TODAY QUERY
-    // ==================================================
+    activityQuery += " ORDER BY t.created_at DESC, t.id DESC";
 
     const onDutyTodayQuery = `
       SELECT
@@ -211,36 +112,17 @@ router.get("/stats", async (req, res) => {
         sd.end_time,
         sd.status AS duty_status,
         sd.notes,
-
         u.name AS staff_name,
         u.email AS staff_email,
         u.role AS staff_role,
         u.phone AS staff_phone,
         u.employeeID AS employee_id,
         u.profile_pic
-
       FROM staff_duties sd
-
-      INNER JOIN users u
-        ON sd.user_id = u.id
-
-      WHERE
-        sd.duty_date = CURDATE()
-        AND sd.status = 'on_duty'
-
-      ORDER BY
-        sd.start_time ASC,
-        u.name ASC
+      INNER JOIN users u ON sd.user_id = u.id
+      WHERE sd.duty_date = CURDATE() AND sd.status = 'on_duty'
+      ORDER BY sd.start_time ASC, u.name ASC
     `;
-
-    // ==================================================
-    // 4. PANELS UNDER WORK QUERY
-    //
-    // Panel under work means:
-    // - Task status is In Progress
-    // - Task has a linked panel_id
-    // - Panel is not deleted
-    // ==================================================
 
     const panelsUnderWorkQuery = `
       SELECT
@@ -252,154 +134,46 @@ router.get("/stats", async (req, res) => {
         p.location,
         p.status AS panel_status,
         p.status_reason AS panel_status_reason,
-
         t.id AS task_id,
         t.title AS task_title,
         t.description AS task_description,
         t.priority AS task_priority,
         t.status AS task_status,
         t.created_at AS task_created_at,
-
-        GROUP_CONCAT(
-          DISTINCT u.id
-          ORDER BY u.name ASC
-          SEPARATOR ','
-        ) AS assigned_user_ids,
-
-        GROUP_CONCAT(
-          DISTINCT u.name
-          ORDER BY u.name ASC
-          SEPARATOR ', '
-        ) AS assigned_staff_names,
-
-        GROUP_CONCAT(
-          DISTINCT u.employeeID
-          ORDER BY u.name ASC
-          SEPARATOR ', '
-        ) AS assigned_employee_ids
-
+        GROUP_CONCAT(DISTINCT u.id ORDER BY u.name ASC SEPARATOR ',') AS assigned_user_ids,
+        GROUP_CONCAT(DISTINCT u.name ORDER BY u.name ASC SEPARATOR ', ') AS assigned_staff_names,
+        GROUP_CONCAT(DISTINCT u.employeeID ORDER BY u.name ASC SEPARATOR ',') AS assigned_employee_ids
       FROM tasks t
-
-      INNER JOIN panels p
-        ON t.panel_id = p.id
-        AND p.is_deleted = 0
-
-      LEFT JOIN task_assignments ta
-        ON t.id = ta.task_id
-
-      LEFT JOIN users u
-        ON ta.user_id = u.id
-
-      WHERE
-        t.status = 'In Progress'
-        AND t.panel_id IS NOT NULL
-
-      GROUP BY
-        p.id,
-        p.panel_code,
-        p.panel_name,
-        p.panel_type,
-        p.area,
-        p.location,
-        p.status,
-        p.status_reason,
-        t.id,
-        t.title,
-        t.description,
-        t.priority,
-        t.status,
-        t.created_at
-
-      ORDER BY
-        t.created_at DESC,
-        t.id DESC
+      INNER JOIN panels p ON t.panel_id = p.id AND p.is_deleted = 0
+      LEFT JOIN task_assignments ta ON t.id = ta.task_id
+      LEFT JOIN users u ON ta.user_id = u.id
+      WHERE t.status = 'In Progress' AND t.panel_id IS NOT NULL
+      GROUP BY p.id, p.panel_code, p.panel_name, p.panel_type, p.area, p.location,
+        p.status, p.status_reason, t.id, t.title, t.description, t.priority, t.status, t.created_at
+      ORDER BY t.created_at DESC, t.id DESC
     `;
-
-    // ==================================================
-    // 5. PANELS OFF QUERY
-    //
-    // IMPORTANT:
-    // Your panels table has:
-    // - is_deleted
-    // - deleted_at
-    //
-    // It does NOT have is_active.
-    // ==================================================
 
     const panelsOffQuery = `
-      SELECT
-        id AS panel_id,
-        panel_code,
-        panel_name,
-        panel_type,
-        area,
-        location,
-        status,
-        status_reason,
-        status_changed_at,
-        off_started_at
-
+      SELECT id AS panel_id, panel_code, panel_name, panel_type, area, location,
+        status, status_reason, status_changed_at, off_started_at
       FROM panels
-
-      WHERE
-        status = 'off'
-        AND is_deleted = 0
-
-      ORDER BY
-        status_changed_at DESC,
-        panel_name ASC
+      WHERE status = 'off' AND is_deleted = 0
+      ORDER BY status_changed_at DESC, panel_name ASC
     `;
-
-    // ==================================================
-    // 6. PANELS UNDER MAINTENANCE QUERY
-    // ==================================================
 
     const panelsMaintenanceQuery = `
-      SELECT
-        id AS panel_id,
-        panel_code,
-        panel_name,
-        panel_type,
-        area,
-        location,
-        status,
-        status_reason,
-        status_changed_at,
-        off_started_at,
-        last_maintenance_date,
-        next_maintenance_date
-
+      SELECT id AS panel_id, panel_code, panel_name, panel_type, area, location,
+        status, status_reason, status_changed_at, off_started_at,
+        last_maintenance_date, next_maintenance_date
       FROM panels
-
-      WHERE
-        status = 'maintenance'
-        AND is_deleted = 0
-
-      ORDER BY
-        status_changed_at DESC,
-        panel_name ASC
+      WHERE status = 'maintenance' AND is_deleted = 0
+      ORDER BY status_changed_at DESC, panel_name ASC
     `;
 
-    // ==================================================
-    // EXECUTE CORE QUERIES
-    //
-    // Core queries must work for dashboard task data.
-    // ==================================================
-
-    const [
-      countResults,
-      activityResults,
-    ] = await Promise.all([
+    const [countResults, activityResults] = await Promise.all([
       queryAsync(countQuery),
       queryAsync(activityQuery, queryValues),
     ]);
-
-    // ==================================================
-    // EXECUTE EXTRA OPERATIONAL QUERIES SAFELY
-    //
-    // If one optional operational query fails,
-    // existing dashboard counts/tasks will still load.
-    // ==================================================
 
     const operationalResults = await Promise.allSettled([
       queryAsync(onDutyTodayQuery),
@@ -408,261 +182,81 @@ router.get("/stats", async (req, res) => {
       queryAsync(panelsMaintenanceQuery),
     ]);
 
-    // ==================================================
-    // EXTRACT SAFE OPERATIONAL RESULTS
-    // ==================================================
+    const onDutyResults = operationalResults[0].status === "fulfilled" ? operationalResults[0].value : [];
+    const panelsUnderWorkResults = operationalResults[1].status === "fulfilled" ? operationalResults[1].value : [];
+    const panelsOffResults = operationalResults[2].status === "fulfilled" ? operationalResults[2].value : [];
+    const panelsMaintenanceResults = operationalResults[3].status === "fulfilled" ? operationalResults[3].value : [];
 
-    const onDutyResults =
-      operationalResults[0].status === "fulfilled"
-        ? operationalResults[0].value
-        : [];
-
-    const panelsUnderWorkResults =
-      operationalResults[1].status === "fulfilled"
-        ? operationalResults[1].value
-        : [];
-
-    const panelsOffResults =
-      operationalResults[2].status === "fulfilled"
-        ? operationalResults[2].value
-        : [];
-
-    const panelsMaintenanceResults =
-      operationalResults[3].status === "fulfilled"
-        ? operationalResults[3].value
-        : [];
-
-    // ==================================================
-    // LOG OPTIONAL QUERY ERRORS
-    // ==================================================
-
-    const operationalNames = [
-      "ON DUTY TODAY",
-      "PANELS UNDER WORK",
-      "PANELS OFF",
-      "PANELS MAINTENANCE",
-    ];
-
+    const operationalNames = ["ON DUTY TODAY", "PANELS UNDER WORK", "PANELS OFF", "PANELS MAINTENANCE"];
     operationalResults.forEach((result, index) => {
       if (result.status === "rejected") {
-        console.error(
-          `❌ ${operationalNames[index]} QUERY FAILED:`,
-          result.reason?.sqlMessage ||
-            result.reason?.message ||
-            result.reason
-        );
+        console.error(`❌ ${operationalNames[index]} QUERY FAILED:`, result.reason?.sqlMessage || result.reason?.message || result.reason);
       }
     });
 
-    // ==================================================
-    // PARSE ACTIVITY MEDIA
-    // ==================================================
-
-    const updatedActivities = (
-      activityResults || []
-    ).map((activity) => ({
+    const updatedActivities = (activityResults || []).map((activity) => ({
       ...activity,
       media: parseMedia(activity.file_url),
     }));
 
-    // ==================================================
-    // NORMALIZE PANELS UNDER WORK
-    // ==================================================
-
-    const normalizedPanelsUnderWork = (
-      panelsUnderWorkResults || []
-    ).map((item) => ({
+    const normalizedPanelsUnderWork = (panelsUnderWorkResults || []).map((item) => ({
       ...item,
-
-      assigned_user_ids: item.assigned_user_ids
-        ? String(item.assigned_user_ids)
-            .split(",")
-            .filter(Boolean)
-        : [],
-
-      assigned_staff_names: item.assigned_staff_names
-        ? String(item.assigned_staff_names)
-            .split(", ")
-            .filter(Boolean)
-        : [],
-
-      assigned_employee_ids: item.assigned_employee_ids
-        ? String(item.assigned_employee_ids)
-            .split(", ")
-            .filter(Boolean)
-        : [],
+      assigned_user_ids: item.assigned_user_ids ? String(item.assigned_user_ids).split(",").filter(Boolean) : [],
+      assigned_staff_names: item.assigned_staff_names ? String(item.assigned_staff_names).split(", ").filter(Boolean) : [],
+      assigned_employee_ids: item.assigned_employee_ids ? String(item.assigned_employee_ids).split(",").filter(Boolean) : [],
     }));
-
-    // ==================================================
-    // COUNT DATA
-    // ==================================================
 
     const counts = countResults?.[0] || {};
 
-    // ==================================================
-    // MYSQL SERVER DATE
-    // ==================================================
-
-    let serverDate = new Date()
-      .toISOString()
-      .slice(0, 10);
-
+    let serverDate = new Date().toISOString().slice(0, 10);
     try {
-      const dateResults = await queryAsync(`
-        SELECT DATE_FORMAT(
-          CURDATE(),
-          '%Y-%m-%d'
-        ) AS today
-      `);
-
-      if (dateResults?.[0]?.today) {
-        serverDate = dateResults[0].today;
-      }
+      const dateResults = await queryAsync(`SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today`);
+      if (dateResults?.[0]?.today) serverDate = dateResults[0].today;
     } catch (dateError) {
-      console.error(
-        "⚠️ Server date query failed:",
-        dateError.message
-      );
+      console.error("⚠️ Server date query failed:", dateError.message);
     }
-
-    // ==================================================
-    // SUCCESS LOG
-    // ==================================================
-
-    console.log("========================================");
-    console.log("✅ DASHBOARD DATA SENT SUCCESSFULLY");
-    console.log(
-      `👥 Staff: ${Number(counts.staffCount || 0)}`
-    );
-    console.log(
-      `📋 Tasks: ${Number(counts.taskCount || 0)}`
-    );
-    console.log(
-      `🟡 Pending: ${Number(counts.pendingCount || 0)}`
-    );
-    console.log(
-      `🟠 In Progress: ${Number(
-        counts.inProgressCount || 0
-      )}`
-    );
-    console.log(
-      `🟢 Completed: ${Number(
-        counts.completedCount || 0
-      )}`
-    );
-    console.log(
-      `🔴 Rejected: ${Number(counts.rejectedCount || 0)}`
-    );
-    console.log(`👷 On Duty: ${onDutyResults.length}`);
-    console.log(
-      `🔧 Panels Under Work: ${
-        normalizedPanelsUnderWork.length
-      }`
-    );
-    console.log(`⚫ Panels Off: ${panelsOffResults.length}`);
-    console.log(
-      `🛠️ Panels Maintenance: ${
-        panelsMaintenanceResults.length
-      }`
-    );
-    console.log("========================================");
-
-    // ==================================================
-    // FINAL RESPONSE
-    // ==================================================
 
     return res.status(200).json({
       success: true,
-
-      // Existing counts
       staffCount: Number(counts.staffCount || 0),
+      activeStaffCount: Number(counts.activeStaffCount || 0),
+      inactiveStaffCount: Number(counts.inactiveStaffCount || 0),
       taskCount: Number(counts.taskCount || 0),
-      completedCount: Number(
-        counts.completedCount || 0
-      ),
-      inProgressCount: Number(
-        counts.inProgressCount || 0
-      ),
-      pendingCount: Number(
-        counts.pendingCount || 0
-      ),
-      rejectedCount: Number(
-        counts.rejectedCount || 0
-      ),
-
-      // Existing activities
+      completedCount: Number(counts.completedCount || 0),
+      inProgressCount: Number(counts.inProgressCount || 0),
+      pendingCount: Number(counts.pendingCount || 0),
+      rejectedCount: Number(counts.rejectedCount || 0),
       totalActivities: updatedActivities.length,
       activities: updatedActivities,
-
-      // On duty today
-      onDutyToday: {
-        count: onDutyResults.length,
-        staff: onDutyResults,
-      },
-
-      // Panels under work
-      panelsUnderWork: {
-        count: normalizedPanelsUnderWork.length,
-        panels: normalizedPanelsUnderWork,
-      },
-
-      // Panels off
-      panelsOff: {
-        count: panelsOffResults.length,
-        panels: panelsOffResults,
-      },
-
-      // Panels maintenance
-      panelsMaintenance: {
-        count: panelsMaintenanceResults.length,
-        panels: panelsMaintenanceResults,
-      },
-
-      // Operational summary
+      onDutyToday: { count: onDutyResults.length, staff: onDutyResults },
+      panelsUnderWork: { count: normalizedPanelsUnderWork.length, panels: normalizedPanelsUnderWork },
+      panelsOff: { count: panelsOffResults.length, panels: panelsOffResults },
+      panelsMaintenance: { count: panelsMaintenanceResults.length, panels: panelsMaintenanceResults },
       operationalSummary: {
         onDutyCount: onDutyResults.length,
-        panelsUnderWorkCount:
-          normalizedPanelsUnderWork.length,
+        panelsUnderWorkCount: normalizedPanelsUnderWork.length,
         panelsOffCount: panelsOffResults.length,
-        panelsMaintenanceCount:
-          panelsMaintenanceResults.length,
+        panelsMaintenanceCount: panelsMaintenanceResults.length,
       },
-
       serverDate,
     });
   } catch (error) {
     console.error("========================================");
     console.error("❌ DASHBOARD STATS FULL ERROR");
-    console.error(
-      "Message:",
-      error.sqlMessage ||
-        error.message ||
-        "Unknown error"
-    );
-
-    if (error.sql) {
-      console.error("Failed SQL:", error.sql);
-    }
-
+    console.error("Message:", error.sqlMessage || error.message || "Unknown error");
+    if (error.sql) console.error("Failed SQL:", error.sql);
     console.error("========================================");
-
     return res.status(500).json({
       success: false,
       error: "Failed to load dashboard statistics",
-      message:
-        error.sqlMessage ||
-        error.message ||
-        "An unexpected database error occurred.",
+      message: error.sqlMessage || error.message || "An unexpected database error occurred.",
     });
   }
 });
 
 // ======================================================
 // PUBLIC DASHBOARD DATA
-// NO AUTH
-// GET /api/activity/public-dashboard
 // ======================================================
-
 router.get("/public-dashboard", async (req, res) => {
   try {
     const activitiesQuery = `
@@ -671,7 +265,6 @@ router.get("/public-dashboard", async (req, res) => {
         ta.user_id,
         u.name AS staff_name,
         u.profile_pic,
-
         p.panel_code,
         p.panel_name,
         p.panel_type,
@@ -679,68 +272,23 @@ router.get("/public-dashboard", async (req, res) => {
         p.location AS panel_location,
         p.status AS panel_status,
         p.status_reason AS panel_status_reason
-
       FROM tasks t
-
-      LEFT JOIN task_assignments ta
-        ON t.id = ta.task_id
-
-      LEFT JOIN users u
-        ON ta.user_id = u.id
-
-      LEFT JOIN panels p
-        ON t.panel_id = p.id
-        AND p.is_deleted = 0
-
-      ORDER BY
-        t.created_at DESC,
-        t.id DESC
+      LEFT JOIN task_assignments ta ON t.id = ta.task_id
+      LEFT JOIN users u ON ta.user_id = u.id
+      LEFT JOIN panels p ON t.panel_id = p.id AND p.is_deleted = 0
+      ORDER BY t.created_at DESC, t.id DESC
     `;
 
     const data = await queryAsync(activitiesQuery);
-
-    // ==================================================
-    // GET MYSQL SERVER DATE
-    // ==================================================
-
-    const dateResults = await queryAsync(`
-      SELECT DATE_FORMAT(
-        CURDATE(),
-        '%Y-%m-%d'
-      ) AS today
-    `);
-
-    const today =
-      dateResults?.[0]?.today ||
-      new Date().toISOString().slice(0, 10);
-
-    // ==================================================
-    // FILTER TODAY'S ACTIVITIES
-    // ==================================================
+    const dateResults = await queryAsync(`SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today`);
+    const today = dateResults?.[0]?.today || new Date().toISOString().slice(0, 10);
 
     const todayData = (data || []).filter((item) => {
-      if (!item.created_at) {
-        return false;
-      }
-
-      const createdDate = new Date(item.created_at)
-        .toISOString()
-        .slice(0, 10);
-
-      return createdDate === today;
+      if (!item.created_at) return false;
+      return new Date(item.created_at).toISOString().slice(0, 10) === today;
     });
 
-    // ==================================================
-    // PENDING / NON-COMPLETED TASKS
-    // ==================================================
-
-    const pending = (data || []).filter(
-      (item) => item.status !== "Completed"
-    );
-
-    // ==================================================
-    // FINAL PUBLIC RESPONSE
-    // ==================================================
+    const pending = (data || []).filter((item) => item.status !== "Completed");
 
     return res.status(200).json({
       success: true,
@@ -750,34 +298,14 @@ router.get("/public-dashboard", async (req, res) => {
       all: data,
     });
   } catch (error) {
-    console.error("========================================");
-    console.error("❌ PUBLIC DASHBOARD ERROR");
-    console.error(
-      "Message:",
-      error.sqlMessage ||
-        error.message ||
-        "Unknown error"
-    );
-
-    if (error.sql) {
-      console.error("Failed SQL:", error.sql);
-    }
-
-    console.error("========================================");
-
+    console.error("❌ PUBLIC DASHBOARD ERROR:", error.sqlMessage || error.message || error);
+    if (error.sql) console.error("Failed SQL:", error.sql);
     return res.status(500).json({
       success: false,
       error: "Failed to load public dashboard",
-      message:
-        error.sqlMessage ||
-        error.message ||
-        "An unexpected database error occurred.",
+      message: error.sqlMessage || error.message || "An unexpected database error occurred.",
     });
   }
 });
-
-// ======================================================
-// EXPORT ROUTER
-// ======================================================
 
 module.exports = router;
