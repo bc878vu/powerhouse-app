@@ -38,19 +38,25 @@ router.get("/stats", async (req, res) => {
   try {
     const { status, category } = req.query;
 
-    // Keep dashboard staff count consistent with /api/user/all.
-    // The previous query excluded superadmin and could disagree
-    // with Staff Records. Active/inactive counts are also exposed.
-    const countQuery = `
+    // IMPORTANT: staff data must never depend on task/panel queries.
+    // If a task/panel table has a temporary schema issue, the dashboard
+    // must still be able to show staff and other independent counters.
+    const staffCountQuery = `
       SELECT
-        (SELECT COUNT(*) FROM users) AS staffCount,
-        (SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(status, 'active')) = 'active') AS activeStaffCount,
-        (SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(status, 'active')) != 'active') AS inactiveStaffCount,
-        (SELECT COUNT(*) FROM tasks) AS taskCount,
-        (SELECT COUNT(*) FROM tasks WHERE status = 'Completed') AS completedCount,
-        (SELECT COUNT(*) FROM tasks WHERE status = 'In Progress') AS inProgressCount,
-        (SELECT COUNT(*) FROM tasks WHERE status = 'Pending') AS pendingCount,
-        (SELECT COUNT(*) FROM tasks WHERE status = 'Rejected') AS rejectedCount
+        COUNT(*) AS staffCount,
+        SUM(CASE WHEN LOWER(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END) AS activeStaffCount,
+        SUM(CASE WHEN LOWER(COALESCE(status, 'active')) != 'active' THEN 1 ELSE 0 END) AS inactiveStaffCount
+      FROM users
+    `;
+
+    const taskCountQuery = `
+      SELECT
+        COUNT(*) AS taskCount,
+        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) AS completedCount,
+        SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS inProgressCount,
+        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pendingCount,
+        SUM(CASE WHEN status = 'Rejected' THEN 1 ELSE 0 END) AS rejectedCount
+      FROM tasks
     `;
 
     let activityQuery = `
@@ -170,10 +176,29 @@ router.get("/stats", async (req, res) => {
       ORDER BY status_changed_at DESC, panel_name ASC
     `;
 
-    const [countResults, activityResults] = await Promise.all([
-      queryAsync(countQuery),
+    // Run independent data sources separately. A broken task query must
+    // not turn the complete dashboard response into HTTP 500.
+    const [staffResult, taskResult, activityResult] = await Promise.allSettled([
+      queryAsync(staffCountQuery),
+      queryAsync(taskCountQuery),
       queryAsync(activityQuery, queryValues),
     ]);
+
+    const staffCounts = staffResult.status === "fulfilled" ? (staffResult.value?.[0] || {}) : {};
+    const taskCounts = taskResult.status === "fulfilled" ? (taskResult.value?.[0] || {}) : {};
+    const activityResults = activityResult.status === "fulfilled" ? activityResult.value : [];
+
+    if (staffResult.status === "rejected") {
+      console.error("❌ STAFF COUNT QUERY FAILED:", staffResult.reason?.sqlMessage || staffResult.reason?.message || staffResult.reason);
+    }
+
+    if (taskResult.status === "rejected") {
+      console.error("❌ TASK COUNT QUERY FAILED:", taskResult.reason?.sqlMessage || taskResult.reason?.message || taskResult.reason);
+    }
+
+    if (activityResult.status === "rejected") {
+      console.error("❌ ACTIVITY QUERY FAILED:", activityResult.reason?.sqlMessage || activityResult.reason?.message || activityResult.reason);
+    }
 
     const operationalResults = await Promise.allSettled([
       queryAsync(onDutyTodayQuery),
@@ -206,8 +231,6 @@ router.get("/stats", async (req, res) => {
       assigned_employee_ids: item.assigned_employee_ids ? String(item.assigned_employee_ids).split(",").filter(Boolean) : [],
     }));
 
-    const counts = countResults?.[0] || {};
-
     let serverDate = new Date().toISOString().slice(0, 10);
     try {
       const dateResults = await queryAsync(`SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS today`);
@@ -218,14 +241,14 @@ router.get("/stats", async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      staffCount: Number(counts.staffCount || 0),
-      activeStaffCount: Number(counts.activeStaffCount || 0),
-      inactiveStaffCount: Number(counts.inactiveStaffCount || 0),
-      taskCount: Number(counts.taskCount || 0),
-      completedCount: Number(counts.completedCount || 0),
-      inProgressCount: Number(counts.inProgressCount || 0),
-      pendingCount: Number(counts.pendingCount || 0),
-      rejectedCount: Number(counts.rejectedCount || 0),
+      staffCount: Number(staffCounts.staffCount || 0),
+      activeStaffCount: Number(staffCounts.activeStaffCount || 0),
+      inactiveStaffCount: Number(staffCounts.inactiveStaffCount || 0),
+      taskCount: Number(taskCounts.taskCount || 0),
+      completedCount: Number(taskCounts.completedCount || 0),
+      inProgressCount: Number(taskCounts.inProgressCount || 0),
+      pendingCount: Number(taskCounts.pendingCount || 0),
+      rejectedCount: Number(taskCounts.rejectedCount || 0),
       totalActivities: updatedActivities.length,
       activities: updatedActivities,
       onDutyToday: { count: onDutyResults.length, staff: onDutyResults },
