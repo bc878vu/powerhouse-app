@@ -195,9 +195,15 @@ const API = {
 
       if (cleanUrl === "/activity/stats" || cleanUrl === "activity/stats") {
         const backendStaffCount = Number(result?.staffCount || 0);
-        if (backendStaffCount > 0) return result;
-        const users = await getUsersFast();
-        return { ...result, staffCount: users.length || backendStaffCount };
+        const users = backendStaffCount > 0 ? null : await getUsersFast();
+        const normalizedResult = {
+          ...(result || {}),
+          staffCount: users ? (users.length || backendStaffCount) : backendStaffCount
+        };
+        // Dashboard.jsx historically consumes axios-style `response.data`,
+        // while some other screens consume the response object directly.
+        // Return both shapes so the staff fallback is never lost.
+        return { ...normalizedResult, data: normalizedResult };
       }
 
       if (cleanUrl.startsWith("/tools/user/") || cleanUrl.startsWith("tools/user/")) {
