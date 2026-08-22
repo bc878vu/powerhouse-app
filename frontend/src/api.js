@@ -43,7 +43,7 @@ const mergeUsers = (primary, legacy) => {
     if (!key) return;
     map.set(key, { ...(map.get(key) || {}), ...user });
   });
-  return [...map.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return [...map.values()];
 };
 
 const withTimeout = (promise, ms, message = "Request timed out") => {
@@ -56,7 +56,7 @@ const withTimeout = (promise, ms, message = "Request timed out") => {
 
 const legacyGet = async (path) => {
   const base = getLegacyBase();
-  if (!base) return null;
+  if (!base) throw new Error("VITE_API_URL is not configured");
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), LEGACY_TIMEOUT) : null;
   try {
@@ -83,21 +83,23 @@ const getUsersFast = async () => {
   if (userCache.promise) return userCache.promise;
 
   userCache.promise = (async () => {
-    // IMPORTANT: use the indexed MySQL staff endpoint first. The old Firebase
-    // collection read was able to pull a large collection into the browser and
-    // freeze the main thread. Firebase is now only the fallback.
+    // Staff data has a single authoritative source: the fast MySQL API.
+    // Do NOT fall back merely because the result is empty. An empty MySQL
+    // result is valid and falling through to a full Firestore collection read
+    // was the main cause of staff pages becoming unresponsive.
     try {
       const legacyUsers = unwrapUsers(await legacyGet("/user/all"));
-      if (legacyUsers.length) {
-        const users = mergeUsers([], legacyUsers);
-        userCache.data = users;
-        userCache.at = Date.now();
-        return users;
-      }
+      const users = legacyUsers.map(normalizeUser);
+      userCache.data = users;
+      userCache.at = Date.now();
+      return users;
     } catch (legacyError) {
       console.warn("Fast staff API unavailable; using Firebase fallback.", legacyError?.message || legacyError);
     }
 
+    // Firebase remains a bounded emergency fallback only when the MySQL API
+    // actually fails. The request is hard-limited so a broken network cannot
+    // keep the UI waiting indefinitely.
     try {
       const firebaseUsers = unwrapUsers(await withTimeout(
         requestFirebase("GET", "/user/all"),
