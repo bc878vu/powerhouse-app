@@ -1,8 +1,9 @@
-import { requestFirebase } from "./services/firebaseDataStore";
+import { requestFirebase, listUsers } from "./services/firebaseDataStore";
 
-const CACHE_TTL = 30000;
-const REQUEST_TIMEOUT = 5000;
-const LEGACY_TIMEOUT = 2500;
+const CACHE_TTL = 60000;
+const REQUEST_TIMEOUT = 15000;
+const LEGACY_TIMEOUT = 2000;
+const USER_STORAGE_KEY = "powerhouse_staff_cache_v2";
 const userCache = { data: null, at: 0, promise: null };
 
 const getLegacyBase = () => {
@@ -54,6 +55,34 @@ const withTimeout = (promise, ms, message = "Request timed out") => {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
+const readStoredUsers = () => {
+  try {
+    if (typeof window === "undefined") return [];
+    const parsed = JSON.parse(window.localStorage.getItem(USER_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(normalizeUser).filter((user) => user.id || user.uid) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredUsers = (users) => {
+  try {
+    if (typeof window !== "undefined" && Array.isArray(users) && users.length) {
+      window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(users));
+    }
+  } catch {
+    // Storage is an optimization only; never block staff loading.
+  }
+};
+
+const saveUsers = (users) => {
+  const normalized = users.map(normalizeUser).filter((user) => user.id || user.uid);
+  userCache.data = normalized;
+  userCache.at = Date.now();
+  if (normalized.length) writeStoredUsers(normalized);
+  return normalized;
+};
+
 const legacyGet = async (path) => {
   const base = getLegacyBase();
   if (!base) throw new Error("VITE_API_URL is not configured");
@@ -82,36 +111,59 @@ const getUsersFast = async () => {
   if (userCache.data && Date.now() - userCache.at < CACHE_TTL) return userCache.data;
   if (userCache.promise) return userCache.promise;
 
-  userCache.promise = (async () => {
-    try {
-      const legacyUsers = unwrapUsers(await legacyGet("/user/all"));
-      const users = legacyUsers.map(normalizeUser);
-      userCache.data = users;
+  // Rehydrate immediately from the last successful Firebase read. This keeps
+  // Assign Task, Staff Duty and Dashboard usable while Firebase wakes up.
+  if (!userCache.data) {
+    const stored = readStoredUsers();
+    if (stored.length) {
+      userCache.data = stored;
       userCache.at = Date.now();
-      return users;
-    } catch (legacyError) {
-      console.warn("Fast staff API unavailable; using Firebase fallback.", legacyError?.message || legacyError);
+    }
+  }
+
+  userCache.promise = (async () => {
+    // Legacy API is optional. Do not make the primary Firebase path wait for it.
+    if (getLegacyBase()) {
+      try {
+        const legacyUsers = unwrapUsers(await legacyGet("/user/all"));
+        if (legacyUsers.length) return saveUsers(legacyUsers);
+      } catch (legacyError) {
+        console.warn("Legacy staff API unavailable; using Firebase.", legacyError?.message || legacyError);
+      }
     }
 
+    // Use the native Firestore users collection directly. This avoids an extra
+    // route-dispatch layer and is the authoritative source for staff records.
+    try {
+      const directUsers = await withTimeout(
+        listUsers(),
+        REQUEST_TIMEOUT,
+        "Firebase user list timed out"
+      );
+      if (Array.isArray(directUsers) && directUsers.length) return saveUsers(directUsers);
+      if (Array.isArray(directUsers) && directUsers.length === 0) {
+        // An authoritative empty collection is valid, but don't destroy a
+        // previously known staff list during a transient empty response.
+        return userCache.data || [];
+      }
+    } catch (directError) {
+      console.warn("Direct Firebase staff list unavailable.", directError?.message || directError);
+    }
+
+    // Keep the route-based Firebase fallback for compatibility with older
+    // deployments, but never replace known staff with an empty array.
     try {
       const firebaseUsers = unwrapUsers(await withTimeout(
         requestFirebase("GET", "/user/all"),
         REQUEST_TIMEOUT,
-        "Firebase user list timed out"
+        "Firebase user list route timed out"
       ));
-      const users = mergeUsers(firebaseUsers, []);
-      userCache.data = users;
-      userCache.at = Date.now();
-      return users;
+      if (firebaseUsers.length) return saveUsers(firebaseUsers);
     } catch (firebaseError) {
-      console.warn("Firebase user list unavailable.", firebaseError?.message || firebaseError);
-      // Do not permanently treat a temporary user-list failure as an empty
-      // staff directory. Returning [] without caching lets the next request
-      // retry instead of freezing the dashboard at STAFF = 0.
-      userCache.data = null;
-      userCache.at = 0;
-      return [];
+      console.warn("Firebase user list route unavailable.", firebaseError?.message || firebaseError);
     }
+
+    return userCache.data || readStoredUsers();
   })().finally(() => {
     userCache.promise = null;
   });
@@ -154,22 +206,14 @@ const API = {
       }
 
       if (cleanUrl === "/duty/summary" || cleanUrl === "duty/summary") {
-        // Prefer the authoritative backend count when it is already present.
-        // Only perform the user-list lookup when the backend did not return it.
         if (Number(result?.totalStaff || 0) > 0) return result;
         const users = await getUsersFast();
         return { ...result, totalStaff: users.length || Number(result?.totalStaff || 0) };
       }
 
       if (cleanUrl === "/activity/stats" || cleanUrl === "activity/stats") {
-        // The dashboard backend already calculates staffCount directly from
-        // the users table. Never overwrite a valid backend count with 0 just
-        // because the optional client-side user cache is temporarily empty.
         const backendStaffCount = Number(result?.staffCount || 0);
-        if (backendStaffCount > 0) {
-          return result;
-        }
-
+        if (backendStaffCount > 0) return result;
         const users = await getUsersFast();
         return { ...result, staffCount: users.length || backendStaffCount };
       }
