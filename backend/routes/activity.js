@@ -56,19 +56,18 @@ router.get("/stats", async (req, res) => {
       FROM tasks
     `;
 
-    // Use current assignments first, but fall back to the latest assignment
-    // history cycle when an old task has a missing task_assignments row.
-    // This prevents the dashboard from incorrectly displaying "Unassigned"
-    // for tasks that still have a valid assignment history.
+    // Current assignments are preferred. If an older task lost its
+    // task_assignments row, the latest assignment-history cycle restores
+    // the staff identity so the dashboard does not show "Unassigned".
     const assignmentSummaryQuery = `
       SELECT
         x.task_id,
-        GROUP_CONCAT(DISTINCT x.user_id ORDER BY x.user_id SEPARATOR ',') AS assigned_user_ids,
-        GROUP_CONCAT(DISTINCT COALESCE(u.name, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_names,
-        GROUP_CONCAT(DISTINCT COALESCE(u.email, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_emails,
-        GROUP_CONCAT(DISTINCT COALESCE(u.role, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_roles,
-        GROUP_CONCAT(DISTINCT COALESCE(u.profile_pic, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_profile_pics,
-        GROUP_CONCAT(DISTINCT COALESCE(u.employeeID, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_employee_ids
+        GROUP_CONCAT(x.user_id ORDER BY x.user_id SEPARATOR ',') AS assigned_user_ids,
+        GROUP_CONCAT(COALESCE(u.name, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_names,
+        GROUP_CONCAT(COALESCE(u.email, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_emails,
+        GROUP_CONCAT(COALESCE(u.role, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_roles,
+        GROUP_CONCAT(COALESCE(u.profile_pic, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_profile_pics,
+        GROUP_CONCAT(COALESCE(u.employeeID, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_employee_ids
       FROM (
         SELECT DISTINCT ta.task_id, ta.user_id
         FROM task_assignments ta
@@ -267,15 +266,15 @@ router.get("/stats", async (req, res) => {
           : [];
 
       const assignedStaffEmails = activity.assigned_staff_emails
-        ? String(activity.assigned_staff_emails).split("||")
+        ? String(activity.assigned_staff_emails).split("||").filter(Boolean)
         : [];
 
       const assignedStaffRoles = activity.assigned_staff_roles
-        ? String(activity.assigned_staff_roles).split("||")
+        ? String(activity.assigned_staff_roles).split("||").filter(Boolean)
         : [];
 
       const assignedEmployeeIds = activity.assigned_employee_ids
-        ? String(activity.assigned_employee_ids).split("||")
+        ? String(activity.assigned_employee_ids).split("||").filter(Boolean)
         : [];
 
       return {
@@ -298,6 +297,13 @@ router.get("/stats", async (req, res) => {
         media: parseMedia(activity.file_url),
       };
     });
+
+    const normalizedPanelsUnderWork = (panelsUnderWorkResults || []).map((item) => ({
+      ...item,
+      assigned_user_ids: item.assigned_user_ids ? String(item.assigned_user_ids).split(",").filter(Boolean) : [],
+      assigned_staff_names: item.assigned_staff_names ? String(item.assigned_staff_names).split(", ").filter(Boolean) : [],
+      assigned_employee_ids: item.assigned_employee_ids ? String(item.assigned_employee_ids).split(",").filter(Boolean) : [],
+    }));
 
     let serverDate = new Date().toISOString().slice(0, 10);
     try {
