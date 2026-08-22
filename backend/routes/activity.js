@@ -38,9 +38,6 @@ router.get("/stats", async (req, res) => {
   try {
     const { status, category } = req.query;
 
-    // IMPORTANT: staff data must never depend on task/panel queries.
-    // If a task/panel table has a temporary schema issue, the dashboard
-    // must still be able to show staff and other independent counters.
     const staffCountQuery = `
       SELECT
         COUNT(*) AS staffCount,
@@ -59,6 +56,39 @@ router.get("/stats", async (req, res) => {
       FROM tasks
     `;
 
+    // Use current assignments first, but fall back to the latest assignment
+    // history cycle when an old task has a missing task_assignments row.
+    // This prevents the dashboard from incorrectly displaying "Unassigned"
+    // for tasks that still have a valid assignment history.
+    const assignmentSummaryQuery = `
+      SELECT
+        x.task_id,
+        GROUP_CONCAT(DISTINCT x.user_id ORDER BY x.user_id SEPARATOR ',') AS assigned_user_ids,
+        GROUP_CONCAT(DISTINCT COALESCE(u.name, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_names,
+        GROUP_CONCAT(DISTINCT COALESCE(u.email, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_emails,
+        GROUP_CONCAT(DISTINCT COALESCE(u.role, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_staff_roles,
+        GROUP_CONCAT(DISTINCT COALESCE(u.profile_pic, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_profile_pics,
+        GROUP_CONCAT(DISTINCT COALESCE(u.employeeID, '') ORDER BY x.user_id SEPARATOR '||') AS assigned_employee_ids
+      FROM (
+        SELECT DISTINCT ta.task_id, ta.user_id
+        FROM task_assignments ta
+
+        UNION
+
+        SELECT DISTINCT h.task_id, h.user_id
+        FROM task_assignment_history h
+        INNER JOIN (
+          SELECT task_id, MAX(assignment_cycle) AS max_cycle
+          FROM task_assignment_history
+          GROUP BY task_id
+        ) latest
+          ON latest.task_id = h.task_id
+         AND latest.max_cycle = h.assignment_cycle
+      ) x
+      LEFT JOIN users u ON u.id = x.user_id
+      GROUP BY x.task_id
+    `;
+
     let activityQuery = `
       SELECT
         t.id,
@@ -72,10 +102,16 @@ router.get("/stats", async (req, res) => {
         t.panel_id,
         t.file_url,
         IFNULL(t.rejection_reason, '') AS rejection_reason,
-        u.name AS staff_name,
-        u.profile_pic,
-        u.employeeID AS staff_employee_id,
-        ta.user_id,
+        assignment_summary.assigned_user_ids,
+        assignment_summary.assigned_staff_names,
+        assignment_summary.assigned_staff_emails,
+        assignment_summary.assigned_staff_roles,
+        assignment_summary.assigned_profile_pics,
+        assignment_summary.assigned_employee_ids,
+        NULLIF(SUBSTRING_INDEX(assignment_summary.assigned_staff_names, '||', 1), '') AS staff_name,
+        NULLIF(SUBSTRING_INDEX(assignment_summary.assigned_profile_pics, '||', 1), '') AS profile_pic,
+        NULLIF(SUBSTRING_INDEX(assignment_summary.assigned_employee_ids, '||', 1), '') AS staff_employee_id,
+        NULLIF(SUBSTRING_INDEX(assignment_summary.assigned_user_ids, ',', 1), '') AS user_id,
         p.panel_code,
         p.panel_name,
         p.panel_type,
@@ -84,8 +120,8 @@ router.get("/stats", async (req, res) => {
         p.status AS panel_status,
         p.status_reason AS panel_status_reason
       FROM tasks t
-      LEFT JOIN task_assignments ta ON t.id = ta.task_id
-      LEFT JOIN users u ON ta.user_id = u.id
+      LEFT JOIN (${assignmentSummaryQuery}) assignment_summary
+        ON t.id = assignment_summary.task_id
       LEFT JOIN panels p ON t.panel_id = p.id AND p.is_deleted = 0
     `;
 
@@ -176,8 +212,6 @@ router.get("/stats", async (req, res) => {
       ORDER BY status_changed_at DESC, panel_name ASC
     `;
 
-    // Run independent data sources separately. A broken task query must
-    // not turn the complete dashboard response into HTTP 500.
     const [staffResult, taskResult, activityResult] = await Promise.allSettled([
       queryAsync(staffCountQuery),
       queryAsync(taskCountQuery),
@@ -219,17 +253,51 @@ router.get("/stats", async (req, res) => {
       }
     });
 
-    const updatedActivities = (activityResults || []).map((activity) => ({
-      ...activity,
-      media: parseMedia(activity.file_url),
-    }));
+    const updatedActivities = (activityResults || []).map((activity) => {
+      const assignedUserIds = activity.assigned_user_ids
+        ? String(activity.assigned_user_ids).split(",").filter(Boolean)
+        : activity.user_id
+          ? [String(activity.user_id)]
+          : [];
 
-    const normalizedPanelsUnderWork = (panelsUnderWorkResults || []).map((item) => ({
-      ...item,
-      assigned_user_ids: item.assigned_user_ids ? String(item.assigned_user_ids).split(",").filter(Boolean) : [],
-      assigned_staff_names: item.assigned_staff_names ? String(item.assigned_staff_names).split(", ").filter(Boolean) : [],
-      assigned_employee_ids: item.assigned_employee_ids ? String(item.assigned_employee_ids).split(",").filter(Boolean) : [],
-    }));
+      const assignedStaffNames = activity.assigned_staff_names
+        ? String(activity.assigned_staff_names).split("||").filter(Boolean)
+        : activity.staff_name
+          ? [activity.staff_name]
+          : [];
+
+      const assignedStaffEmails = activity.assigned_staff_emails
+        ? String(activity.assigned_staff_emails).split("||")
+        : [];
+
+      const assignedStaffRoles = activity.assigned_staff_roles
+        ? String(activity.assigned_staff_roles).split("||")
+        : [];
+
+      const assignedEmployeeIds = activity.assigned_employee_ids
+        ? String(activity.assigned_employee_ids).split("||")
+        : [];
+
+      return {
+        ...activity,
+        user_id: assignedUserIds[0] || activity.user_id || null,
+        staff_name: assignedStaffNames[0] || activity.staff_name || null,
+        profile_pic: activity.profile_pic || null,
+        assigned_user_ids: assignedUserIds,
+        assigned_staff_names: assignedStaffNames,
+        assigned_staff_emails: assignedStaffEmails,
+        assigned_staff_roles: assignedStaffRoles,
+        assigned_employee_ids: assignedEmployeeIds,
+        assigned_users: assignedUserIds.map((userId, index) => ({
+          user_id: userId,
+          name: assignedStaffNames[index] || null,
+          email: assignedStaffEmails[index] || null,
+          role: assignedStaffRoles[index] || null,
+          employee_id: assignedEmployeeIds[index] || null,
+        })),
+        media: parseMedia(activity.file_url),
+      };
+    });
 
     let serverDate = new Date().toISOString().slice(0, 10);
     try {
