@@ -37,16 +37,6 @@ const normalizeUser = (user) => ({
   profile_pic: user?.profile_pic || user?.profilePic || user?.profile_image || ""
 });
 
-const mergeUsers = (primary, legacy) => {
-  const map = new Map();
-  [...legacy, ...primary].map(normalizeUser).forEach((user) => {
-    const key = user.id || user.uid || user.email.toLowerCase();
-    if (!key) return;
-    map.set(key, { ...(map.get(key) || {}), ...user });
-  });
-  return [...map.values()];
-};
-
 const withTimeout = (promise, ms, message = "Request timed out") => {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -107,22 +97,10 @@ const invalidateUsers = () => {
   userCache.promise = null;
 };
 
-const getUsersFast = async () => {
-  if (userCache.data && Date.now() - userCache.at < CACHE_TTL) return userCache.data;
+const refreshUsers = async () => {
   if (userCache.promise) return userCache.promise;
 
-  // Rehydrate immediately from the last successful Firebase read. This keeps
-  // Assign Task, Staff Duty and Dashboard usable while Firebase wakes up.
-  if (!userCache.data) {
-    const stored = readStoredUsers();
-    if (stored.length) {
-      userCache.data = stored;
-      userCache.at = Date.now();
-    }
-  }
-
   userCache.promise = (async () => {
-    // Legacy API is optional. Do not make the primary Firebase path wait for it.
     if (getLegacyBase()) {
       try {
         const legacyUsers = unwrapUsers(await legacyGet("/user/all"));
@@ -132,26 +110,14 @@ const getUsersFast = async () => {
       }
     }
 
-    // Use the native Firestore users collection directly. This avoids an extra
-    // route-dispatch layer and is the authoritative source for staff records.
     try {
-      const directUsers = await withTimeout(
-        listUsers(),
-        REQUEST_TIMEOUT,
-        "Firebase user list timed out"
-      );
+      const directUsers = await withTimeout(listUsers(), REQUEST_TIMEOUT, "Firebase user list timed out");
       if (Array.isArray(directUsers) && directUsers.length) return saveUsers(directUsers);
-      if (Array.isArray(directUsers) && directUsers.length === 0) {
-        // An authoritative empty collection is valid, but don't destroy a
-        // previously known staff list during a transient empty response.
-        return userCache.data || [];
-      }
+      if (Array.isArray(directUsers) && directUsers.length === 0) return userCache.data || [];
     } catch (directError) {
       console.warn("Direct Firebase staff list unavailable.", directError?.message || directError);
     }
 
-    // Keep the route-based Firebase fallback for compatibility with older
-    // deployments, but never replace known staff with an empty array.
     try {
       const firebaseUsers = unwrapUsers(await withTimeout(
         requestFirebase("GET", "/user/all"),
@@ -169,6 +135,22 @@ const getUsersFast = async () => {
   });
 
   return userCache.promise;
+};
+
+const getUsersFast = async () => {
+  // Seed the in-memory cache from the last successful browser session first.
+  // This makes Assign Task/Dashboard render staff immediately instead of
+  // waiting for a slow Firebase cold start.
+  if (!userCache.data) {
+    const stored = readStoredUsers();
+    if (stored.length) {
+      userCache.data = stored;
+      userCache.at = Date.now();
+    }
+  }
+
+  if (userCache.data && Date.now() - userCache.at < CACHE_TTL) return userCache.data;
+  return refreshUsers();
 };
 
 const firebaseRequest = (method, url, data, params = {}) =>
