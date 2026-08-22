@@ -83,10 +83,6 @@ const getUsersFast = async () => {
   if (userCache.promise) return userCache.promise;
 
   userCache.promise = (async () => {
-    // Staff data has a single authoritative source: the fast MySQL API.
-    // Do NOT fall back merely because the result is empty. An empty MySQL
-    // result is valid and falling through to a full Firestore collection read
-    // was the main cause of staff pages becoming unresponsive.
     try {
       const legacyUsers = unwrapUsers(await legacyGet("/user/all"));
       const users = legacyUsers.map(normalizeUser);
@@ -97,9 +93,6 @@ const getUsersFast = async () => {
       console.warn("Fast staff API unavailable; using Firebase fallback.", legacyError?.message || legacyError);
     }
 
-    // Firebase remains a bounded emergency fallback only when the MySQL API
-    // actually fails. The request is hard-limited so a broken network cannot
-    // keep the UI waiting indefinitely.
     try {
       const firebaseUsers = unwrapUsers(await withTimeout(
         requestFirebase("GET", "/user/all"),
@@ -112,8 +105,11 @@ const getUsersFast = async () => {
       return users;
     } catch (firebaseError) {
       console.warn("Firebase user list unavailable.", firebaseError?.message || firebaseError);
-      userCache.data = [];
-      userCache.at = Date.now();
+      // Do not permanently treat a temporary user-list failure as an empty
+      // staff directory. Returning [] without caching lets the next request
+      // retry instead of freezing the dashboard at STAFF = 0.
+      userCache.data = null;
+      userCache.at = 0;
       return [];
     }
   })().finally(() => {
@@ -158,14 +154,24 @@ const API = {
       }
 
       if (cleanUrl === "/duty/summary" || cleanUrl === "duty/summary") {
+        // Prefer the authoritative backend count when it is already present.
+        // Only perform the user-list lookup when the backend did not return it.
         if (Number(result?.totalStaff || 0) > 0) return result;
         const users = await getUsersFast();
-        return { ...result, totalStaff: users.length };
+        return { ...result, totalStaff: users.length || Number(result?.totalStaff || 0) };
       }
 
       if (cleanUrl === "/activity/stats" || cleanUrl === "activity/stats") {
+        // The dashboard backend already calculates staffCount directly from
+        // the users table. Never overwrite a valid backend count with 0 just
+        // because the optional client-side user cache is temporarily empty.
+        const backendStaffCount = Number(result?.staffCount || 0);
+        if (backendStaffCount > 0) {
+          return result;
+        }
+
         const users = await getUsersFast();
-        return { ...result, staffCount: users.length };
+        return { ...result, staffCount: users.length || backendStaffCount };
       }
 
       if (cleanUrl.startsWith("/tools/user/") || cleanUrl.startsWith("tools/user/")) {
