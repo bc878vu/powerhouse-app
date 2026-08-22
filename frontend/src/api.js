@@ -57,10 +57,8 @@ const withTimeout = (promise, ms, message = "Request timed out") => {
 const legacyGet = async (path) => {
   const base = getLegacyBase();
   if (!base) return null;
-
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), LEGACY_TIMEOUT) : null;
-
   try {
     const response = await fetch(`${base}/api${path}`, {
       headers: { Accept: "application/json" },
@@ -85,34 +83,37 @@ const getUsersFast = async () => {
   if (userCache.promise) return userCache.promise;
 
   userCache.promise = (async () => {
-    let firebaseUsers = [];
-    let legacyUsers = [];
+    // IMPORTANT: use the indexed MySQL staff endpoint first. The old Firebase
+    // collection read was able to pull a large collection into the browser and
+    // freeze the main thread. Firebase is now only the fallback.
+    try {
+      const legacyUsers = unwrapUsers(await legacyGet("/user/all"));
+      if (legacyUsers.length) {
+        const users = mergeUsers([], legacyUsers);
+        userCache.data = users;
+        userCache.at = Date.now();
+        return users;
+      }
+    } catch (legacyError) {
+      console.warn("Fast staff API unavailable; using Firebase fallback.", legacyError?.message || legacyError);
+    }
 
     try {
-      firebaseUsers = unwrapUsers(await withTimeout(
+      const firebaseUsers = unwrapUsers(await withTimeout(
         requestFirebase("GET", "/user/all"),
         REQUEST_TIMEOUT,
         "Firebase user list timed out"
       ));
+      const users = mergeUsers(firebaseUsers, []);
+      userCache.data = users;
+      userCache.at = Date.now();
+      return users;
     } catch (firebaseError) {
       console.warn("Firebase user list unavailable.", firebaseError?.message || firebaseError);
+      userCache.data = [];
+      userCache.at = Date.now();
+      return [];
     }
-
-    // Only hit the legacy API when Firebase is unavailable. This prevents two
-    // full user reads on every page load and avoids a slow legacy server
-    // blocking the main UI during normal Firebase operation.
-    if (!firebaseUsers.length) {
-      try {
-        legacyUsers = unwrapUsers(await legacyGet("/user/all"));
-      } catch (legacyError) {
-        console.warn("Legacy user list unavailable.", legacyError?.message || legacyError);
-      }
-    }
-
-    const merged = mergeUsers(firebaseUsers, legacyUsers);
-    userCache.data = merged;
-    userCache.at = Date.now();
-    return merged;
   })().finally(() => {
     userCache.promise = null;
   });
