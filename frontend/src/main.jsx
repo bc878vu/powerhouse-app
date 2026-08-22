@@ -86,16 +86,11 @@ if (typeof window !== "undefined") {
   setTimeout(() => observer.takeRecords(), 0);
 }
 
-// Optional-media task compatibility + Staff Records presentation polish.
-// This is intentionally a UI compatibility layer so the existing task API,
-// assignment history and real attachments remain unchanged.
+// Optional-media task compatibility. This keeps attachments optional without
+// changing the existing task API, assignment history, or real uploads.
 if (typeof window !== "undefined") {
   const OPTIONAL_MEDIA_FILE = "__POWERHOUSE_NO_MEDIA__.txt";
 
-  // The task form previously blocked submit/edit when no attachment existed.
-  // On an attachment-free submit we add an internal zero-byte placeholder,
-  // let React process the input change, and immediately resubmit. FormData
-  // below ignores this placeholder, so the backend receives no media file.
   if (!window.__POWERHOUSE_OPTIONAL_MEDIA_PATCH__) {
     const nativeAppend = FormData.prototype.append;
 
@@ -125,8 +120,6 @@ if (typeof window !== "undefined") {
     }
 
     form.dataset.optionalMediaReady = "1";
-
-    // Make the page clearer without changing the existing task controls.
     document.title = "Assign Task | PowerHouse";
 
     form.addEventListener("submit", (event) => {
@@ -157,8 +150,6 @@ if (typeof window !== "undefined") {
         }, 120);
       } catch (error) {
         console.warn("Optional-media compatibility failed:", error);
-        // Do not prevent the normal submit if the browser cannot create a
-        // DataTransfer/File object.
         form.dataset.optionalMediaReady = "0";
       }
     }, true);
@@ -169,48 +160,8 @@ if (typeof window !== "undefined") {
     subtree: true
   });
 
-  // Staff Records: show a clean sequential row number instead of exposing
-  // raw database/Firebase IDs in the table. The real ID remains available in
-  // View Details/edit actions and is never changed in the database.
-  const staffObserver = new MutationObserver(() => {
-    if (window.location.pathname !== "/staff-records") return;
-
-    const tables = Array.from(document.querySelectorAll("table"));
-
-    for (const table of tables) {
-      const headerCells = Array.from(table.querySelectorAll("thead th"));
-      if (!headerCells.length) continue;
-
-      const idHeader = headerCells.find((cell) =>
-        /^\s*ID\s*$/i.test(cell.textContent || "")
-      );
-
-      if (idHeader) {
-        idHeader.textContent = "No.";
-        idHeader.classList.add("text-center");
-      }
-
-      const rows = Array.from(table.querySelectorAll("tbody tr"));
-      rows.forEach((row, index) => {
-        const firstCell = row.querySelector("td");
-        if (!firstCell) return;
-
-        const number = String(index + 1).padStart(2, "0");
-        firstCell.textContent = number;
-        firstCell.classList.add("text-center", "font-black", "text-yellow-400");
-        firstCell.title = `Staff record ${index + 1}`;
-      });
-    }
-  });
-
-  staffObserver.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-
   window.addEventListener("load", () => {
     taskObserver.takeRecords();
-    staffObserver.takeRecords();
   }, { once: true });
 }
 
