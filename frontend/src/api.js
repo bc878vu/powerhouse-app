@@ -1,6 +1,8 @@
 import { requestFirebase } from "./services/firebaseDataStore";
 
 const CACHE_TTL = 30000;
+const REQUEST_TIMEOUT = 5000;
+const LEGACY_TIMEOUT = 2500;
 const userCache = { data: null, at: 0, promise: null };
 
 const getLegacyBase = () => {
@@ -44,15 +46,32 @@ const mergeUsers = (primary, legacy) => {
   return [...map.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
 };
 
+const withTimeout = (promise, ms, message = "Request timed out") => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
 const legacyGet = async (path) => {
   const base = getLegacyBase();
   if (!base) return null;
-  const response = await fetch(`${base}/api${path}`, {
-    headers: { Accept: "application/json" },
-    credentials: "include"
-  });
-  if (!response.ok) throw new Error(`Legacy API ${response.status}`);
-  return response.json();
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), LEGACY_TIMEOUT) : null;
+
+  try {
+    const response = await fetch(`${base}/api${path}`, {
+      headers: { Accept: "application/json" },
+      credentials: "include",
+      signal: controller?.signal
+    });
+    if (!response.ok) throw new Error(`Legacy API ${response.status}`);
+    return response.json();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 };
 
 const invalidateUsers = () => {
@@ -66,27 +85,30 @@ const getUsersFast = async () => {
   if (userCache.promise) return userCache.promise;
 
   userCache.promise = (async () => {
-    const [firebaseResult, legacyResult] = await Promise.allSettled([
-      requestFirebase("GET", "/user/all"),
-      legacyGet("/user/all")
-    ]);
+    let firebaseUsers = [];
+    let legacyUsers = [];
 
-    const firebaseUsers = firebaseResult.status === "fulfilled"
-      ? unwrapUsers(firebaseResult.value)
-      : [];
-    const legacyUsers = legacyResult.status === "fulfilled"
-      ? unwrapUsers(legacyResult.value)
-      : [];
-
-    if (firebaseResult.status === "rejected") {
-      console.warn("Firebase user list unavailable; using legacy user API.", firebaseResult.reason?.message || firebaseResult.reason);
-    }
-    if (legacyResult.status === "rejected" && legacyUsers.length === 0) {
-      console.warn("Legacy user list unavailable.", legacyResult.reason?.message || legacyResult.reason);
+    try {
+      firebaseUsers = unwrapUsers(await withTimeout(
+        requestFirebase("GET", "/user/all"),
+        REQUEST_TIMEOUT,
+        "Firebase user list timed out"
+      ));
+    } catch (firebaseError) {
+      console.warn("Firebase user list unavailable.", firebaseError?.message || firebaseError);
     }
 
-    // Merge both sources so older MySQL staff and Firebase-first staff all
-    // remain visible while the migration is being completed.
+    // Only hit the legacy API when Firebase is unavailable. This prevents two
+    // full user reads on every page load and avoids a slow legacy server
+    // blocking the main UI during normal Firebase operation.
+    if (!firebaseUsers.length) {
+      try {
+        legacyUsers = unwrapUsers(await legacyGet("/user/all"));
+      } catch (legacyError) {
+        console.warn("Legacy user list unavailable.", legacyError?.message || legacyError);
+      }
+    }
+
     const merged = mergeUsers(firebaseUsers, legacyUsers);
     userCache.data = merged;
     userCache.at = Date.now();
@@ -98,19 +120,24 @@ const getUsersFast = async () => {
   return userCache.promise;
 };
 
+const firebaseRequest = (method, url, data, params = {}) =>
+  withTimeout(
+    requestFirebase(method, url, data, params),
+    REQUEST_TIMEOUT,
+    `Request timed out: ${method} ${url}`
+  );
+
 const API = {
   get: async (url, config = {}) => {
     const cleanUrl = String(url || "").split("?")[0];
 
     if (cleanUrl === "/user/all" || cleanUrl === "user/all") {
       const users = await getUsersFast();
-      // Keep the response compatible with both legacy Axios-style pages and
-      // newer Firebase-first pages.
       return { data: users, users };
     }
 
     try {
-      const result = await requestFirebase("GET", url, undefined, config?.params || {});
+      const result = await firebaseRequest("GET", url, undefined, config?.params || {});
 
       if (cleanUrl.startsWith("/user/") || cleanUrl.startsWith("user/")) {
         const id = cleanUrl.split("/")[2];
@@ -162,21 +189,21 @@ const API = {
   },
 
   post: async (url, data, config = {}) => {
-    const result = await requestFirebase("POST", url, data, config?.params || {});
+    const result = await firebaseRequest("POST", url, data, config?.params || {});
     if (String(url).includes("/user")) invalidateUsers();
     return result;
   },
 
   put: async (url, data, config = {}) => {
-    const result = await requestFirebase("PUT", url, data, config?.params || {});
+    const result = await firebaseRequest("PUT", url, data, config?.params || {});
     if (String(url).includes("/user/")) invalidateUsers();
     return result;
   },
 
-  patch: (url, data, config = {}) => requestFirebase("PATCH", url, data, config?.params || {}),
+  patch: (url, data, config = {}) => firebaseRequest("PATCH", url, data, config?.params || {}),
 
   delete: async (url, config = {}) => {
-    const result = await requestFirebase("DELETE", url, undefined, config?.params || {});
+    const result = await firebaseRequest("DELETE", url, undefined, config?.params || {});
     if (String(url).includes("/user/")) invalidateUsers();
     return result;
   }
