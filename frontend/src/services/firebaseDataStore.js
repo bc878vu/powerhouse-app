@@ -27,6 +27,20 @@ const toolsRef = collection(db, "tools");
 const categoriesRef = collection(db, "categories");
 const activitiesRef = collection(db, "activities");
 
+const READ_CACHE_TTL = 10000;
+let usersCache = null;
+let usersCacheAt = 0;
+let usersPromise = null;
+let dutiesCache = null;
+let dutiesCacheAt = 0;
+let dutiesPromise = null;
+let tasksCache = null;
+let tasksCacheAt = 0;
+let tasksPromise = null;
+let toolsCache = null;
+let toolsCacheAt = 0;
+let toolsPromise = null;
+
 const clean = (value) => {
   if (value && typeof value.toDate === "function") return value.toDate().toISOString();
   if (Array.isArray(value)) return value.map(clean);
@@ -58,6 +72,52 @@ async function findById(refCollection, id) {
 async function allDocs(refCollection) {
   const snap = await getDocs(refCollection);
   return snap.docs.map(fromDoc);
+}
+
+function invalidateUsers() {
+  usersCache = null;
+  usersCacheAt = 0;
+}
+
+function invalidateDuties() {
+  dutiesCache = null;
+  dutiesCacheAt = 0;
+}
+
+function invalidateTasks() {
+  tasksCache = null;
+  tasksCacheAt = 0;
+}
+
+function invalidateTools() {
+  toolsCache = null;
+  toolsCacheAt = 0;
+}
+
+async function listDuties() {
+  if (dutiesCache && Date.now() - dutiesCacheAt < READ_CACHE_TTL) return dutiesCache;
+  if (dutiesPromise) return dutiesPromise;
+  dutiesPromise = allDocs(dutiesRef)
+    .then((items) => {
+      dutiesCache = items;
+      dutiesCacheAt = Date.now();
+      return items;
+    })
+    .finally(() => { dutiesPromise = null; });
+  return dutiesPromise;
+}
+
+async function listTools() {
+  if (toolsCache && Date.now() - toolsCacheAt < READ_CACHE_TTL) return toolsCache;
+  if (toolsPromise) return toolsPromise;
+  toolsPromise = allDocs(toolsRef)
+    .then((items) => {
+      toolsCache = items;
+      toolsCacheAt = Date.now();
+      return items;
+    })
+    .finally(() => { toolsPromise = null; });
+  return toolsPromise;
 }
 
 async function uploadFile(file, folder) {
@@ -115,6 +175,20 @@ function normalizeUser(user) {
   return { ...user, id: user.id ?? user.uid ?? null, uid: user.uid ?? user.id ?? null };
 }
 
+export async function listUsers() {
+  if (usersCache && Date.now() - usersCacheAt < READ_CACHE_TTL) return usersCache;
+  if (usersPromise) return usersPromise;
+  usersPromise = allDocs(usersRef)
+    .then((items) => items.map(normalizeUser).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))))
+    .then((items) => {
+      usersCache = items;
+      usersCacheAt = Date.now();
+      return items;
+    })
+    .finally(() => { usersPromise = null; });
+  return usersPromise;
+}
+
 async function getUserDoc(id) {
   const direct = await getDoc(doc(db, "powerhouse_users", String(id)));
   if (direct.exists()) return direct;
@@ -122,10 +196,6 @@ async function getUserDoc(id) {
   if (!snap.empty) return snap.docs[0];
   const byUid = await getDocs(query(usersRef, where("uid", "==", String(id)), limit(1)));
   return byUid.docs[0] || null;
-}
-
-export async function listUsers() {
-  return (await allDocs(usersRef)).map(normalizeUser).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 }
 
 export async function createUser(payload) {
@@ -146,6 +216,7 @@ export async function createUser(payload) {
     updatedAt: serverTimestamp()
   }, { merge: true });
   await signOut(secondaryAuth).catch(() => {});
+  invalidateUsers();
   return normalizeUser({ ...profile, uid, id: profile.id || uid, email: email.trim(), status: profile.status || "active" });
 }
 
@@ -156,6 +227,7 @@ export async function updateUser(id, payload) {
   delete next.password;
   delete next.id;
   await updateDoc(target.ref, { ...next, updatedAt: serverTimestamp() });
+  invalidateUsers();
   return normalizeUser(await getUserDoc(target.id).then(fromDoc));
 }
 
@@ -163,6 +235,8 @@ export async function deleteUser(id) {
   const target = await getUserDoc(id);
   if (!target) throw new Error("User not found.");
   await deleteDoc(target.ref);
+  invalidateUsers();
+  invalidateDuties();
   return { success: true };
 }
 
@@ -177,8 +251,17 @@ async function getTask(id) {
 }
 
 export async function listTasks() {
-  const tasks = await allDocs(tasksRef);
-  return tasks.sort((a, b) => String(b.created_at || b.createdAt || "").localeCompare(String(a.created_at || a.createdAt || "")));
+  if (tasksCache && Date.now() - tasksCacheAt < READ_CACHE_TTL) return tasksCache;
+  if (tasksPromise) return tasksPromise;
+  tasksPromise = allDocs(tasksRef)
+    .then((tasks) => tasks.sort((a, b) => String(b.created_at || b.createdAt || "").localeCompare(String(a.created_at || a.createdAt || ""))))
+    .then((items) => {
+      tasksCache = items;
+      tasksCacheAt = Date.now();
+      return items;
+    })
+    .finally(() => { tasksPromise = null; });
+  return tasksPromise;
 }
 
 export async function assignTask(payload) {
@@ -202,6 +285,7 @@ export async function assignTask(payload) {
   };
   const docRef = await addDoc(tasksRef, task);
   await addDoc(activitiesRef, { type: "task_created", task_id: docRef.id, status: task.status, created_at: serverTimestamp() });
+  invalidateTasks();
   return { ...task, id: docRef.id };
 }
 
@@ -213,6 +297,7 @@ async function updateTask(id, payload) {
   delete next.id;
   delete next.createdAt;
   await updateDoc(target.ref, { ...next, updated_at: nowIso() });
+  invalidateTasks();
   return { ...existing, ...next, id: target.id, updated_at: nowIso() };
 }
 
@@ -233,6 +318,7 @@ async function updateTaskStatus(id, payload) {
   else history.push({ ...event, assigned_at: task.assigned_at || task.created_at || nowIso() });
   await updateDoc(target.ref, { status, assignment_history: history, assignment_cycle: cycle, updated_at: nowIso() });
   await addDoc(activitiesRef, { type: "task_status", task_id: target.id, status, user_id: userId, created_at: serverTimestamp() });
+  invalidateTasks();
   return { ...task, status, assignment_history: history, id: target.id };
 }
 
@@ -252,20 +338,20 @@ async function completeTask(id, payload) {
   const reports = Array.isArray(task.completion_reports) ? [...task.completion_reports, report] : [report];
   const updated = await updateTaskStatus(id, { status: "Completed", user_id: auth.currentUser?.uid || task.user_id, assignment_cycle: task.assignment_cycle });
   await updateDoc(target.ref, { completion_reports: reports, latest_completion: report, status: "Completed", updated_at: nowIso() });
+  invalidateTasks();
   return { ...updated, completion_reports: reports, latest_completion: report };
 }
 
-function dateOnly(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
-
 export async function dutyStaff(year, month) {
-  const users = await listUsers();
-  const duties = await allDocs(dutiesRef);
+  const [users, duties] = await Promise.all([listUsers(), listDuties()]);
   const selectedYear = Number(year || new Date().getFullYear());
   const selectedMonth = Number(month || new Date().getMonth() + 1);
+  const prefix = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`;
   const today = new Date().toISOString().slice(0, 10);
   return users.map((user) => {
-    const mine = duties.filter((item) => String(item.user_id) === String(user.id || user.uid));
-    const monthDuties = mine.filter((item) => item.record_type === "status" && String(item.duty_date || "").startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, "0")}`));
+    const userId = String(user.id || user.uid);
+    const mine = duties.filter((item) => String(item.user_id) === userId);
+    const monthDuties = mine.filter((item) => item.record_type === "status" && String(item.duty_date || "").startsWith(prefix));
     const todayDuty = mine.filter((item) => item.record_type === "status" && item.duty_date === today).sort((a,b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))[0] || null;
     const shifts = mine.filter((item) => item.record_type === "shift").sort((a,b) => String(b.effective_from || b.created_at || "").localeCompare(String(a.effective_from || a.created_at || "")));
     const currentShift = shifts[0] || null;
@@ -284,8 +370,7 @@ export async function dutyStaff(year, month) {
 }
 
 export async function dutySummary() {
-  const users = await listUsers();
-  const duties = await allDocs(dutiesRef);
+  const [users, duties] = await Promise.all([listUsers(), listDuties()]);
   const today = new Date().toISOString().slice(0, 10);
   const todays = duties.filter((d) => d.record_type === "status" && d.duty_date === today);
   return {
@@ -300,22 +385,24 @@ export async function markDuty(payload) {
   const id = `${payload.user_id}_${payload.duty_date}`;
   const record = { ...payload, id, record_type: "status", updated_at: nowIso(), created_at: nowIso() };
   await setDoc(doc(db, "duties", id), record, { merge: true });
+  invalidateDuties();
   return record;
 }
 
 export async function assignShift(payload) {
   const record = { ...payload, user_id: String(payload.user_id), record_type: "shift", created_at: nowIso(), updated_at: nowIso() };
   const refDoc = await addDoc(dutiesRef, record);
+  invalidateDuties();
   return { ...record, id: refDoc.id };
 }
 
 export async function dutyHistory(userId) {
-  const records = (await allDocs(dutiesRef)).filter((item) => String(item.user_id) === String(userId));
+  const records = (await listDuties()).filter((item) => String(item.user_id) === String(userId));
   return { shifts: records.filter((item) => item.record_type === "shift").sort((a,b) => String(b.effective_from || "").localeCompare(String(a.effective_from || ""))), duties: records.filter((item) => item.record_type === "status").sort((a,b) => String(b.duty_date || "").localeCompare(String(a.duty_date || ""))) };
 }
 
 export async function userTools(userId) {
-  return (await allDocs(toolsRef)).filter((item) => String(item.user_id || item.assigned_to || "") === String(userId));
+  return (await listTools()).filter((item) => String(item.user_id || item.assigned_to || "") === String(userId));
 }
 
 export async function activityStats() {
@@ -386,11 +473,12 @@ export async function requestFirebase(method, url, data, params = {}) {
     const id = path.split("/")[1];
     if (method === "GET") { const task = await getTask(id); if (!task) throw new Error("Task not found."); return { task }; }
     if (method === "PUT") return updateTask(id, payload);
-    if (method === "DELETE") { const target = await findById(tasksRef, id); if (!target) throw new Error("Task not found."); await deleteDoc(target.ref); return { success: true }; }
+    if (method === "DELETE") { const target = await findById(tasksRef, id); if (!target) throw new Error("Task not found."); await deleteDoc(target.ref); invalidateTasks(); return { success: true }; }
   }
-  if (path === "tools" && method === "GET") return allDocs(toolsRef);
+  if (path === "tools" && method === "GET") return listTools();
   if (path === "tools" && method === "POST") {
     const r = await addDoc(toolsRef, { ...payload, created_at: nowIso() });
+    invalidateTools();
     return { id: r.id, ...payload };
   }
   if (path === "tools/assign" && method === "POST") {
@@ -416,6 +504,7 @@ export async function requestFirebase(method, url, data, params = {}) {
       assigned_by: auth.currentUser?.uid || ""
     };
     const r = await addDoc(toolsRef, record);
+    invalidateTools();
     return { id: r.id, ...record };
   }
   if (path === "categories" && method === "GET") return allDocs(categoriesRef);
