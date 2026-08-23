@@ -1,6 +1,6 @@
 import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { auth, db, firebaseConfig, storage } from "../firebase";
 import { getUser } from "../utils/auth";
@@ -21,45 +21,27 @@ async function uploadFile(file,folder){if(!(file instanceof File)&&!(file instan
 async function formDataToObject(formData){const result={};for(const[key,value]of formData.entries()){if(value instanceof File){const uploaded=await uploadFile(value,"powerhouse/uploads");if(!uploaded)continue;if(key.endsWith("[]")){const cleanKey=key.slice(0,-2);result[cleanKey]=[...(result[cleanKey]||[]),uploaded]}else result[key]=uploaded;continue}if(key.endsWith("[]")){const cleanKey=key.slice(0,-2);result[cleanKey]=[...(result[cleanKey]||[]),value]}else if(result[key]!==undefined)result[key]=Array.isArray(result[key])?[...result[key],value]:[result[key],value];else result[key]=value}for(const key of["assigned_user_ids","user_ids","removedFiles"]){if(typeof result[key]==="string"){try{result[key]=JSON.parse(result[key])}catch{}}}return result}
 async function normalizePayload(data){if(typeof FormData!=="undefined"&&data instanceof FormData)return formDataToObject(data);return data||{}}
 function normalizeUser(user){return{...user,id:user.id??user.uid??null,uid:user.uid??user.id??null}}
-export async function listUsers(){if(usersCache&&Date.now()-usersCacheAt<READ_CACHE_TTL)return usersCache;if(usersPromise)return usersPromise;usersPromise=allDocs(usersRef).then(items=>items.map(normalizeUser).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""))).then(items=>{usersCache=items;usersCacheAt=Date.now();return items})).finally(()=>{usersPromise=null});return usersPromise}
+export async function listUsers(){if(usersCache&&Date.now()-usersCacheAt<READ_CACHE_TTL)return usersCache;if(usersPromise)return usersPromise;usersPromise=allDocs(usersRef).then(items=>items.map(normalizeUser).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")))).then(items=>{usersCache=items;usersCacheAt=Date.now();return items}).finally(()=>{usersPromise=null});return usersPromise}
 async function getUserDoc(id){const direct=await getDoc(doc(db,"powerhouse_users",String(id)));if(direct.exists())return direct;const snap=await getDocs(query(usersRef,where("id","==",String(id)),limit(1)));if(!snap.empty)return snap.docs[0];const byUid=await getDocs(query(usersRef,where("uid","==",String(id)),limit(1)));return byUid.docs[0]||null}
 export async function createUser(payload){const{email,password,...profile}=payload;if(!email||!password)throw new Error("Email and password are required.");let secondaryApp=getApps().find(item=>item.name==="powerhouse-user-create");if(!secondaryApp)secondaryApp=initializeApp(firebaseConfig,"powerhouse-user-create");const secondaryAuth=getAuth(secondaryApp),credential=await createUserWithEmailAndPassword(secondaryAuth,email.trim(),password),uid=credential.user.uid;await setDoc(doc(db,"powerhouse_users",uid),{...profile,uid,id:profile.id||uid,email:email.trim(),status:profile.status||"active",createdAt:serverTimestamp(),updatedAt:serverTimestamp()},{merge:true});await signOut(secondaryAuth).catch(()=>{});invalidateUsers();return normalizeUser({...profile,uid,id:profile.id||uid,email:email.trim(),status:profile.status||"active"})}
 export async function updateUser(id,payload){const target=await getUserDoc(id);if(!target)throw new Error("User not found.");const next={...payload};delete next.password;delete next.id;await updateDoc(target.ref,{...next,updatedAt:serverTimestamp()});invalidateUsers();return normalizeUser(await getUserDoc(target.id).then(fromDoc))}
 export async function deleteUser(id){const target=await getUserDoc(id);if(!target)throw new Error("User not found.");await deleteDoc(target.ref);invalidateUsers();invalidateDuties();return{success:true}}
 function taskAssignedTo(task,userId){const ids=task.assigned_user_ids||task.user_ids||[];return(Array.isArray(ids)?ids:[ids]).some(item=>String(item?.id||item?.user_id||item)===String(userId))||String(task.user_id||"")===String(userId)}
 async function getTask(id){const target=await findTaskById(id);return target?fromDoc(target):null}
-export async function listTasks(){if(tasksCache&&Date.now()-tasksCacheAt<READ_CACHE_TTL)return tasksCache;if(tasksPromise)return tasksPromise;tasksPromise=allDocs(tasksRef).then(tasks=>tasks.sort((a,b)=>String(a.created_at||a.createdAt||"").localeCompare(String(b.created_at||b.createdAt||"")))).then(items=>{tasksCache=items;tasksCacheAt=Date.now();return items}).finally(()=>{tasksPromise=null});return tasksPromise}
+export async function listTasks(){if(tasksCache&&Date.now()-tasksCacheAt<READ_CACHE_TTL)return tasksCache;if(tasksPromise)return tasksPromise;tasksPromise=allDocs(tasksRef).then(tasks=>tasks.sort((a,b)=>String(b.created_at||b.createdAt||"").localeCompare(String(a.created_at||a.createdAt||"")))).then(items=>{tasksCache=items;tasksCacheAt=Date.now();return items}).finally(()=>{tasksPromise=null});return tasksPromise}
 
-// Resolve both the real Firestore document ID and the user-facing numeric task ID.
-// Numeric IDs are intentionally derived from creation order and are padded (01, 02...).
 async function findTaskById(id){
-  const raw=String(id??"").trim();
-  if(!raw)return null;
-  const direct=await getDoc(doc(db,"tasks",raw));
-  if(direct.exists())return direct;
-  const byStoredId=await getDocs(query(tasksRef,where("id","==",raw),limit(1)));
-  if(!byStoredId.empty)return byStoredId.docs[0];
+  const raw=String(id??"").trim();if(!raw)return null;
+  const direct=await getDoc(doc(db,"tasks",raw));if(direct.exists())return direct;
+  const byStoredId=await getDocs(query(tasksRef,where("id","==",raw),limit(1)));if(!byStoredId.empty)return byStoredId.docs[0];
   if(!/^\d+$/.test(raw))return null;
-  const numeric=Number(raw);
-  if(!Number.isInteger(numeric)||numeric<1)return null;
+  const numeric=Number(raw);if(!Number.isInteger(numeric)||numeric<1)return null;
   const tasks=await listTasks();
-  const sorted=[...tasks].sort((a,b)=>{
-    const da=new Date(a.created_at||a.createdAt||0).getTime(),db=new Date(b.created_at||b.createdAt||0).getTime();
-    if(da!==db)return da-db;
-    return String(a.id||"").localeCompare(String(b.id||""));
-  });
-  const indexed=sorted[numeric-1];
-  if(indexed?.id)return getDoc(doc(db,"tasks",String(indexed.id)));
-  return null;
+  const sorted=[...tasks].sort((a,b)=>{const da=new Date(a.created_at||a.createdAt||0).getTime(),db=new Date(b.created_at||b.createdAt||0).getTime();if(da!==db)return da-db;return String(a.id||"").localeCompare(String(b.id||""))});
+  const indexed=sorted[numeric-1];return indexed?.id?getDoc(doc(db,"tasks",String(indexed.id))):null;
 }
 
-export async function assignTask(payload){
-  const ids=Array.isArray(payload.assigned_user_ids||payload.user_ids)?(payload.assigned_user_ids||payload.user_ids).map(String):payload.user_id?[String(payload.user_id)]:[];
-  const created=nowIso(),existingTasks=await listTasks(),nextNumber=existingTasks.length+1,numericTaskId=String(nextNumber).padStart(2,"0");
-  const history=ids.map(userId=>({user_id:userId,assignment_cycle:1,status:payload.status||"Pending",assigned_at:created}));
-  const task={...payload,task_number:numericTaskId,display_id:numericTaskId,assigned_user_ids:ids,user_ids:ids,user_id:ids[0]||payload.user_id||"",status:payload.status||"Pending",assignment_cycle:1,assignment_count:1,assignment_history:history,created_at:created,updated_at:created,createdAt:serverTimestamp()};
-  const docRef=await addDoc(tasksRef,task);await addDoc(activitiesRef,{type:"task_created",task_id:docRef.id,status:task.status,task_number:numericTaskId,created_at:serverTimestamp()});invalidateTasks();return{...task,id:docRef.id}
-}
+export async function assignTask(payload){const ids=Array.isArray(payload.assigned_user_ids||payload.user_ids)?(payload.assigned_user_ids||payload.user_ids).map(String):payload.user_id?[String(payload.user_id)]:[];const created=nowIso(),existingTasks=await listTasks(),nextNumber=existingTasks.length+1,numericTaskId=String(nextNumber).padStart(2,"0");const history=ids.map(userId=>({user_id:userId,assignment_cycle:1,status:payload.status||"Pending",assigned_at:created}));const task={...payload,task_number:numericTaskId,display_id:numericTaskId,assigned_user_ids:ids,user_ids:ids,user_id:ids[0]||payload.user_id||"",status:payload.status||"Pending",assignment_cycle:1,assignment_count:1,assignment_history:history,created_at:created,updated_at:created,createdAt:serverTimestamp()};const docRef=await addDoc(tasksRef,task);await addDoc(activitiesRef,{type:"task_created",task_id:docRef.id,status:task.status,task_number:numericTaskId,created_at:serverTimestamp()});invalidateTasks();return{...task,id:docRef.id}}
 async function updateTask(id,payload){const target=await findTaskById(id);if(!target)throw new Error("Task not found.");const existing=fromDoc(target),next={...payload};delete next.id;delete next.createdAt;delete next.task_number;delete next.display_id;await updateDoc(target.ref,{...next,updated_at:nowIso()});invalidateTasks();return{...existing,...next,id:target.id,updated_at:nowIso()}}
 async function updateTaskStatus(id,payload){const target=await findTaskById(id);if(!target)throw new Error("Task not found.");const task=fromDoc(target),status=payload.status||task.status||"Pending",userId=String(payload.user_id||auth.currentUser?.uid||""),cycle=Number(payload.assignment_cycle||task.assignment_cycle||1),history=Array.isArray(task.assignment_history)?[...task.assignment_history]:[],index=history.findIndex(item=>Number(item.assignment_cycle||1)===cycle&&(!userId||String(item.user_id)===userId)),event={user_id:userId,assignment_cycle:cycle,status,updated_at:nowIso()};if(status==="In Progress")event.accepted_at=nowIso();if(status==="Completed")event.completed_at=nowIso();if(status==="Rejected"){event.rejected_at=nowIso();event.rejection_reason=payload.rejection_reason||""}if(index>=0)history[index]={...history[index],...event};else history.push({...event,assigned_at:task.assigned_at||task.created_at||nowIso()});await updateDoc(target.ref,{status,assignment_history:history,assignment_cycle:cycle,updated_at:nowIso()});await addDoc(activitiesRef,{type:"task_status",task_id:target.id,status,user_id:userId,created_at:serverTimestamp()});invalidateTasks();return{...task,status,assignment_history:history,id:target.id}}
 async function completeTask(id,payload){const normalized=await normalizePayload(payload),target=await findTaskById(id);if(!target)throw new Error("Task not found.");const task=fromDoc(target),report={id:`completion-${Date.now()}`,completion_note:normalized.completion_note||normalized.note||"",submitted_by:{id:auth.currentUser?.uid||"",name:getUser()?.name||"User",email:auth.currentUser?.email||getUser()?.email||""},submitted_at:nowIso(),media_files:Array.isArray(normalized.files)?normalized.files:[],voice_notes:Array.isArray(normalized.voiceNotes)?normalized.voiceNotes:[]},reports=Array.isArray(task.completion_reports)?[...task.completion_reports,report]:[report];const updated=await updateTaskStatus(id,{status:"Completed",user_id:auth.currentUser?.uid||task.user_id,assignment_cycle:task.assignment_cycle});await updateDoc(target.ref,{completion_reports:reports,latest_completion:report,status:"Completed",updated_at:nowIso()});invalidateTasks();return{...updated,completion_reports:reports,latest_completion:report}}
