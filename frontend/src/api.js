@@ -176,8 +176,6 @@ const API = {
       return { data: users, users };
     }
 
-    // Task GETs are used by TaskView and AssignTasks. Keep an axios-style
-    // response shape here because both screens consume response.data.
     if (isTaskPath(cleanUrl) && /^\/?task\/[^/]+$/.test(cleanUrl)) {
       const rawId = cleanUrl.split("/")[2];
       const resolvedId = await resolveTaskId(rawId);
@@ -223,12 +221,18 @@ const API = {
       if (cleanUrl === "/activity/stats" || cleanUrl === "activity/stats") {
         const backendStaffCount = Number(result?.staffCount || 0);
         const users = backendStaffCount > 0 ? null : await getUsersFast();
-        const activities = Array.isArray(result?.activities) ? result.activities.map((task, index) => ({
-          ...task,
-          document_id: task?.document_id || task?.firestore_id || task?.id,
-          task_number: Number(task?.task_number || task?.display_id || task?.numeric_id || index + 1),
-          display_id: Number(task?.task_number || task?.display_id || task?.numeric_id || index + 1)
-        })) : [];
+        const activities = Array.isArray(result?.activities) ? result.activities.map((task, index) => {
+          const internalId = task?.document_id || task?.firestore_id || task?.id;
+          const numericId = Number(task?.task_number || task?.display_id || task?.numeric_id || index + 1);
+          return {
+            ...task,
+            id: numericId,
+            document_id: internalId,
+            firestore_id: internalId,
+            task_number: numericId,
+            display_id: numericId
+          };
+        }) : [];
         rememberTaskRoutes(activities);
         const normalizedResult = {
           ...(result || {}),
