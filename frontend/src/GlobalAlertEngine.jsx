@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, onSnapshot, runTransaction, query, orderBy, limit } from "firebase/firestore";
-import { db } from "./firebase";
-import { getUser } from "./utils/auth";
+import { auth, db } from "./firebase";
 import { createNotification, sendPushNotification } from "./services/notificationService";
 import { listUsers } from "./services/firebaseDataStore";
 
@@ -60,10 +60,14 @@ async function getAllUserIds() {
 }
 
 export default function GlobalAlertEngine() {
-  const user = getUser();
-  const enabled = user?.role === "admin" || user?.role === "superadmin";
+  const [enabled, setEnabled] = useState(false);
   const panelStatuses = useRef(new Map());
   const taskAssignments = useRef(new Map());
+
+  useEffect(() => onAuthStateChanged(auth, (user) => {
+    const role = String(user?.role || "").toLowerCase();
+    setEnabled(["admin", "superadmin"].includes(role));
+  }), []);
 
   useEffect(() => {
     if (!enabled) return undefined;
