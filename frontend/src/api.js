@@ -5,6 +5,7 @@ const REQUEST_TIMEOUT = 15000;
 const LEGACY_TIMEOUT = 2000;
 const USER_STORAGE_KEY = "powerhouse_staff_cache_v2";
 const userCache = { data: null, at: 0, promise: null };
+const taskRouteMap = new Map();
 
 const getLegacyBase = () => {
   const raw = String(import.meta.env.VITE_API_URL || "").trim();
@@ -60,9 +61,7 @@ const writeStoredUsers = (users) => {
     if (typeof window !== "undefined" && Array.isArray(users) && users.length) {
       window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(users));
     }
-  } catch {
-    // Storage is an optimization only; never block staff loading.
-  }
+  } catch {}
 };
 
 const saveUsers = (users) => {
@@ -99,7 +98,6 @@ const invalidateUsers = () => {
 
 const refreshUsers = async () => {
   if (userCache.promise) return userCache.promise;
-
   userCache.promise = (async () => {
     if (getLegacyBase()) {
       try {
@@ -109,7 +107,6 @@ const refreshUsers = async () => {
         console.warn("Legacy staff API unavailable; using Firebase.", legacyError?.message || legacyError);
       }
     }
-
     try {
       const directUsers = await withTimeout(listUsers(), REQUEST_TIMEOUT, "Firebase user list timed out");
       if (Array.isArray(directUsers) && directUsers.length) return saveUsers(directUsers);
@@ -117,30 +114,18 @@ const refreshUsers = async () => {
     } catch (directError) {
       console.warn("Direct Firebase staff list unavailable.", directError?.message || directError);
     }
-
     try {
-      const firebaseUsers = unwrapUsers(await withTimeout(
-        requestFirebase("GET", "/user/all"),
-        REQUEST_TIMEOUT,
-        "Firebase user list route timed out"
-      ));
+      const firebaseUsers = unwrapUsers(await withTimeout(requestFirebase("GET", "/user/all"), REQUEST_TIMEOUT, "Firebase user list route timed out"));
       if (firebaseUsers.length) return saveUsers(firebaseUsers);
     } catch (firebaseError) {
       console.warn("Firebase user list route unavailable.", firebaseError?.message || firebaseError);
     }
-
     return userCache.data || readStoredUsers();
-  })().finally(() => {
-    userCache.promise = null;
-  });
-
+  })().finally(() => { userCache.promise = null; });
   return userCache.promise;
 };
 
 const getUsersFast = async () => {
-  // Seed the in-memory cache from the last successful browser session first.
-  // This makes Assign Task/Dashboard render staff immediately instead of
-  // waiting for a slow Firebase cold start.
   if (!userCache.data) {
     const stored = readStoredUsers();
     if (stored.length) {
@@ -148,17 +133,39 @@ const getUsersFast = async () => {
       userCache.at = Date.now();
     }
   }
-
   if (userCache.data && Date.now() - userCache.at < CACHE_TTL) return userCache.data;
   return refreshUsers();
 };
 
 const firebaseRequest = (method, url, data, params = {}) =>
-  withTimeout(
-    requestFirebase(method, url, data, params),
-    REQUEST_TIMEOUT,
-    `Request timed out: ${method} ${url}`
-  );
+  withTimeout(requestFirebase(method, url, data, params), REQUEST_TIMEOUT, `Request timed out: ${method} ${url}`);
+
+const isTaskPath = (cleanUrl) => /^\/?task\//.test(cleanUrl);
+
+const rememberTaskRoutes = (activities = []) => {
+  if (!Array.isArray(activities)) return;
+  activities.forEach((task, index) => {
+    const internalId = task?.document_id || task?.firestore_id || task?.id;
+    const numericId = Number(task?.task_number || task?.display_id || task?.numeric_id || index + 1);
+    if (internalId && Number.isInteger(numericId) && numericId > 0) {
+      taskRouteMap.set(String(numericId), String(internalId));
+    }
+  });
+};
+
+const resolveTaskId = async (id) => {
+  const raw = String(id ?? "").trim();
+  if (!raw) return raw;
+  if (!/^\d+$/.test(raw)) return raw;
+  if (taskRouteMap.has(raw)) return taskRouteMap.get(raw);
+  try {
+    const stats = await firebaseRequest("GET", "/activity/stats");
+    rememberTaskRoutes(stats?.activities);
+    return taskRouteMap.get(raw) || raw;
+  } catch {
+    return raw;
+  }
+};
 
 const API = {
   get: async (url, config = {}) => {
@@ -167,6 +174,26 @@ const API = {
     if (cleanUrl === "/user/all" || cleanUrl === "user/all") {
       const users = await getUsersFast();
       return { data: users, users };
+    }
+
+    // Task GETs are used by TaskView and AssignTasks. Keep an axios-style
+    // response shape here because both screens consume response.data.
+    if (isTaskPath(cleanUrl) && /^\/?task\/[^/]+$/.test(cleanUrl)) {
+      const rawId = cleanUrl.split("/")[2];
+      const resolvedId = await resolveTaskId(rawId);
+      const resolvedUrl = cleanUrl.replace(`/${rawId}`, `/${resolvedId}`);
+      try {
+        const result = await firebaseRequest("GET", resolvedUrl, undefined, config?.params || {});
+        return { data: result };
+      } catch (firebaseError) {
+        const legacyPath = resolvedUrl.startsWith("/") ? resolvedUrl : `/${resolvedUrl}`;
+        try {
+          const legacyResult = await legacyGet(legacyPath);
+          return { data: legacyResult };
+        } catch {
+          throw firebaseError;
+        }
+      }
     }
 
     try {
@@ -196,13 +223,18 @@ const API = {
       if (cleanUrl === "/activity/stats" || cleanUrl === "activity/stats") {
         const backendStaffCount = Number(result?.staffCount || 0);
         const users = backendStaffCount > 0 ? null : await getUsersFast();
+        const activities = Array.isArray(result?.activities) ? result.activities.map((task, index) => ({
+          ...task,
+          document_id: task?.document_id || task?.firestore_id || task?.id,
+          task_number: Number(task?.task_number || task?.display_id || task?.numeric_id || index + 1),
+          display_id: Number(task?.task_number || task?.display_id || task?.numeric_id || index + 1)
+        })) : [];
+        rememberTaskRoutes(activities);
         const normalizedResult = {
           ...(result || {}),
+          activities,
           staffCount: users ? (users.length || backendStaffCount) : backendStaffCount
         };
-        // Dashboard.jsx historically consumes axios-style `response.data`,
-        // while some other screens consume the response object directly.
-        // Return both shapes so the staff fallback is never lost.
         return { ...normalizedResult, data: normalizedResult };
       }
 
@@ -236,7 +268,14 @@ const API = {
   },
 
   put: async (url, data, config = {}) => {
-    const result = await firebaseRequest("PUT", url, data, config?.params || {});
+    const cleanUrl = String(url || "").split("?")[0];
+    let requestUrl = url;
+    if (isTaskPath(cleanUrl) && /^\/?task\/[^/]+$/.test(cleanUrl)) {
+      const rawId = cleanUrl.split("/")[2];
+      const resolvedId = await resolveTaskId(rawId);
+      requestUrl = cleanUrl.replace(`/${rawId}`, `/${resolvedId}`);
+    }
+    const result = await firebaseRequest("PUT", requestUrl, data, config?.params || {});
     if (String(url).includes("/user/")) invalidateUsers();
     return result;
   },
@@ -244,7 +283,14 @@ const API = {
   patch: (url, data, config = {}) => firebaseRequest("PATCH", url, data, config?.params || {}),
 
   delete: async (url, config = {}) => {
-    const result = await firebaseRequest("DELETE", url, undefined, config?.params || {});
+    const cleanUrl = String(url || "").split("?")[0];
+    let requestUrl = url;
+    if (isTaskPath(cleanUrl) && /^\/?task\/[^/]+$/.test(cleanUrl)) {
+      const rawId = cleanUrl.split("/")[2];
+      const resolvedId = await resolveTaskId(rawId);
+      requestUrl = cleanUrl.replace(`/${rawId}`, `/${resolvedId}`);
+    }
+    const result = await firebaseRequest("DELETE", requestUrl, undefined, config?.params || {});
     if (String(url).includes("/user/")) invalidateUsers();
     return result;
   }
