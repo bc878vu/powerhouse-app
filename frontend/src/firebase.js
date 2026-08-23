@@ -3,10 +3,6 @@ import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth"
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// Firebase Web configuration must come from the deployment environment so
-// Vercel Production values are actually used. The previous version hard-coded
-// an old API key and explicitly ignored VITE_FIREBASE_* variables, so changing
-// Vercel environment variables could never affect the deployed Firebase client.
 const env = import.meta.env || {};
 const VERIFIED_PROJECT_ID = "powerhouse-app-47c4a";
 
@@ -20,7 +16,6 @@ const envConfig = {
   measurementId: String(env.VITE_FIREBASE_MEASUREMENT_ID || "").trim()
 };
 
-// Fail closed instead of silently connecting to a stale/wrong Firebase project.
 const requiredConfig = [
   ["VITE_FIREBASE_API_KEY", envConfig.apiKey],
   ["VITE_FIREBASE_AUTH_DOMAIN", envConfig.authDomain],
@@ -42,11 +37,9 @@ if (!isFirebaseConfigured) {
 }
 
 export const firebaseConfig = envConfig;
-
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Keep the authenticated session across reloads and PWA launches.
 void setPersistence(auth, browserLocalPersistence).catch((error) => {
   console.warn("Firebase auth persistence setup failed:", error?.message || error);
 });
@@ -69,11 +62,7 @@ const cleanupOldMessagingWorkers = async () => {
         .filter((registration) => {
           const urls = [registration.active?.scriptURL, registration.installing?.scriptURL, registration.waiting?.scriptURL].filter(Boolean);
           return urls.some((url) => {
-            try {
-              return new URL(url).pathname.startsWith(MESSAGING_WORKER_PREFIX);
-            } catch {
-              return false;
-            }
+            try { return new URL(url).pathname.startsWith(MESSAGING_WORKER_PREFIX); } catch { return false; }
           });
         })
         .map((registration) => registration.unregister())
@@ -83,15 +72,12 @@ const cleanupOldMessagingWorkers = async () => {
   }
 };
 
-if (typeof window !== "undefined") {
-  void cleanupOldMessagingWorkers();
-}
+if (typeof window !== "undefined") void cleanupOldMessagingWorkers();
 
 const getMessagingInstance = async () => {
   if (messagingInstance) return messagingInstance;
   if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) return null;
   if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-
   const { getMessaging } = await import("firebase/messaging");
   messagingInstance = getMessaging(app);
   messaging = messagingInstance;
@@ -101,7 +87,6 @@ const getMessagingInstance = async () => {
 const getMessagingServiceWorker = async () => {
   if (!("serviceWorker" in navigator)) return null;
   if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-
   const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, { scope: "/" });
   await navigator.serviceWorker.ready;
   return registration;
@@ -111,14 +96,12 @@ export const getFCMToken = async () => {
   try {
     const messagingService = await getMessagingInstance();
     if (!messagingService || typeof Notification === "undefined") return null;
-
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
     if (!import.meta.env.VITE_VAPID_KEY) throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
 
     const serviceWorkerRegistration = await getMessagingServiceWorker();
     if (!serviceWorkerRegistration) return null;
-
     const { getToken } = await import("firebase/messaging");
     const token = await getToken(messagingService, {
       vapidKey: import.meta.env.VITE_VAPID_KEY,
@@ -142,6 +125,16 @@ export const getFCMToken = async () => {
   }
 };
 
+// Persistent foreground listener. Returns the Firebase unsubscribe function.
+export const onForegroundMessage = async (callback) => {
+  if (!isFirebaseConfigured || typeof callback !== "function") return () => {};
+  const messagingService = await getMessagingInstance();
+  if (!messagingService) return () => {};
+  const { onMessage } = await import("firebase/messaging");
+  return onMessage(messagingService, callback);
+};
+
+// Backward-compatible one-shot helper.
 export const onMessageListener = async () => {
   if (!isFirebaseConfigured) return null;
   const messagingService = await getMessagingInstance();
