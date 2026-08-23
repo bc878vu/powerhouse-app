@@ -19,7 +19,7 @@ const initials=(name="User")=>{const parts=String(name).trim().split(/\s+/).filt
 
 export default function Layout(){
  const[sidebarOpen,setSidebarOpen]=useState(false),[machinesOpen,setMachinesOpen]=useState(false),[unreadCount,setUnreadCount]=useState(0);
- const location=useLocation(),user=getUser(),publicMode=isPublic(),isAdmin=["admin","superadmin"].includes(user?.role),canViewMachines=["admin","superadmin","electrician","cro"].includes(user?.role),canManageMachines=isAdmin,profilePhoto=resolvePhotoUrl(user);
+ const location=useLocation(),user=getUser(),publicMode=isPublic(),isAdmin=["admin","superadmin"].includes(user?.role),canViewMachines=isAdmin,canManageMachines=isAdmin,profilePhoto=resolvePhotoUrl(user);
  useEffect(()=>setSidebarOpen(false),[location.pathname]);
  useEffect(()=>{if(location.pathname.startsWith("/machines"))setMachinesOpen(true)},[location.pathname]);
  useEffect(()=>{const uid=getCurrentNotificationUid()||user?.firebaseUid||user?.uid||user?.id;if(!uid)return;return subscribeToNotifications(uid,items=>setUnreadCount(items.filter(x=>!x.read).length))},[user?.firebaseUid,user?.uid,user?.id]);
