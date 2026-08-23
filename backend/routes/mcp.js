@@ -37,6 +37,15 @@ async function getPushTokens(userIds = []) {
   return [...tokenSet];
 }
 
+async function sendInChunks(tokens, messageFactory) {
+  const results = [];
+  for (let index = 0; index < tokens.length; index += 500) {
+    const chunk = tokens.slice(index, index + 500);
+    results.push(await admin.messaging().sendEachForMulticast(messageFactory(chunk)));
+  }
+  return results;
+}
+
 router.post("/notifications/push", async (req, res) => {
   try {
     await verifyFirebaseAdmin(req);
@@ -49,22 +58,44 @@ router.post("/notifications/push", async (req, res) => {
     if (!tokens.length) return res.json({ success: true, sent: 0, failed: 0, reason: "No registered push tokens." });
     const origin = process.env.FRONTEND_URL || "https://powerhouse-app-eight.vercel.app";
     const link = new URL(route, origin).href;
-    const result = await admin.messaging().sendEachForMulticast({
-      tokens,
-      notification: { title, body: messageBody },
-      data: { title, body: messageBody, route },
-      webpush: { fcmOptions: { link }, notification: { title, body: messageBody, icon: "/favicon.svg", badge: "/favicon.svg", tag: String(body.notificationId || "powerhouse-alert") } }
-    });
+    const notificationId = String(body.notificationId || `powerhouse-${Date.now()}`);
+
+    // Use data-only FCM for background web push. The service worker owns the
+    // notification UI, which avoids duplicate notifications and allows the
+    // browser/OS to use its normal notification sound and vibration behavior.
+    const responses = await sendInChunks(tokens, (chunk) => ({
+      tokens: chunk,
+      data: {
+        title,
+        body: messageBody,
+        route,
+        notificationId
+      },
+      webpush: {
+        fcmOptions: { link },
+        headers: { Urgency: "high", TTL: "86400" }
+      }
+    }));
+
     const invalid = [];
-    result.responses.forEach((item, index) => {
-      const code = item.error?.code || "";
-      if (code.includes("registration-token-not-registered") || code.includes("invalid-registration-token")) invalid.push(tokens[index]);
-    });
+    let successCount = 0;
+    let failureCount = 0;
+    let tokenOffset = 0;
+    for (const result of responses) {
+      successCount += result.successCount;
+      failureCount += result.failureCount;
+      result.responses.forEach((item, index) => {
+        const code = item.error?.code || "";
+        if (code.includes("registration-token-not-registered") || code.includes("invalid-registration-token")) invalid.push(tokens[tokenOffset + index]);
+      });
+      tokenOffset += result.responses.length;
+    }
+
     if (invalid.length) {
       const snapshots = await Promise.all(invalid.map(token => admin.firestore().collection("powerhouse_fcm_tokens").where("token", "==", token).get()));
       await Promise.all(snapshots.flatMap(snapshot => snapshot.docs.map(item => item.ref.delete())));
     }
-    return res.json({ success: true, sent: result.successCount, failed: result.failureCount, cleaned: invalid.length });
+    return res.json({ success: true, sent: successCount, failed: failureCount, cleaned: invalid.length, recipients: userIds.length || "all" });
   } catch (error) {
     const status = error.status || (String(error.code || "").startsWith("auth/") ? 401 : 500);
     console.error("FCM notification error:", error?.message || error);
