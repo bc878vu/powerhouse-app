@@ -1,6 +1,5 @@
 // Backward-compatible Firebase entry point.
-// Keep all Firebase initialization centralized in ./firebase.js so every
-// module shares the same Firebase App/Auth/Firestore/Storage instances.
+// Keep all Firebase initialization centralized in ./firebase.js.
 export {
   app,
   db,
@@ -11,6 +10,7 @@ export {
   missingConfig,
   isFirebaseConfigured,
   getFCMToken,
+  onForegroundMessage,
   onMessageListener
 } from "./firebase";
 
