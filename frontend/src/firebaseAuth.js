@@ -1,14 +1,12 @@
 import { getAuth, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from "firebase/firestore";
 import { app, db } from "./firebase";
 
 export const auth = getAuth(app);
 const ADMIN_EMAIL = "admin@powerhouse.com";
 const isAdminEmail = (email) => String(email || "").trim().toLowerCase() === ADMIN_EMAIL;
 const apiBase = () => String(import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "").replace(/\/api$/i, "");
-
-const resolveProfilePhoto = (profile, firebaseUser) =>
-  profile?.profile_pic || profile?.profilePic || profile?.photoURL || firebaseUser?.photoURL || "";
+const resolveProfilePhoto = (profile, firebaseUser) => profile?.profile_pic || profile?.profilePic || profile?.photoURL || firebaseUser?.photoURL || "";
 
 async function resolveStaffRecord(firebaseUser) {
   const base = apiBase();
@@ -30,15 +28,11 @@ async function syncStaffGooglePhoto(staffRecord, photoURL) {
   if (!staffRecord?.id || !photoURL) return;
   const base = apiBase();
   if (!base) return;
-
   try {
-    // Reuse the existing secure profile-upload endpoint so the Google avatar
-    // is stored in the same profile_pic field used by Staff Records/TaskView.
     const imageResponse = await fetch(photoURL, { mode: "cors" });
     if (!imageResponse.ok) throw new Error(`Google avatar download failed (${imageResponse.status})`);
     const blob = await imageResponse.blob();
     if (!blob.size) throw new Error("Google avatar is empty");
-
     const extension = (blob.type || "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") || "jpg";
     const form = new FormData();
     form.append("name", staffRecord.name || "User");
@@ -46,21 +40,40 @@ async function syncStaffGooglePhoto(staffRecord, photoURL) {
     form.append("role", staffRecord.role || "electrician");
     form.append("status", staffRecord.status || "active");
     form.append("profile_pic", blob, `google-profile.${extension}`);
-
-    const response = await fetch(`${base}/api/user/${staffRecord.id}`, {
-      method: "PUT",
-      headers: { Accept: "application/json" },
-      body: form
-    });
+    const response = await fetch(`${base}/api/user/${staffRecord.id}`, { method: "PUT", headers: { Accept: "application/json" }, body: form });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.message || `Profile photo sync failed (${response.status})`);
     }
   } catch (error) {
-    // Google-hosted photo remains available in Firebase/session even when the
-    // browser blocks cross-origin image download. Do not block login.
     console.warn("Could not persist Google photo to staff record:", error?.message || error);
   }
+}
+
+async function allocateNumericId() {
+  try {
+    const snapshot = await getDocs(collection(db, "powerhouse_users"));
+    const ids = snapshot.docs.map((item) => Number(item.data()?.id)).filter((value) => Number.isInteger(value) && value >= 10000);
+    return Math.max(10000, ...ids) + 1;
+  } catch (error) {
+    console.warn("Could not inspect numeric user IDs; using timestamp fallback.", error?.message || error);
+    return 10000 + (Date.now() % 1000000);
+  }
+}
+
+async function ensureNumericProfileId(profile, firebaseUser, staffRecord) {
+  const existingId = Number(profile?.id);
+  if (Number.isInteger(existingId) && existingId > 0) return { profile, numericId: existingId };
+  const staffId = Number(staffRecord?.id);
+  const numericId = Number.isInteger(staffId) && staffId > 0 ? staffId : await allocateNumericId();
+  const nextProfile = { ...profile, id: numericId, numericId, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, updatedAt: serverTimestamp() };
+  try {
+    await setDoc(doc(db, "powerhouse_users", firebaseUser.uid), nextProfile, { merge: true });
+  } catch (error) {
+    if (error?.code !== "permission-denied") throw error;
+    console.warn("Could not persist numeric profile ID because Firestore denied the write.");
+  }
+  return { profile: nextProfile, numericId };
 }
 
 async function buildSession(firebaseUser) {
@@ -77,19 +90,7 @@ async function buildSession(firebaseUser) {
       profile = { id: snapshot.id, ...snapshot.data() };
     } else {
       const googlePhoto = firebaseUser.photoURL || "";
-      const newProfile = {
-        id: firebaseUser.uid,
-        uid: firebaseUser.uid,
-        name: firebaseUser.displayName || staffRecord?.name || (defaultRole === "admin" ? "Admin" : authenticatedEmail.split("@")[0] || "User"),
-        email: firebaseUser.email || authenticatedEmail,
-        role: staffRecord?.role || defaultRole,
-        status: staffRecord?.status || "active",
-        profile_pic: googlePhoto,
-        profilePic: googlePhoto,
-        photoURL: googlePhoto,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
+      const newProfile = { id: firebaseUser.uid, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, name: firebaseUser.displayName || staffRecord?.name || (defaultRole === "admin" ? "Admin" : authenticatedEmail.split("@")[0] || "User"), email: firebaseUser.email || authenticatedEmail, role: staffRecord?.role || defaultRole, status: staffRecord?.status || "active", profile_pic: googlePhoto, profilePic: googlePhoto, photoURL: googlePhoto, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
       try {
         await setDoc(profileRef, newProfile, { merge: true });
         profile = { ...newProfile, id: firebaseUser.uid, role: newProfile.role };
@@ -98,7 +99,6 @@ async function buildSession(firebaseUser) {
         else throw writeError;
       }
     }
-
     const googlePhoto = firebaseUser.photoURL || "";
     if (googlePhoto && (!profile?.profile_pic || profile.profile_pic !== googlePhoto)) {
       try {
@@ -114,20 +114,10 @@ async function buildSession(firebaseUser) {
     else throw readError;
   }
 
-  if (!profile) {
-    profile = {
-      id: firebaseUser.uid,
-      uid: firebaseUser.uid,
-      name: firebaseUser.displayName || staffRecord?.name || authenticatedEmail.split("@")[0] || "User",
-      email: firebaseUser.email || authenticatedEmail,
-      role: staffRecord?.role || defaultRole,
-      status: staffRecord?.status || "active",
-      profile_pic: firebaseUser.photoURL || "",
-      profilePic: firebaseUser.photoURL || "",
-      photoURL: firebaseUser.photoURL || "",
-      profilePermissionIssue
-    };
-  }
+  if (!profile) profile = { id: firebaseUser.uid, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, name: firebaseUser.displayName || staffRecord?.name || authenticatedEmail.split("@")[0] || "User", email: firebaseUser.email || authenticatedEmail, role: staffRecord?.role || defaultRole, status: staffRecord?.status || "active", profile_pic: firebaseUser.photoURL || "", profilePic: firebaseUser.photoURL || "", photoURL: firebaseUser.photoURL || "", profilePermissionIssue };
+
+  const numericProfile = await ensureNumericProfileId(profile, firebaseUser, staffRecord);
+  profile = numericProfile.profile;
 
   if (String(profile.status || staffRecord?.status || "active").toLowerCase() === "inactive") {
     await signOut(auth);
@@ -137,25 +127,7 @@ async function buildSession(firebaseUser) {
   const profilePic = resolveProfilePhoto(profile, firebaseUser);
   if (staffRecord?.id && firebaseUser.photoURL) void syncStaffGooglePhoto(staffRecord, firebaseUser.photoURL);
 
-  // Task tables use the numeric MySQL staff id. Firebase UID remains separate
-  // for Firebase notifications/profile documents.
-  const numericStaffId = Number(staffRecord?.id);
-  const sessionId = Number.isInteger(numericStaffId) && numericStaffId > 0 ? numericStaffId : (profile.id || firebaseUser.uid);
-
-  return {
-    id: sessionId,
-    numericId: Number.isInteger(numericStaffId) && numericStaffId > 0 ? numericStaffId : null,
-    uid: firebaseUser.uid,
-    firebaseUid: firebaseUser.uid,
-    name: profile.name || firebaseUser.displayName || staffRecord?.name || authenticatedEmail.split("@")[0] || "User",
-    email: profile.email || staffRecord?.email || firebaseUser.email || authenticatedEmail,
-    role: staffRecord?.role || profile.role || defaultRole,
-    status: staffRecord?.status || profile.status || "active",
-    profile_pic: profilePic,
-    profilePic,
-    photoURL: profile.photoURL || firebaseUser.photoURL || profilePic,
-    profilePermissionIssue: Boolean(profilePermissionIssue)
-  };
+  return { id: numericProfile.numericId, numericId: numericProfile.numericId, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, name: profile.name || firebaseUser.displayName || staffRecord?.name || authenticatedEmail.split("@")[0] || "User", email: profile.email || staffRecord?.email || firebaseUser.email || authenticatedEmail, role: staffRecord?.role || profile.role || defaultRole, status: staffRecord?.status || profile.status || "active", profile_pic: profilePic, profilePic, photoURL: profile.photoURL || firebaseUser.photoURL || profilePic, profilePermissionIssue: Boolean(profilePermissionIssue) };
 }
 
 export async function loginWithFirebase(email, password) {
