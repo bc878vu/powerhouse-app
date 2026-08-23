@@ -79,33 +79,8 @@ export async function enablePushNotifications() {
 }
 
 export async function sendPushNotification({ title, body, route = "/notifications", userIds = [], notificationId = "" } = {}) {
-  const current = auth.currentUser;
-  const apiBase = String(import.meta.env.VITE_API_URL || "").trim().replace(/\/$/, "");
-  if (!current || !apiBase) return { success: false, skipped: true, reason: !current ? "not-authenticated" : "VITE_API_URL-not-configured" };
-
-  try {
-    const idToken = await current.getIdToken();
-    const response = await fetch(`${apiBase}/api/notifications/push`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ title, body, route, userIds, notificationId })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      // The current Railway deployment may not expose this optional push endpoint.
-      // In-app Firestore notifications are already created before this call, so a
-      // 404 must never make task assignment look like it failed.
-      if (response.status === 404) {
-        console.warn("Optional push endpoint is unavailable; in-app notification remains active.");
-        return { success: false, skipped: true, reason: "push-route-not-found" };
-      }
-      throw new Error(data.message || "Push notification request failed");
-    }
-    return data;
-  } catch (error) {
-    console.warn("Push notification delivery skipped:", error?.message || error);
-    return { success: false, skipped: true, reason: error?.message || "push-failed" };
-  }
+  void title; void body; void route; void userIds; void notificationId;
+  return { success: false, skipped: true, reason: "backend-task-push" };
 }
 
 export function getCurrentNotificationUid() {
