@@ -2,7 +2,7 @@ importScripts("/firebase-config.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-messaging-compat.js");
 
-const CACHE_VERSION = "powerhouse-static-v5";
+const CACHE_VERSION = "powerhouse-static-v6";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg", "/icon-192.svg", "/icon-512.svg"];
 const NETWORK_ONLY_HOSTS = [
   "firestore.googleapis.com",
@@ -14,7 +14,6 @@ const NETWORK_ONLY_HOSTS = [
   "googleapis.com"
 ];
 
-// Firebase config is generated during Vercel build from VITE_FIREBASE_* values.
 try {
   const firebaseConfig = self.POWERHOUSE_FIREBASE_CONFIG;
   if (firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.appId) {
@@ -33,7 +32,9 @@ try {
         tag: notificationId,
         renotify: true,
         requireInteraction: true,
+        silent: false,
         vibrate: [180, 100, 180],
+        timestamp: Date.now(),
         data: { route }
       });
     });
