@@ -2,9 +2,7 @@ importScripts("/firebase-config.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-messaging-compat.js");
 
-// Bump this whenever the deployed Firebase/auth bundle is refreshed so stale
-// PWA assets cannot keep serving an older JavaScript bundle.
-const CACHE_VERSION = "powerhouse-static-v4";
+const CACHE_VERSION = "powerhouse-static-v5";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg", "/icon-192.svg", "/icon-512.svg"];
 const NETWORK_ONLY_HOSTS = [
   "firestore.googleapis.com",
@@ -16,9 +14,7 @@ const NETWORK_ONLY_HOSTS = [
   "googleapis.com"
 ];
 
-// The worker uses the same VITE_FIREBASE_* configuration as the main Vite
-// bundle. The build step generates /firebase-config.js from Vercel Production
-// environment variables, preventing the worker from retaining an old key.
+// Firebase config is generated during Vercel build from VITE_FIREBASE_* values.
 try {
   const firebaseConfig = self.POWERHOUSE_FIREBASE_CONFIG;
   if (firebaseConfig?.apiKey && firebaseConfig?.projectId && firebaseConfig?.appId) {
@@ -28,13 +24,16 @@ try {
       const title = payload.notification?.title || payload.data?.title || "PowerHouse";
       const body = payload.notification?.body || payload.data?.body || "You have a new PowerHouse notification.";
       const route = payload.data?.route || (payload.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications");
+      const notificationId = String(payload.data?.notificationId || `${Date.now()}`);
 
       self.registration.showNotification(title, {
         body,
         icon: "/icon-192.svg",
         badge: "/icon-192.svg",
-        tag: payload.data?.notificationId || "powerhouse-notification",
+        tag: notificationId,
         renotify: true,
+        requireInteraction: true,
+        vibrate: [180, 100, 180],
         data: { route }
       });
     });
@@ -86,13 +85,11 @@ async function cacheThenNetwork(request) {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (shouldBypass(request)) return;
-
   const url = new URL(request.url);
   if (request.mode === "navigate" || url.pathname === "/index.html") {
     event.respondWith(networkThenCache(request).then((response) => response || caches.match("/index.html")));
     return;
   }
-
   if (url.pathname.startsWith("/assets/") || /\.(?:js|css|woff2?|png|jpg|jpeg|svg|webp|ico)$/.test(url.pathname)) {
     event.respondWith(cacheThenNetwork(request));
   }
