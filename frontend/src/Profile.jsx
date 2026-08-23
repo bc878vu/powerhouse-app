@@ -1,7 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { getUser, setToken } from "./utils/auth";
 import API from "./api";
-
 import {
   User,
   Lock,
@@ -12,629 +11,215 @@ import {
   KeyRound,
   CheckCircle2,
   AlertCircle,
+  Camera,
   Loader2,
 } from "lucide-react";
 
+const getProfileValue = (user) => {
+  const raw = user?.profile_pic || user?.profilePic || user?.photoURL || user?.photo || "";
+  if (!raw) return "";
+  if (typeof raw === "object") return raw.url || raw.downloadURL || raw.path || "";
+  return String(raw).trim();
+};
+
+const getProfileUrl = (user) => {
+  const raw = getProfileValue(user);
+  if (!raw) return "";
+  if (/^(https?:|data:|blob:)/i.test(raw)) return raw;
+  const origin = String(import.meta.env.VITE_API_ORIGIN || import.meta.env.VITE_API_URL || "").replace(/\/api\/?$/, "").replace(/\/+$/, "");
+  const base = origin || "http://localhost:5000";
+  const clean = raw.replace(/\\/g, "/").replace(/^\/+/, "");
+  return clean.toLowerCase().startsWith("uploads/") ? `${base}/${clean}` : `${base}/uploads/${clean}`;
+};
+
+const initials = (name = "User") => {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "U";
+  return parts.length === 1 ? parts[0][0].toUpperCase() : `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+};
+
 export default function Profile() {
-  // ============================================================
-  // CURRENT LOGGED-IN USER
-  // ============================================================
-
   const currentUser = getUser();
-
-  // ============================================================
-  // FORM STATE
-  // ============================================================
-
   const [formData, setFormData] = useState({
     name: currentUser?.name || "",
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   });
-
-  // ============================================================
-  // PASSWORD VISIBILITY STATE
-  // ============================================================
-
-  const [showPasswords, setShowPasswords] = useState({
-    currentPassword: false,
-    newPassword: false,
-    confirmPassword: false,
-  });
-
-  // ============================================================
-  // UI STATE
-  // ============================================================
-
+  const [profileUser, setProfileUser] = useState(currentUser || {});
+  const [imageFile, setImageFile] = useState(null);
+  const [preview, setPreview] = useState("");
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState({ type: "", text: "" });
+  const [showPasswords, setShowPasswords] = useState({ currentPassword: false, newPassword: false, confirmPassword: false });
 
-  const [message, setMessage] = useState({
-    type: "",
-    text: "",
-  });
+  const isPasswordChangeRequested = useMemo(
+    () => Boolean(formData.currentPassword || formData.newPassword || formData.confirmPassword),
+    [formData.currentPassword, formData.newPassword, formData.confirmPassword]
+  );
 
-  // ============================================================
-  // HANDLE INPUT CHANGE
-  // ============================================================
+  const profileUrl = preview || getProfileUrl(profileUser);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  useEffect(() => () => {
+    if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
+  }, [preview]);
 
-    setFormData((previousData) => ({
-      ...previousData,
-      [name]: value,
-    }));
-
-    if (message.text) {
-      setMessage({
-        type: "",
-        text: "",
-      });
-    }
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((previous) => ({ ...previous, [name]: value }));
+    setMessage({ type: "", text: "" });
   };
 
-  // ============================================================
-  // TOGGLE PASSWORD VISIBILITY
-  // ============================================================
-
-  const togglePasswordVisibility = (fieldName) => {
-    setShowPasswords((previousState) => ({
-      ...previousState,
-      [fieldName]: !previousState[fieldName],
-    }));
+  const handleImage = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setMessage({ type: "error", text: "Please select a valid image file." });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: "error", text: "Profile photo must be smaller than 5 MB." });
+      return;
+    }
+    if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
+    setImageFile(file);
+    setPreview(URL.createObjectURL(file));
+    setMessage({ type: "", text: "" });
   };
 
-  // ============================================================
-  // PASSWORD CHANGE REQUEST CHECK
-  // ============================================================
-
-  const isPasswordChangeRequested =
-    formData.currentPassword.trim() !== "" ||
-    formData.newPassword.trim() !== "" ||
-    formData.confirmPassword.trim() !== "";
-
-  // ============================================================
-  // CONFIRM PASSWORD BORDER CLASS
-  // This avoids the previous JSX nested-template syntax error.
-  // ============================================================
-
-  let confirmPasswordBorderClass = "border-slate-700";
-
-  if (formData.confirmPassword) {
-    if (formData.newPassword === formData.confirmPassword) {
-      confirmPasswordBorderClass = "border-green-500/60";
-    } else {
-      confirmPasswordBorderClass = "border-red-500/60";
-    }
-  }
-
-  // ============================================================
-  // VALIDATE FORM
-  // ============================================================
-
-  const validateForm = () => {
-    const cleanName = formData.name.trim();
-
-    if (!cleanName) {
-      return "Name is required.";
-    }
-
-    if (cleanName.length < 2) {
-      return "Name must contain at least 2 characters.";
-    }
-
-    // If all password fields are empty, only update the name.
-    if (!isPasswordChangeRequested) {
-      return "";
-    }
-
-    if (!formData.currentPassword) {
-      return "Please enter your current password.";
-    }
-
-    if (!formData.newPassword) {
-      return "Please enter your new password.";
-    }
-
-    if (!formData.confirmPassword) {
-      return "Please confirm your new password.";
-    }
-
-    if (formData.newPassword.length < 6) {
-      return "New password must be at least 6 characters long.";
-    }
-
-    if (formData.currentPassword === formData.newPassword) {
-      return "New password must be different from your current password.";
-    }
-
-    if (formData.newPassword !== formData.confirmPassword) {
-      return "New password and confirm password do not match.";
-    }
-
+  const validate = () => {
+    if (!formData.name.trim() || formData.name.trim().length < 2) return "Name must contain at least 2 characters.";
+    if (!isPasswordChangeRequested) return "";
+    if (!formData.currentPassword || !formData.newPassword || !formData.confirmPassword) return "Please complete all password fields.";
+    if (formData.newPassword.length < 6) return "New password must be at least 6 characters long.";
+    if (formData.newPassword !== formData.confirmPassword) return "New password and confirm password do not match.";
+    if (formData.currentPassword === formData.newPassword) return "New password must be different from your current password.";
     return "";
   };
 
-  // ============================================================
-  // HANDLE PROFILE UPDATE
-  // ============================================================
-
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-
+  const handleUpdate = async (event) => {
+    event.preventDefault();
     if (!currentUser?.id) {
-      setMessage({
-        type: "error",
-        text: "Unable to identify the logged-in user. Please log in again.",
-      });
-
+      setMessage({ type: "error", text: "Unable to identify the logged-in user. Please log in again." });
       return;
     }
 
-    const validationError = validateForm();
-
+    const validationError = validate();
     if (validationError) {
-      setMessage({
-        type: "error",
-        text: validationError,
-      });
-
+      setMessage({ type: "error", text: validationError });
       return;
     }
+
+    setLoading(true);
+    setMessage({ type: "", text: "" });
 
     try {
-      setLoading(true);
+      const profilePayload = new FormData();
+      profilePayload.append("name", formData.name.trim());
+      if (imageFile) profilePayload.append("profile_pic", imageFile, imageFile.name);
 
-      setMessage({
-        type: "",
-        text: "",
-      });
+      const profileResponse = await API.put(`/user/${currentUser.id}`, profilePayload, { timeout: 120000 });
+      const returnedUser = profileResponse?.data?.user || profileResponse?.user || {};
 
-      // ========================================================
-      // CREATE REQUEST BODY
-      // ========================================================
-
-      const requestData = {
-        name: formData.name.trim(),
-      };
-
-      // Only send password fields when user wants
-      // to change the password.
+      let passwordResponse = null;
       if (isPasswordChangeRequested) {
-        requestData.currentPassword = formData.currentPassword;
-        requestData.newPassword = formData.newPassword;
-        requestData.confirmPassword = formData.confirmPassword;
+        passwordResponse = await API.put(`/user/update-profile/${currentUser.id}`, {
+          name: formData.name.trim(),
+          currentPassword: formData.currentPassword,
+          newPassword: formData.newPassword,
+          confirmPassword: formData.confirmPassword,
+        });
       }
-
-      // ========================================================
-      // SEND REQUEST TO BACKEND
-      // ========================================================
-
-      const response = await API.put(
-        `/user/update-profile/${currentUser.id}`,
-        requestData
-      );
-
-      // ========================================================
-      // UPDATE LOCAL USER INFORMATION
-      // ========================================================
 
       const updatedUser = {
         ...currentUser,
-        name:
-          response.data?.user?.name ||
-          formData.name.trim(),
+        ...returnedUser,
+        name: returnedUser.name || formData.name.trim(),
+        profile_pic: returnedUser.profile_pic || returnedUser.profilePic || currentUser.profile_pic || currentUser.profilePic || "",
+        profilePic: returnedUser.profilePic || returnedUser.profile_pic || currentUser.profilePic || currentUser.profile_pic || "",
+        photoURL: returnedUser.photoURL || currentUser.photoURL || "",
       };
 
+      setProfileUser(updatedUser);
       setToken(JSON.stringify(updatedUser));
-
-      // ========================================================
-      // CLEAR PASSWORD FIELDS AFTER SUCCESS
-      // ========================================================
-
-      setFormData({
-        name: updatedUser.name,
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-
-      setShowPasswords({
-        currentPassword: false,
-        newPassword: false,
-        confirmPassword: false,
-      });
-
-      setMessage({
-        type: "success",
-        text:
-          response.data?.message ||
-          response.data?.msg ||
-          (isPasswordChangeRequested
-            ? "Profile and password updated successfully!"
-            : "Profile updated successfully!"),
-      });
-    } catch (err) {
-      console.error("PROFILE UPDATE ERROR:", err);
-
-      const backendMessage =
-        err.response?.data?.message ||
-        err.response?.data?.msg ||
-        err.response?.data?.error ||
-        "Profile update failed. Please try again.";
-
+      setImageFile(null);
+      if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview);
+      setPreview("");
+      setFormData((previous) => ({ ...previous, name: updatedUser.name, currentPassword: "", newPassword: "", confirmPassword: "" }));
+      setShowPasswords({ currentPassword: false, newPassword: false, confirmPassword: false });
+      setMessage({ type: "success", text: passwordResponse?.data?.message || profileResponse?.data?.message || "Profile updated successfully!" });
+    } catch (error) {
+      console.error("PROFILE UPDATE ERROR:", error);
       setMessage({
         type: "error",
-        text: backendMessage,
+        text: error?.response?.data?.message || error?.response?.data?.error || error?.message || "Profile update failed. Please try again.",
       });
     } finally {
       setLoading(false);
     }
   };
 
-  // ============================================================
-  // RENDER
-  // ============================================================
-
   return (
-    <div className="animate-in fade-in duration-700 max-w-3xl mx-auto">
-      {/* ======================================================
-          PAGE HEADING
-          ====================================================== */}
-
-      <div className="flex items-center gap-4 mb-10">
-        <div className="p-3 bg-yellow-500 rounded-2xl shadow-lg shadow-yellow-500/20">
-          <ShieldCheck
-            className="text-slate-900"
-            size={28}
-          />
-        </div>
-
+    <div className="animate-in fade-in duration-700 max-w-3xl mx-auto pb-10">
+      <div className="flex items-center gap-4 mb-8">
+        <div className="p-3 bg-yellow-500 rounded-2xl shadow-lg shadow-yellow-500/20"><ShieldCheck className="text-slate-900" size={28} /></div>
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">
-            Profile Settings
-          </h1>
-
-          <p className="text-slate-500 text-sm mt-1">
-            Update your profile information and account password.
-          </p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Profile Settings</h1>
+          <p className="text-slate-500 text-sm mt-1">Update your profile information, profile photo and account password.</p>
         </div>
       </div>
 
-      {/* ======================================================
-          MAIN CARD
-          ====================================================== */}
-
-      <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/5 p-8 md:p-10 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
-        {/* Decorative background */}
-
-        <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-yellow-500/[0.03] pointer-events-none" />
-
-        <form
-          onSubmit={handleUpdate}
-          className="space-y-8 relative z-10"
-        >
-          {/* ==================================================
-              MESSAGE
-              ================================================== */}
-
+      <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/5 p-6 md:p-10 rounded-[2.5rem] shadow-2xl">
+        <form onSubmit={handleUpdate} className="space-y-8">
           {message.text && (
-            <div
-              className={`flex items-start gap-3 px-5 py-4 rounded-2xl border ${
-                message.type === "success"
-                  ? "bg-green-500/10 border-green-500/20 text-green-400"
-                  : "bg-red-500/10 border-red-500/20 text-red-400"
-              }`}
-            >
-              {message.type === "success" ? (
-                <CheckCircle2
-                  size={20}
-                  className="shrink-0 mt-0.5"
-                />
-              ) : (
-                <AlertCircle
-                  size={20}
-                  className="shrink-0 mt-0.5"
-                />
-              )}
-
-              <p className="text-sm font-semibold leading-relaxed">
-                {message.text}
-              </p>
+            <div className={`flex items-start gap-3 px-5 py-4 rounded-2xl border ${message.type === "success" ? "bg-green-500/10 border-green-500/20 text-green-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
+              {message.type === "success" ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+              <p className="text-sm font-semibold">{message.text}</p>
             </div>
           )}
 
-          {/* ==================================================
-              PROFILE INFORMATION
-              ================================================== */}
-
-          <div className="space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-yellow-500/10 flex items-center justify-center">
-                <User
-                  size={18}
-                  className="text-yellow-500"
-                />
+          <section className="space-y-5">
+            <div className="flex items-center gap-4">
+              <div className="relative shrink-0">
+                {profileUrl ? (
+                  <img src={profileUrl} alt="Profile" className="w-24 h-24 rounded-full object-cover border-4 border-yellow-500 bg-slate-800" onError={() => setProfileUser((previous) => ({ ...previous, profile_pic: "", profilePic: "", photoURL: "" }))} />
+                ) : (
+                  <div className="w-24 h-24 rounded-full border-4 border-yellow-500 bg-slate-800 flex items-center justify-center text-yellow-400 text-2xl font-black">{initials(formData.name)}</div>
+                )}
+                <label htmlFor="profile-photo" className="absolute -right-1 -bottom-1 w-9 h-9 rounded-full bg-yellow-500 text-black flex items-center justify-center cursor-pointer shadow-lg"><Camera size={17} /><input id="profile-photo" type="file" accept="image/jpeg,image/jpg,image/png,image/webp" className="hidden" onChange={(event) => handleImage(event.target.files?.[0])} disabled={loading} /></label>
               </div>
-
               <div>
-                <h2 className="text-white font-bold text-base">
-                  Profile Information
-                </h2>
-
-                <p className="text-slate-500 text-xs mt-0.5">
-                  Change your display name.
-                </p>
+                <h2 className="text-white font-bold text-lg">Profile Information</h2>
+                <p className="text-slate-500 text-xs mt-1">Your Google/Gmail photo is used automatically when available. You can replace it with your own photo.</p>
               </div>
             </div>
 
-            {/* NAME */}
-
-            <div className="space-y-2">
-              <label
-                htmlFor="profile-name"
-                className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500 ml-2"
-              >
-                Name
-              </label>
-
-              <div className="relative group">
-                <User
-                  className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors pointer-events-none"
-                  size={20}
-                />
-
-                <input
-                  id="profile-name"
-                  name="name"
-                  type="text"
-                  value={formData.name}
-                  onChange={handleChange}
-                  disabled={loading}
-                  required
-                  autoComplete="name"
-                  placeholder="Enter your name"
-                  className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white placeholder:text-slate-600 outline-none focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/20 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed"
-                />
-              </div>
+            <label className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500 ml-2">Name</label>
+            <div className="relative">
+              <User className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
+              <input name="name" type="text" value={formData.name} onChange={handleChange} disabled={loading} required className="w-full pl-14 pr-6 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/20" />
             </div>
-          </div>
-
-          {/* DIVIDER */}
+          </section>
 
           <div className="h-px bg-white/5" />
 
-          {/* ==================================================
-              CHANGE PASSWORD
-              ================================================== */}
-
-          <div className="space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-yellow-500/10 flex items-center justify-center">
-                <KeyRound
-                  size={18}
-                  className="text-yellow-500"
-                />
-              </div>
-
-              <div>
-                <h2 className="text-white font-bold text-base">
-                  Change Password
-                </h2>
-
-                <p className="text-slate-500 text-xs mt-0.5">
-                  Leave all three password fields blank if you do not want to
-                  change your password.
-                </p>
-              </div>
-            </div>
-
-            {/* CURRENT PASSWORD */}
-
-            <div className="space-y-2">
-              <label
-                htmlFor="current-password"
-                className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500 ml-2"
-              >
-                Current Password
-              </label>
-
-              <div className="relative group">
-                <Lock
-                  className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors pointer-events-none"
-                  size={20}
-                />
-
-                <input
-                  id="current-password"
-                  name="currentPassword"
-                  type={
-                    showPasswords.currentPassword
-                      ? "text"
-                      : "password"
-                  }
-                  value={formData.currentPassword}
-                  onChange={handleChange}
-                  disabled={loading}
-                  autoComplete="current-password"
-                  placeholder="Enter current password"
-                  className="w-full pl-14 pr-14 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white placeholder:text-slate-600 outline-none focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/20 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed"
-                />
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    togglePasswordVisibility("currentPassword")
-                  }
-                  disabled={loading}
-                  className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-yellow-500 transition-colors disabled:cursor-not-allowed"
-                  aria-label={
-                    showPasswords.currentPassword
-                      ? "Hide current password"
-                      : "Show current password"
-                  }
-                >
-                  {showPasswords.currentPassword ? (
-                    <EyeOff size={19} />
-                  ) : (
-                    <Eye size={19} />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* NEW PASSWORD */}
-
-            <div className="space-y-2">
-              <label
-                htmlFor="new-password"
-                className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500 ml-2"
-              >
-                New Password
-              </label>
-
-              <div className="relative group">
-                <KeyRound
-                  className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors pointer-events-none"
-                  size={20}
-                />
-
-                <input
-                  id="new-password"
-                  name="newPassword"
-                  type={
-                    showPasswords.newPassword
-                      ? "text"
-                      : "password"
-                  }
-                  value={formData.newPassword}
-                  onChange={handleChange}
-                  disabled={loading}
-                  autoComplete="new-password"
-                  placeholder="Enter new password"
-                  className="w-full pl-14 pr-14 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white placeholder:text-slate-600 outline-none focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/20 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed"
-                />
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    togglePasswordVisibility("newPassword")
-                  }
-                  disabled={loading}
-                  className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-yellow-500 transition-colors disabled:cursor-not-allowed"
-                  aria-label={
-                    showPasswords.newPassword
-                      ? "Hide new password"
-                      : "Show new password"
-                  }
-                >
-                  {showPasswords.newPassword ? (
-                    <EyeOff size={19} />
-                  ) : (
-                    <Eye size={19} />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* CONFIRM NEW PASSWORD */}
-
-            <div className="space-y-2">
-              <label
-                htmlFor="confirm-password"
-                className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500 ml-2"
-              >
-                Confirm New Password
-              </label>
-
-              <div className="relative group">
-                <ShieldCheck
-                  className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-yellow-500 transition-colors pointer-events-none"
-                  size={20}
-                />
-
-                <input
-                  id="confirm-password"
-                  name="confirmPassword"
-                  type={
-                    showPasswords.confirmPassword
-                      ? "text"
-                      : "password"
-                  }
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  disabled={loading}
-                  autoComplete="new-password"
-                  placeholder="Re-enter new password"
-                  className={`w-full pl-14 pr-14 py-4 bg-slate-900/80 border ${confirmPasswordBorderClass} rounded-2xl text-white placeholder:text-slate-600 outline-none focus:ring-2 focus:ring-yellow-500/20 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed`}
-                />
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    togglePasswordVisibility("confirmPassword")
-                  }
-                  disabled={loading}
-                  className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-yellow-500 transition-colors disabled:cursor-not-allowed"
-                  aria-label={
-                    showPasswords.confirmPassword
-                      ? "Hide confirmed password"
-                      : "Show confirmed password"
-                  }
-                >
-                  {showPasswords.confirmPassword ? (
-                    <EyeOff size={19} />
-                  ) : (
-                    <Eye size={19} />
-                  )}
-                </button>
-              </div>
-
-              {/* LIVE PASSWORD MATCH STATUS */}
-
-              {formData.confirmPassword && (
-                <div className="ml-2 mt-2">
-                  {formData.newPassword ===
-                  formData.confirmPassword ? (
-                    <p className="flex items-center gap-2 text-green-400 text-xs font-semibold">
-                      <CheckCircle2 size={14} />
-                      Passwords match.
-                    </p>
-                  ) : (
-                    <p className="flex items-center gap-2 text-red-400 text-xs font-semibold">
-                      <AlertCircle size={14} />
-                      Passwords do not match.
-                    </p>
-                  )}
+          <section className="space-y-5">
+            <div className="flex items-center gap-3"><div className="w-9 h-9 rounded-xl bg-yellow-500/10 flex items-center justify-center"><KeyRound size={18} className="text-yellow-500" /></div><div><h2 className="text-white font-bold">Change Password</h2><p className="text-slate-500 text-xs mt-1">Leave these fields blank if you do not want to change your password.</p></div></div>
+            {["currentPassword", "newPassword", "confirmPassword"].map((field) => {
+              const labels = { currentPassword: "Current Password", newPassword: "New Password", confirmPassword: "Confirm New Password" };
+              return (
+                <div key={field} className="relative">
+                  <label className="block text-[10px] uppercase tracking-[0.3em] font-bold text-slate-500 ml-2 mb-2">{labels[field]}</label>
+                  <Lock className="absolute left-5 top-[58%] -translate-y-1/2 text-slate-500" size={18} />
+                  <input name={field} type={showPasswords[field] ? "text" : "password"} value={formData[field]} onChange={handleChange} disabled={loading} className="w-full pl-14 pr-14 py-4 bg-slate-900/80 border border-slate-700 rounded-2xl text-white outline-none focus:border-yellow-500/50" />
+                  <button type="button" onClick={() => setShowPasswords((previous) => ({ ...previous, [field]: !previous[field] }))} className="absolute right-5 top-[58%] -translate-y-1/2 text-slate-500 hover:text-yellow-500">{showPasswords[field] ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                 </div>
-              )}
-            </div>
-          </div>
+              );
+            })}
+          </section>
 
-          {/* ==================================================
-              SAVE BUTTON
-              ================================================== */}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-yellow-500 hover:bg-yellow-400 disabled:bg-yellow-500/60 disabled:cursor-not-allowed text-slate-950 font-black py-4 rounded-2xl shadow-xl shadow-yellow-500/10 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
-          >
-            {loading ? (
-              <>
-                <Loader2
-                  size={20}
-                  className="animate-spin"
-                />
-                Saving Changes...
-              </>
-            ) : (
-              <>
-                <Save size={20} />
-                Save Changes
-              </>
-            )}
+          <button type="submit" disabled={loading} className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-4 rounded-2xl font-black flex items-center justify-center gap-2 disabled:opacity-50">
+            {loading ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+            {loading ? "Saving..." : "Save Profile"}
           </button>
         </form>
       </div>
