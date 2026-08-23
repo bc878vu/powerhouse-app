@@ -26,21 +26,14 @@ body {
   overscroll-behavior-x: none;
 }
 
-/* Keep existing responsive layouts from creating horizontal page overflow. */
 img,
 video,
 canvas {
   max-width: 100%;
 }
 
-iframe {
-  max-width: 100%;
-}
-
-table {
-  max-width: 100%;
-}
-
+iframe,
+table,
 button,
 input,
 select,
@@ -48,12 +41,10 @@ textarea {
   max-width: 100%;
 }
 
-/* Recharts containers should shrink with their parent on small screens. */
 .recharts-responsive-container {
   max-width: 100% !important;
 }
 
-/* Safe-area support for Android/iOS standalone PWA mode. */
 @media (display-mode: standalone) {
   body {
     padding-top: env(safe-area-inset-top);
@@ -74,36 +65,15 @@ textarea {
   }
 }
 
-/* remove any blur effect */
 * {
   text-shadow: none !important;
   filter: none !important;
 }
 
 /* =========================================================
-   STAFF PROFILE REPORT PRINT FIX
+   EXISTING STAFF PROFILE PRINT SUPPORT
    ========================================================= */
-
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 10mm;
-  }
-
-  html,
-  body {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    min-height: auto !important;
-    background: white !important;
-    overflow: visible !important;
-  }
-
-  body * {
-    visibility: hidden !important;
-  }
-
   #printable-area,
   #printable-area * {
     visibility: visible !important;
@@ -118,89 +88,10 @@ textarea {
     margin: 0 !important;
     padding: 0 !important;
     border: none !important;
-    border-radius: 0 !important;
     box-shadow: none !important;
     overflow: visible !important;
     background: white !important;
     color: black !important;
-  }
-
-  #staff-report-overlay {
-    position: static !important;
-    display: block !important;
-    width: 100% !important;
-    min-height: auto !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: white !important;
-    backdrop-filter: none !important;
-    overflow: visible !important;
-  }
-
-  #staff-report-overlay > div {
-    display: block !important;
-    width: 100% !important;
-    min-height: auto !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-
-  .staff-print-report {
-    width: 100% !important;
-    max-width: none !important;
-  }
-
-  .report-header {
-    padding: 0 0 5mm 0 !important;
-    margin-bottom: 5mm !important;
-  }
-
-  .report-body {
-    padding: 0 !important;
-  }
-
-  .profile-section {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  .report-section {
-    break-inside: auto !important;
-  }
-
-  .report-stat {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  .report-tools-table {
-    width: 100% !important;
-    border-collapse: collapse !important;
-  }
-
-  .report-tools-table thead {
-    display: table-header-group !important;
-  }
-
-  .report-tools-table tr {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  .report-tools-table th,
-  .report-tools-table td {
-    padding: 2.5mm !important;
-    font-size: 10pt !important;
-  }
-
-  .report-profile-image {
-    width: 30mm !important;
-    height: 30mm !important;
-    object-fit: cover !important;
-  }
-
-  .report-footer {
-    margin-top: 8mm !important;
   }
 
   .print\\:hidden {
@@ -208,7 +99,495 @@ textarea {
   }
 }
 
-/* Refresh is automatic; keep manual refresh controls out of the UI. */
+/* =========================================================
+   TASK REPORT — RESPONSIVE A4 LAYOUT
+   ========================================================= */
+
+.task-view-screen {
+  width: 100% !important;
+  min-height: 100vh !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+}
+
+.report-pages-container {
+  width: 100% !important;
+  align-items: center !important;
+  gap: 24px !important;
+}
+
+/* A4 sheet: keep A4 proportions without forcing its inner
+   attachment area to fill unused space. */
+.a4-report-page {
+  box-sizing: border-box !important;
+  width: 210mm !important;
+  min-width: 210mm !important;
+  max-width: 210mm !important;
+  min-height: 297mm !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.report-page-content {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* Do not stretch the attachments area across all remaining
+   vertical space when only one or two files exist. */
+.attachments-section {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+.attachments-grid {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  align-items: stretch !important;
+  grid-auto-flow: row !important;
+}
+
+.attachments-grid.grid-count-1 {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(65mm, auto) !important;
+}
+
+.attachments-grid.grid-count-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: minmax(65mm, auto) !important;
+}
+
+.attachments-grid.grid-count-3,
+.attachments-grid.grid-count-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: repeat(2, minmax(62mm, auto)) !important;
+}
+
+.attachment-card {
+  height: auto !important;
+  min-height: 0 !important;
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+
+.attachment-preview {
+  min-height: 48mm !important;
+  height: auto !important;
+  flex: 0 0 48mm !important;
+}
+
+.attachment-image,
+.attachment-video,
+.print-video-thumbnail-image {
+  max-height: 48mm !important;
+}
+
+.attachment-file-footer {
+  flex: 0 0 10mm !important;
+  min-height: 10mm !important;
+  height: 10mm !important;
+}
+
+.empty-attachments {
+  padding: 8mm 4mm !important;
+  min-height: 28mm !important;
+}
+
+.continuation-report-page .attachments-grid {
+  grid-template-rows: repeat(2, minmax(72mm, auto)) !important;
+}
+
+.continuation-report-page .attachment-preview {
+  min-height: 58mm !important;
+  flex-basis: 58mm !important;
+}
+
+.completion-report-page .attachments-grid {
+  grid-template-rows: repeat(2, minmax(52mm, auto)) !important;
+}
+
+.completion-report-page .attachment-preview {
+  min-height: 42mm !important;
+  flex-basis: 42mm !important;
+}
+
+@media (max-width: 850px) {
+  .task-view-screen {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  .report-pages-container {
+    align-items: flex-start !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .task-view-screen {
+    padding: 16px 8px 90px !important;
+  }
+
+  .report-pages-container {
+    align-items: flex-start !important;
+    gap: 16px !important;
+  }
+
+  /* Fit the A4 canvas to phone width while preserving the report
+     structure. Desktop remains a true 210mm sheet. */
+  .a4-report-page {
+    width: min(210mm, calc(100vw - 16px)) !important;
+    min-width: min(210mm, calc(100vw - 16px)) !important;
+    max-width: min(210mm, calc(100vw - 16px)) !important;
+    min-height: auto !important;
+    padding: 8mm 7mm 18mm !important;
+  }
+
+  .report-logo {
+    font-size: clamp(18px, 6vw, 24px) !important;
+  }
+
+  .report-token h2 {
+    font-size: clamp(17px, 5vw, 22px) !important;
+  }
+
+  .task-information-grid,
+  .completion-information-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 5mm 5mm !important;
+    margin-bottom: 5mm !important;
+  }
+
+  .description-section,
+  .completion-note-section {
+    margin-bottom: 5mm !important;
+  }
+
+  .description-heading {
+    font-size: 11px !important;
+  }
+
+  .description-box,
+  .completion-note-box {
+    min-height: 18mm !important;
+    padding: 3mm !important;
+  }
+
+  .attachments-grid.grid-count-2,
+  .attachments-grid.grid-count-3,
+  .attachments-grid.grid-count-4,
+  .continuation-report-page .attachments-grid,
+  .completion-report-page .attachments-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: none !important;
+  }
+
+  .attachments-grid.grid-count-1 {
+    grid-template-rows: minmax(48mm, auto) !important;
+  }
+
+  .attachment-card,
+  .attachment-preview {
+    min-height: 42mm !important;
+  }
+
+  .attachment-preview {
+    flex-basis: 42mm !important;
+  }
+
+  .report-footer {
+    left: 7mm !important;
+    right: 7mm !important;
+    bottom: 5mm !important;
+  }
+
+  .footer-approval {
+    display: none !important;
+  }
+
+  .report-copyright {
+    font-size: 4px !important;
+    letter-spacing: 0.18em !important;
+  }
+}
+
+/* =========================================================
+   PRINT — TRUE A4 / NO ARTIFICIAL BLANK PAGE
+   ========================================================= */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html,
+  body,
+  #root {
+    width: 210mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+  }
+
+  html.printing-full-report-html,
+  body.printing-full-report {
+    width: 210mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+  }
+
+  body.printing-full-report * {
+    visibility: hidden !important;
+  }
+
+  body.printing-full-report .report-pages-container,
+  body.printing-full-report .report-pages-container * {
+    visibility: visible !important;
+  }
+
+  body.printing-full-report nav,
+  body.printing-full-report aside,
+  body.printing-full-report header:not(.report-header),
+  body.printing-full-report .sidebar,
+  body.printing-full-report .navbar,
+  body.printing-full-report .mobile-header,
+  body.printing-full-report .top-header,
+  body.printing-full-report .app-header,
+  body.printing-full-report .layout-header,
+  body.printing-full-report .main-header,
+  body.printing-full-report .dashboard-header,
+  .no-print {
+    display: none !important;
+  }
+
+  body.printing-full-report #root,
+  body.printing-full-report #root > div,
+  body.printing-full-report main,
+  body.printing-full-report .task-view-screen,
+  body.printing-full-report .report-pages-container {
+    position: static !important;
+    display: block !important;
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    transform: none !important;
+    background: #fff !important;
+  }
+
+  body.printing-full-report .report-pages-container {
+    gap: 0 !important;
+  }
+
+  /* 296mm leaves a small safety allowance inside the 297mm A4
+     physical sheet and prevents Chromium overflow sheets. */
+  body.printing-full-report .a4-report-page {
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: 296mm !important;
+    min-height: 296mm !important;
+    max-height: 296mm !important;
+    margin: 0 !important;
+    padding: 14mm 13mm 25mm !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    color: #0f172a !important;
+    box-shadow: inset 0 2mm 0 #eab308 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  body.printing-full-report .a4-report-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  body.printing-full-report .report-page-content {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  body.printing-full-report .description-box,
+  body.printing-full-report .completion-note-box {
+    height: auto !important;
+    min-height: 18mm !important;
+    overflow: visible !important;
+  }
+
+  body.printing-full-report .description-content {
+    height: auto !important;
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+
+  body.printing-full-report .attachments-section {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body.printing-full-report .attachments-grid {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    display: grid !important;
+    gap: 4mm !important;
+    align-items: stretch !important;
+  }
+
+  body.printing-full-report .attachments-grid.grid-count-1 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 68mm !important;
+  }
+
+  body.printing-full-report .attachments-grid.grid-count-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: 68mm !important;
+  }
+
+  body.printing-full-report .attachments-grid.grid-count-3,
+  body.printing-full-report .attachments-grid.grid-count-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(2, 66mm) !important;
+  }
+
+  body.printing-full-report .continuation-report-page .attachments-grid {
+    grid-template-rows: repeat(2, 82mm) !important;
+  }
+
+  body.printing-full-report .completion-report-page .attachments-grid {
+    grid-template-rows: repeat(2, 56mm) !important;
+  }
+
+  body.printing-full-report .attachment-card {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.printing-full-report .attachment-preview {
+    flex: 0 0 56mm !important;
+    min-height: 56mm !important;
+    height: 56mm !important;
+    overflow: hidden !important;
+  }
+
+  body.printing-full-report .continuation-report-page .attachment-preview {
+    flex-basis: 72mm !important;
+    min-height: 72mm !important;
+    height: 72mm !important;
+  }
+
+  body.printing-full-report .completion-report-page .attachment-preview {
+    flex-basis: 46mm !important;
+    min-height: 46mm !important;
+    height: 46mm !important;
+  }
+
+  body.printing-full-report .attachment-image,
+  body.printing-full-report .print-video-thumbnail-image {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    object-fit: contain !important;
+  }
+
+  body.printing-full-report .attachment-video {
+    display: none !important;
+  }
+
+  body.printing-full-report .print-video-thumbnail {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: #000 !important;
+    overflow: hidden !important;
+  }
+
+  body.printing-full-report .print-video-placeholder {
+    position: absolute !important;
+    inset: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-direction: column !important;
+    gap: 2mm !important;
+    background: #f8fafc !important;
+    color: #ca8a04 !important;
+    font-size: 7px !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+  }
+
+  body.printing-full-report .attachment-audio {
+    display: none !important;
+  }
+
+  body.printing-full-report .print-audio-label {
+    display: block !important;
+    color: #64748b !important;
+    font-size: 7px !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+  }
+
+  body.printing-full-report .document-open-button,
+  body.printing-full-report .error-open-button,
+  body.printing-full-report .attachment-open-link {
+    display: none !important;
+  }
+
+  body.printing-full-report .report-footer {
+    position: absolute !important;
+    left: 13mm !important;
+    right: 13mm !important;
+    bottom: 7mm !important;
+    height: 14mm !important;
+    background: #fff !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+
 button:has(svg.lucide-refresh-cw),
 button:has(svg.lucide-refresh-ccw),
 button:has(svg.lucide-refresh-cw-icon),
