@@ -13,7 +13,6 @@ const resolveProfilePhoto = (profile, firebaseUser) =>
 async function resolveStaffRecord(firebaseUser) {
   const base = apiBase();
   if (!base || !firebaseUser?.email) return null;
-
   try {
     const response = await fetch(`${base}/api/user/all`, { headers: { Accept: "application/json" } });
     if (!response.ok) return null;
@@ -33,14 +32,34 @@ async function syncStaffGooglePhoto(staffRecord, photoURL) {
   if (!base) return;
 
   try {
-    await fetch(`${base}/api/user/${staffRecord.id}`, {
+    // Reuse the existing secure profile-upload endpoint so the Google avatar
+    // is stored in the same profile_pic field used by Staff Records/TaskView.
+    const imageResponse = await fetch(photoURL, { mode: "cors" });
+    if (!imageResponse.ok) throw new Error(`Google avatar download failed (${imageResponse.status})`);
+    const blob = await imageResponse.blob();
+    if (!blob.size) throw new Error("Google avatar is empty");
+
+    const extension = (blob.type || "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+    const form = new FormData();
+    form.append("name", staffRecord.name || "User");
+    form.append("email", staffRecord.email || "");
+    form.append("role", staffRecord.role || "electrician");
+    form.append("status", staffRecord.status || "active");
+    form.append("profile_pic", blob, `google-profile.${extension}`);
+
+    const response = await fetch(`${base}/api/user/${staffRecord.id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ profile_pic: photoURL, photoURL })
+      headers: { Accept: "application/json" },
+      body: form
     });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || `Profile photo sync failed (${response.status})`);
+    }
   } catch (error) {
-    // Firestore remains the source for the Firebase profile; DB sync is best-effort.
-    console.warn("Could not sync Google photo to staff record:", error?.message || error);
+    // Google-hosted photo remains available in Firebase/session even when the
+    // browser blocks cross-origin image download. Do not block login.
+    console.warn("Could not persist Google photo to staff record:", error?.message || error);
   }
 }
 
@@ -116,10 +135,10 @@ async function buildSession(firebaseUser) {
   }
 
   const profilePic = resolveProfilePhoto(profile, firebaseUser);
-  if (staffRecord?.id && profilePic) void syncStaffGooglePhoto(staffRecord, profilePic);
+  if (staffRecord?.id && firebaseUser.photoURL) void syncStaffGooglePhoto(staffRecord, firebaseUser.photoURL);
 
-  // IMPORTANT: task tables use the numeric MySQL staff id. Firebase UID remains
-  // available separately for Firebase notifications/profile documents.
+  // Task tables use the numeric MySQL staff id. Firebase UID remains separate
+  // for Firebase notifications/profile documents.
   const numericStaffId = Number(staffRecord?.id);
   const sessionId = Number.isInteger(numericStaffId) && numericStaffId > 0 ? numericStaffId : (profile.id || firebaseUser.uid);
 
