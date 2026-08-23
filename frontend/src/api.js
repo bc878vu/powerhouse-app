@@ -1,4 +1,5 @@
 import { requestFirebase, listUsers } from "./services/firebaseDataStore";
+import { createNotification, sendPushNotification } from "./services/notificationService";
 const CACHE_TTL=60000,REQUEST_TIMEOUT=15000,LEGACY_TIMEOUT=2000,USER_STORAGE_KEY="powerhouse_staff_cache_v2";
 const userCache={data:null,at:0,promise:null};
 const taskRouteMap=new Map();
@@ -17,11 +18,44 @@ const firebaseRequest=(method,url,data,params={})=>withTimeout(requestFirebase(m
 const isTaskPath=cleanUrl=>/^\/?task\//.test(cleanUrl);
 const rememberTaskRoutes=activities=>{if(!Array.isArray(activities))return;activities.forEach(task=>{const internalId=task?.document_id||task?.firestore_id||task?.id;const numeric=Number(task?.task_number||task?.display_id||task?.numeric_id);if(internalId&&Number.isInteger(numeric)&&numeric>0)taskRouteMap.set(String(numeric),String(internalId))})};
 const resolveTaskId=async id=>{const raw=String(id??"").trim();if(!raw)return raw;if(!/^\d+$/.test(raw))return raw;const canonical=String(Number(raw));if(taskRouteMap.has(canonical))return taskRouteMap.get(canonical);try{const stats=await firebaseRequest("GET","/activity/stats");rememberTaskRoutes(stats?.activities);return taskRouteMap.get(canonical)||raw}catch{return raw}};
+
+const extractAssignedIds=(data,result)=>{
+  if (typeof FormData!=="undefined" && data instanceof FormData) {
+    const values=data.getAll("user_ids[]").map(String).filter(Boolean);
+    if (values.length) return [...new Set(values)];
+    const single=String(data.get("user_id")||"").trim();
+    if (single) return [single];
+  }
+  const raw=result?.assigned_user_ids||result?.user_ids||(result?.user_id?[result.user_id]:[]);
+  return [...new Set((Array.isArray(raw)?raw:[raw]).map(item=>String(item?.id??item?.uid??item?.user_id??item).trim()).filter(Boolean))];
+};
+
+const notifyTaskAssignees=async(result,data)=>{
+  try {
+    const selectedIds=extractAssignedIds(data,result);
+    if (!selectedIds.length) return;
+    const users=await getUsersFast();
+    const recipients=users.filter(user=>selectedIds.some(id=>String(user.id)===String(id)||String(user.uid)===String(id))&&String(user.status||"active").toLowerCase()!=="inactive");
+    const recipientUids=[...new Set(recipients.map(user=>String(user.uid||user.id||"").trim()).filter(Boolean))];
+    if (!recipientUids.length) { console.warn("TASK PUSH: no Firebase UID matched selected users",selectedIds); return; }
+    const title=String(result?.title||data?.get?.("title")||"New Task Assigned").trim();
+    const priority=String(result?.priority||data?.get?.("priority")||"High").trim();
+    const taskId=String(result?.id||result?.document_id||result?.task_id||"").trim();
+    const route=taskId?`/task-view/${taskId}`:"/notifications";
+    const notificationId=`task-assigned-${taskId||Date.now()}-${recipientUids.join("-")}`;
+    await Promise.all(recipientUids.map(uid=>createNotification(uid,{title:"📋 Task Assigned To You",body:`${title} (${priority} priority)`,type:"task_assigned",route,taskId,sourceId:taskId||null}).catch(error=>console.warn("TASK IN-APP NOTIFICATION ERROR:",error?.message||error))));
+    await sendPushNotification({title:"📋 Task Assigned To You",body:`${title} (${priority} priority)`,route,userIds:recipientUids,notificationId});
+    console.log("TASK PUSH SENT:",recipientUids);
+  } catch(error) {
+    console.warn("TASK PUSH DELIVERY FAILED:",error?.message||error);
+  }
+};
+
 const API={
  get:async(url,config={})=>{const cleanUrl=String(url||"").split("?")[0];if(cleanUrl==="/user/all"||cleanUrl==="user/all"){const users=await getUsersFast();return{data:users,users}}
   if(isTaskPath(cleanUrl)&&/^\/?task\/[^/]+$/.test(cleanUrl)){const rawId=cleanUrl.split("/")[2],resolvedId=await resolveTaskId(rawId),resolvedUrl=cleanUrl.replace(`/${rawId}`,`/${resolvedId}`);try{const result=await firebaseRequest("GET",resolvedUrl,undefined,config?.params||{});if(result?.task){const displayId=/^\d+$/.test(rawId)?String(Number(rawId)).padStart(2,"0"):result.task.display_id||null;return{data:{...result,task:{...result.task,document_id:result.task.id,id:displayId||result.task.id,display_id:displayId,task_number:displayId||result.task.task_number||null}}}}return{data:result}}catch(firebaseError){const legacyPath=resolvedUrl.startsWith("/")?resolvedUrl:`/${resolvedUrl}`;try{return{data:await legacyGet(legacyPath)}}catch{throw firebaseError}}}
   try{const result=await firebaseRequest("GET",url,undefined,config?.params||{});if(cleanUrl.startsWith("/user/")||cleanUrl.startsWith("user/")){const id=cleanUrl.split("/")[2],users=await getUsersFast(),profile=users.find(user=>String(user.id)===String(id)||String(user.uid)===String(id));if(cleanUrl.startsWith("/user/full/")||cleanUrl.startsWith("user/full/"))return{data:{...result,user:{...(profile||{}),...(result?.user||{})}}};return{...(profile||{}),...(result||{})}}if(cleanUrl==="/duty/staff"||cleanUrl==="duty/staff"){const staff=unwrapUsers(result?.staff);return staff.length?result:{...result,staff:await getUsersFast()}}if(cleanUrl==="/duty/summary"||cleanUrl==="duty/summary"){if(Number(result?.totalStaff||0)>0)return result;const users=await getUsersFast();return{...result,totalStaff:users.length||Number(result?.totalStaff||0)}}if(cleanUrl==="/activity/stats"||cleanUrl==="activity/stats"){const backendStaffCount=Number(result?.staffCount||0),users=backendStaffCount>0?null:await getUsersFast(),rawActivities=Array.isArray(result?.activities)?result.activities:[],ordered=[...rawActivities].sort((a,b)=>{const da=new Date(a?.created_at||a?.createdAt||0).getTime(),db=new Date(b?.created_at||b?.createdAt||0).getTime();if(da!==db)return da-db;return String(a?.id||"").localeCompare(String(b?.id||""))}),numberByInternalId=new Map();ordered.forEach((task,index)=>{const internalId=task?.document_id||task?.firestore_id||task?.id;if(internalId)numberByInternalId.set(String(internalId),String(task?.task_number||task?.display_id||task?.numeric_id||index+1).padStart(2,"0"))});const activities=rawActivities.map((task,index)=>{const internalId=task?.document_id||task?.firestore_id||task?.id,numericId=numberByInternalId.get(String(internalId))||String(task?.task_number||task?.display_id||task?.numeric_id||index+1).padStart(2,"0");return{...task,id:numericId,document_id:internalId,firestore_id:internalId,task_number:numericId,display_id:numericId}});rememberTaskRoutes(activities);const normalizedResult={...(result||{}),activities,staffCount:users?(users.length||backendStaffCount):backendStaffCount};return{...normalizedResult,data:normalizedResult}}if(cleanUrl.startsWith("/tools/user/")||cleanUrl.startsWith("tools/user/")){if(Array.isArray(result)&&result.length)return result;try{return unwrapUsers(await legacyGet(cleanUrl.startsWith("/")?cleanUrl:`/${cleanUrl}`))}catch{return result}}return result}catch(firebaseError){const legacyPath=cleanUrl.startsWith("/")?cleanUrl:`/${cleanUrl}`;try{const legacyResult=await legacyGet(legacyPath);if(cleanUrl.startsWith("/user/full/")||cleanUrl.startsWith("user/full/")){const id=cleanUrl.split("/")[2];let tools=[];try{tools=unwrapUsers(await legacyGet(`/tools/user/${id}`))}catch{}return{data:{user:legacyResult?.user||legacyResult,tasks:[],tools}}}return legacyResult}catch{throw firebaseError}}},
- post:async(url,data,config={})=>{const result=await firebaseRequest("POST",url,data,config?.params||{});if(String(url).includes("/user"))invalidateUsers();return result},
+ post:async(url,data,config={})=>{const result=await firebaseRequest("POST",url,data,config?.params||{});if(String(url).includes("/user"))invalidateUsers();if(String(url).replace(/\?.*$/,"/").startsWith("/task/assign")){void notifyTaskAssignees(result?.data||result,data);}return result},
  put:async(url,data,config={})=>{const cleanUrl=String(url||"").split("?")[0];let requestUrl=url;if(isTaskPath(cleanUrl)&&/^\/?task\/[^/]+$/.test(cleanUrl)){const rawId=cleanUrl.split("/")[2],resolvedId=await resolveTaskId(rawId);requestUrl=cleanUrl.replace(`/${rawId}`,`/${resolvedId}`)}const result=await firebaseRequest("PUT",requestUrl,data,config?.params||{});if(String(url).includes("/user/"))invalidateUsers();return result},
  patch:(url,data,config={})=>firebaseRequest("PATCH",url,data,config?.params||{}),
  delete:async(url,config={})=>{const cleanUrl=String(url||"").split("?")[0];let requestUrl=url;if(isTaskPath(cleanUrl)&&/^\/?task\/[^/]+$/.test(cleanUrl)){const rawId=cleanUrl.split("/")[2],resolvedId=await resolveTaskId(rawId);requestUrl=cleanUrl.replace(`/${rawId}`,`/${resolvedId}`)}const result=await firebaseRequest("DELETE",requestUrl,undefined,config?.params||{});if(String(url).includes("/user/"))invalidateUsers();return result}
