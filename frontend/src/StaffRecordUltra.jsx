@@ -5,128 +5,23 @@ import API from "./api";
 
 const EMPTY = { name: "", email: "", phone: "", role: "electrician", status: "active", maritalStatus: "Single", address: "", backgroundInfo: "" };
 const normalize = (v) => String(v ?? "").trim();
-const isFake = (u) => {
-  const name = normalize(u?.name).toLowerCase();
-  const email = normalize(u?.email).toLowerCase();
-  const fakeNames = new Set(["vcvf", "lklkj", "jhhk", "drgdfgfd fsgd", "dummy", "test", "testing", "sample", "demo", "fake", "temporary", "temp user", "new user"]);
-  return fakeNames.has(name) || /^(dummy|test|testing|sample|demo|fake|temp)[+_.-]?[^@]*@/i.test(email);
-};
-const cleanUsers = (items) => {
-  const byEmail = new Map();
-  const byId = new Map();
-  (Array.isArray(items) ? items : []).forEach((raw) => {
-    if (isFake(raw)) return;
-    const user = { ...raw, id: String(raw?.id ?? ""), email: normalize(raw?.email).toLowerCase() };
-    if (!user.id && !user.email) return;
-    const existing = (user.email && byEmail.get(user.email)) || byId.get(user.id);
-    const preferred = existing && Number(existing.id) > Number(user.id) ? existing : user;
-    if (user.email) byEmail.set(user.email, preferred);
-    if (user.id) byId.set(user.id, preferred);
-  });
-  return [...new Set([...byEmail.values(), ...byId.values()])].sort((a, b) => Number(b.id) - Number(a.id));
-};
+const isFake = (u) => { const name = normalize(u?.name).toLowerCase(); const email = normalize(u?.email).toLowerCase(); const localPart = email.split("@")[0] || ""; const fakeNames = new Set(["vcvf", "lklkj", "jhhk", "drgdfgfd fsgd", "dummy", "test", "testing", "sample", "demo", "fake", "temporary", "temp user", "new user"]); if (fakeNames.has(name)) return true; if (/^(dummy|test|testing|sample|demo|fake|temp)[+_.-]?[^@]*@/i.test(email)) return true; return name === localPart && /\d/.test(name); };
+const cleanUsers = (items) => { const byEmail = new Map(); const byId = new Map(); (Array.isArray(items) ? items : []).forEach((raw) => { if (isFake(raw)) return; const user = { ...raw, id: String(raw?.id ?? ""), email: normalize(raw?.email).toLowerCase() }; if (!user.id && !user.email) return; const existing = (user.email && byEmail.get(user.email)) || byId.get(user.id); const preferred = existing && Number(existing.id) > Number(user.id) ? existing : user; if (user.email) byEmail.set(user.email, preferred); if (user.id) byId.set(user.id, preferred); }); return [...new Set([...byEmail.values(), ...byId.values()])].sort((a, b) => Number(b.id) - Number(a.id)); };
 const statusLabel = (status) => { const s = normalize(status).toLowerCase(); return s === "blocked" ? "Blocked" : s === "inactive" ? "Disabled" : "Active"; };
-
-function Avatar({ user, large = false }) {
-  const photo = normalize(user?.profile_pic || user?.profilePic);
-  const origin = String(import.meta.env.VITE_API_URL || "").replace(/\/api\/?$/, "").replace(/\/+$/, "");
-  const src = photo && !/^https?:\/\//i.test(photo) ? `${origin}${photo.startsWith("/") ? photo : `/${photo}`}` : photo;
-  const initials = normalize(user?.name || user?.email || "U").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase() || "U";
-  const size = large ? "h-24 w-24 rounded-3xl text-2xl" : "h-11 w-11 rounded-xl text-sm";
-  return src ? <img src={src} alt="" className={`${size} shrink-0 object-cover ring-1 ring-white/10`} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <span className={`flex ${size} shrink-0 items-center justify-center bg-yellow-500 text-black font-black`}>{initials}</span>;
-}
+function Avatar({ user, large = false }) { const photo = normalize(user?.profile_pic || user?.profilePic); const origin = String(import.meta.env.VITE_API_URL || "").replace(/\/api\/?$/, "").replace(/\/+$/, ""); const src = photo && !/^https?:\/\//i.test(photo) ? `${origin}${photo.startsWith("/") ? photo : `/${photo}`}` : photo; const initials = normalize(user?.name || user?.email || "U").split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase() || "U"; const size = large ? "h-24 w-24 rounded-3xl text-2xl" : "h-11 w-11 rounded-xl text-sm"; return src ? <img src={src} alt="" className={`${size} shrink-0 object-cover ring-1 ring-white/10`} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <span className={`flex ${size} shrink-0 items-center justify-center bg-yellow-500 text-black font-black`}>{initials}</span>; }
 
 export default function StaffRecordUltra() {
-  const navigate = useNavigate();
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState(null);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-  const [search, setSearch] = useState("");
-  const [role, setRole] = useState("all");
-  const [status, setStatus] = useState("all");
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(EMPTY);
-  const [photo, setPhoto] = useState(null);
-
-  const load = async () => {
-    setLoading(true); setError("");
-    try {
-      const response = await API.get("/user/all", { timeout: 20000 });
-      setUsers(cleanUsers(response.data));
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "Users could not be loaded.");
-    } finally { setLoading(false); }
-  };
+  const navigate = useNavigate(); const [users, setUsers] = useState([]); const [loading, setLoading] = useState(true); const [busyId, setBusyId] = useState(null); const [error, setError] = useState(""); const [toast, setToast] = useState(""); const [search, setSearch] = useState(""); const [role, setRole] = useState("all"); const [status, setStatus] = useState("all"); const [editing, setEditing] = useState(null); const [form, setForm] = useState(EMPTY); const [photo, setPhoto] = useState(null);
+  const load = async () => { setLoading(true); setError(""); try { const response = await API.get("/user/all", { timeout: 20000 }); setUsers(cleanUsers(response.data)); } catch (err) { setError(err?.response?.data?.message || err?.message || "Users could not be loaded."); } finally { setLoading(false); } };
   useEffect(() => { load(); }, []);
+  const filtered = useMemo(() => { const q = search.toLowerCase().trim(); return users.filter((u) => { const text = [u.id, u.employeeID, u.name, u.email, u.phone, u.role, u.address].map(normalize).join(" ").toLowerCase(); const r = normalize(u.role || u.category || "staff").toLowerCase(); const s = normalize(u.status || "active").toLowerCase(); return (!q || text.includes(q)) && (role === "all" || r === role) && (status === "all" || s === status); }); }, [users, search, role, status]);
+  const roles = [...new Set(users.map((u) => normalize(u.role || u.category).toLowerCase()).filter(Boolean))]; const active = users.filter((u) => normalize(u.status || "active").toLowerCase() === "active").length; const inactive = users.filter((u) => normalize(u.status).toLowerCase() === "inactive").length; const blocked = users.filter((u) => normalize(u.status).toLowerCase() === "blocked").length;
+  const openEdit = (user) => { setEditing(user); setPhoto(null); setForm({ ...EMPTY, ...user, name: user.name || "", email: user.email || "", role: user.role || user.category || "electrician", status: user.status || "active" }); }; const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const save = async (event) => { event.preventDefault(); if (!editing?.id) return; setBusyId(String(editing.id)); setError(""); setToast(""); try { const payload = new FormData(); ["name", "phone", "role", "status", "maritalStatus", "address", "backgroundInfo"].forEach((key) => payload.append(key, String(form[key] || ""))); if (photo) payload.append("profile_pic", photo, photo.name); const response = await API.put(`/user/${editing.id}`, payload, { timeout: 120000 }); const updated = response?.data?.user || { ...editing, ...form }; setUsers((items) => cleanUsers(items.map((item) => String(item.id) === String(editing.id) ? { ...item, ...updated, ...form } : item))); setEditing(null); setToast("User profile updated successfully."); } catch (err) { setError(err?.response?.data?.message || err?.message || "User update failed."); } finally { setBusyId(null); } };
+  const setStatusForUser = async (user, nextStatus) => { if (!user?.id) return; const action = nextStatus === "blocked" ? "block" : nextStatus === "inactive" ? "disable" : "activate/unblock"; if (!window.confirm(`Are you sure you want to ${action} ${user.name || user.email}?`)) return; setBusyId(String(user.id)); setError(""); setToast(""); try { const response = await API.put(`/user/${user.id}`, { status: nextStatus }, { timeout: 20000 }); setUsers((items) => items.map((item) => String(item.id) === String(user.id) ? { ...item, ...(response?.data?.user || {}), status: nextStatus } : item)); setToast(nextStatus === "blocked" ? "User blocked." : nextStatus === "inactive" ? "User disabled." : "User activated/unblocked."); } catch (err) { setError(err?.response?.data?.message || err?.message || "Status update failed."); } finally { setBusyId(null); } };
+  const remove = async (user) => { if (!user?.id || !window.confirm(`Delete ${user.name || user.email || "this user"}? This permanently removes the account and user-linked records.`)) return; setBusyId(String(user.id)); setError(""); setToast(""); try { await API.delete(`/user/${user.id}`, { timeout: 30000 }); setUsers((items) => items.filter((item) => String(item.id) !== String(user.id))); setToast("User deleted successfully."); } catch (err) { setError(err?.response?.data?.message || err?.message || "User deletion failed."); } finally { setBusyId(null); } };
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return users.filter((u) => {
-      const text = [u.id, u.employeeID, u.name, u.email, u.phone, u.role, u.address].map(normalize).join(" ").toLowerCase();
-      const r = normalize(u.role || u.category || "staff").toLowerCase();
-      const s = normalize(u.status || "active").toLowerCase();
-      return (!q || text.includes(q)) && (role === "all" || r === role) && (status === "all" || s === status);
-    });
-  }, [users, search, role, status]);
-
-  const roles = [...new Set(users.map((u) => normalize(u.role || u.category).toLowerCase()).filter(Boolean))];
-  const active = users.filter((u) => normalize(u.status || "active").toLowerCase() === "active").length;
-  const inactive = users.filter((u) => normalize(u.status).toLowerCase() === "inactive").length;
-  const blocked = users.filter((u) => normalize(u.status).toLowerCase() === "blocked").length;
-
-  const openEdit = (user) => {
-    setEditing(user); setPhoto(null);
-    setForm({ ...EMPTY, ...user, name: user.name || "", email: user.email || "", role: user.role || user.category || "electrician", status: user.status || "active" });
-  };
-  const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
-
-  const save = async (event) => {
-    event.preventDefault();
-    if (!editing?.id) return;
-    setBusyId(String(editing.id)); setError(""); setToast("");
-    try {
-      const payload = new FormData();
-      ["name", "phone", "role", "status", "maritalStatus", "address", "backgroundInfo"].forEach((key) => payload.append(key, String(form[key] || "")));
-      if (photo) payload.append("profile_pic", photo, photo.name);
-      const response = await API.put(`/user/${editing.id}`, payload, { timeout: 120000 });
-      const updated = response?.data?.user || { ...editing, ...form };
-      setUsers((items) => cleanUsers(items.map((item) => String(item.id) === String(editing.id) ? { ...item, ...updated, ...form } : item)));
-      setEditing(null); setToast("User profile updated successfully.");
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "User update failed.");
-    } finally { setBusyId(null); }
-  };
-
-  const setStatusForUser = async (user, nextStatus) => {
-    if (!user?.id) return;
-    const action = nextStatus === "blocked" ? "block" : nextStatus === "inactive" ? "disable" : "activate/unblock";
-    if (!window.confirm(`Are you sure you want to ${action} ${user.name || user.email}?`)) return;
-    setBusyId(String(user.id)); setError(""); setToast("");
-    try {
-      const response = await API.put(`/user/${user.id}`, { status: nextStatus }, { timeout: 20000 });
-      setUsers((items) => items.map((item) => String(item.id) === String(user.id) ? { ...item, ...(response?.data?.user || {}), status: nextStatus } : item));
-      setToast(nextStatus === "blocked" ? "User blocked." : nextStatus === "inactive" ? "User disabled." : "User activated/unblocked.");
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "Status update failed.");
-    } finally { setBusyId(null); }
-  };
-
-  const remove = async (user) => {
-    if (!user?.id || !window.confirm(`Delete ${user.name || user.email || "this user"}? This permanently removes the account and user-linked records.`)) return;
-    setBusyId(String(user.id)); setError(""); setToast("");
-    try {
-      await API.delete(`/user/${user.id}`, { timeout: 30000 });
-      setUsers((items) => items.filter((item) => String(item.id) !== String(user.id)));
-      setToast("User deleted successfully.");
-    } catch (err) {
-      setError(err?.response?.data?.message || err?.message || "User deletion failed.");
-    } finally { setBusyId(null); }
-  };
-
-  return <div className="min-h-screen bg-[#080d1d] px-4 py-7 text-white md:px-8"><div className="mx-auto max-w-[1700px]">
-    <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="mb-2 text-xs font-bold uppercase tracking-[0.28em] text-yellow-400">User Management</p><h1 className="text-3xl font-black md:text-4xl">Staff / Users</h1><p className="mt-2 text-sm text-slate-400">One canonical account per email • full CRUD • disable • block • tasks • profile.</p></div><div className="flex gap-2"><button onClick={load} disabled={loading} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-black"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/>Refresh</button><Link to="/add-staff" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-yellow-500 px-4 text-sm font-black text-black"><Plus size={17}/>Add User</Link></div></div>
+  return <div className="min-h-screen bg-[#080d1d] px-4 py-7 text-white md:px-8"><div className="mx-auto max-w-[1700px]"><div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="mb-2 text-xs font-bold uppercase tracking-[0.28em] text-yellow-400">User Management</p><h1 className="text-3xl font-black md:text-4xl">Staff / Users</h1><p className="mt-2 text-sm text-slate-400">One canonical account per email • full CRUD • disable • block • tasks • profile.</p></div><div className="flex gap-2"><button onClick={load} disabled={loading} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm font-black"><RefreshCw size={16} className={loading ? "animate-spin" : ""}/>Refresh</button><Link to="/add-staff" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-yellow-500 px-4 text-sm font-black text-black"><Plus size={17}/>Add User</Link></div></div>
     {(error || toast) && <div className={`mb-5 rounded-xl border px-4 py-3 text-sm font-bold ${error ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>{error || toast}<button onClick={() => { setError(""); setToast(""); }} className="float-right"><X size={16}/></button></div>}
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5"><Stat icon={<Users size={19}/>} value={users.length} label="Total Users"/><Stat icon={<CheckCircle2 size={19}/>} value={active} label="Active"/><Stat icon={<Ban size={19}/>} value={inactive} label="Disabled"/><Stat icon={<LockKeyhole size={19}/>} value={blocked} label="Blocked"/><Stat icon={<UserCog size={19}/>} value={filtered.length} label="Filtered"/></div>
     <div className="mb-5 grid gap-3 rounded-2xl border border-white/10 bg-[#11182c] p-4 lg:grid-cols-[1fr_190px_190px]"><label className="flex items-center gap-3 rounded-xl bg-[#1c2740] px-4"><Search size={18} className="text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search ID, employee ID, name, email, phone..." className="w-full bg-transparent py-3 text-sm outline-none placeholder:text-slate-500"/></label><select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-xl bg-[#1c2740] px-4 py-3 text-sm outline-none"><option value="all">All Roles</option>{roles.map((r) => <option key={r} value={r}>{r}</option>)}</select><select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-xl bg-[#1c2740] px-4 py-3 text-sm outline-none"><option value="all">All Status</option><option value="active">Active</option><option value="inactive">Disabled</option><option value="blocked">Blocked</option></select></div>
