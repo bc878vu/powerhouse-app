@@ -13,6 +13,8 @@ const dedupeUsers = (users) => { const byEmail = new Map(); const byId = new Map
 const buildLegacyUrl = (path) => { const base = getLegacyBase(); if (!base) throw new Error("VITE_API_URL is not configured."); return `${base}/api${normalizePath(path)}`; };
 const legacyRequest = async (method, path, data, config = {}) => { const url = buildLegacyUrl(path); const controller = typeof AbortController !== "undefined" ? new AbortController() : null; const timer = controller ? setTimeout(() => controller.abort(), config.timeout || LEGACY_TIMEOUT) : null; try { const options = { method, credentials: "include", headers: { Accept: "application/json" }, signal: controller?.signal }; if (data !== undefined && data !== null && method !== "GET" && method !== "HEAD") { if (typeof FormData !== "undefined" && data instanceof FormData) options.body = data; else { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(data); } } const response = await fetch(url, options); const text = await response.text(); let body = {}; try { body = text ? JSON.parse(text) : {}; } catch { body = { message: text }; } if (!response.ok) { const error = new Error(body?.message || body?.error || `API ${response.status}`); error.response = { status: response.status, data: body }; throw error; } return { data: body, status: response.status, headers: response.headers }; } finally { if (timer) clearTimeout(timer); } };
 const firebaseRequest = (method, url, data, config = {}) => withTimeout(requestFirebase(method, url, data, config?.params || {}), config?.timeout || 20000, `Request timed out: ${method} ${url}`);
+const getStoredUser = () => { try { const value = localStorage.getItem("user"); return value ? JSON.parse(value) : null; } catch { return null; } };
+const resolveCanonicalUserId = async () => { const stored = getStoredUser(); const email = String(stored?.email || "").trim().toLowerCase(); if (!email) return null; try { const response = await legacyRequest("GET", "/user/all"); const users = dedupeUsers(unwrapUsers(response.data)); const match = users.find((item) => item.email === email); return match?.id ? String(match.id) : null; } catch { return null; } };
 
 const API = {
   get: async (url, config = {}) => {
@@ -24,10 +26,18 @@ const API = {
     }
     if (isLegacyPath(path)) {
       try {
-        return await legacyRequest("GET", path, undefined, config);
+        const response = await legacyRequest("GET", path, undefined, config);
+        // A stale Firebase numeric ID can legitimately return an empty task list.
+        // Resolve the logged-in user's canonical MySQL staff ID and retry once.
+        const taskMatch = path.match(/^\/task\/my-tasks\/(\d+)$/i);
+        if (taskMatch && Array.isArray(response.data) && response.data.length === 0) {
+          const canonicalId = await resolveCanonicalUserId();
+          if (canonicalId && canonicalId !== taskMatch[1]) {
+            return await legacyRequest("GET", `/task/my-tasks/${canonicalId}`, undefined, config);
+          }
+        }
+        return response;
       } catch (legacyError) {
-        // Some deployed Railway builds expose the stable task detail route as /single/:id.
-        // Retry automatically so old task links/reports do not break with a generic 404.
         const taskMatch = path.match(/^\/task\/(\d+)$/i);
         if (taskMatch) {
           try {
