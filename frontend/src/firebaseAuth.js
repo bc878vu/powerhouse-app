@@ -30,27 +30,39 @@ async function resolveStaffRecord(firebaseUser) {
     const payload = await response.json();
     const users = Array.isArray(payload) ? payload : Array.isArray(payload?.users) ? payload.users : Array.isArray(payload?.data) ? payload.data : [];
     const email = String(firebaseUser.email).trim().toLowerCase();
-    const existing = users.find((item) => String(item?.email || "").trim().toLowerCase() === email) || null;
+    const matches = users.filter((item) => String(item?.email || "").trim().toLowerCase() === email);
+    // Prefer the real staff record with an employee ID. Legacy Firebase-style numeric IDs
+    // must never become the task-assignment ID when a canonical MySQL staff record exists.
+    const existing = matches.sort((a, b) => {
+      const aEmployee = Boolean(String(a?.employeeID || "").trim());
+      const bEmployee = Boolean(String(b?.employeeID || "").trim());
+      if (aEmployee !== bEmployee) return aEmployee ? -1 : 1;
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    })[0] || null;
     if (existing) return existing;
     return await provisionStaffRecord(firebaseUser);
   } catch (error) { console.warn("Could not resolve numeric staff ID:", error?.message || error); return null; }
 }
 
-async function syncStaffGooglePhoto(staffRecord, photoURL) {
+async function syncStaffPhoto(staffRecord, photoURL) {
   if (!staffRecord?.id || !photoURL) return;
   const base = apiBase();
   if (!base) return;
   try {
     const imageResponse = await fetch(photoURL, { mode: "cors" });
-    if (!imageResponse.ok) throw new Error(`Google avatar download failed (${imageResponse.status})`);
+    if (!imageResponse.ok) throw new Error(`Profile avatar download failed (${imageResponse.status})`);
     const blob = await imageResponse.blob();
-    if (!blob.size) throw new Error("Google avatar is empty");
+    if (!blob.size) throw new Error("Profile avatar is empty");
     const extension = (blob.type || "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") || "jpg";
     const form = new FormData();
-    form.append("name", staffRecord.name || "User"); form.append("email", staffRecord.email || ""); form.append("role", staffRecord.role || "electrician"); form.append("status", staffRecord.status || "active"); form.append("profile_pic", blob, `google-profile.${extension}`);
+    form.append("name", staffRecord.name || "User");
+    form.append("email", staffRecord.email || "");
+    form.append("role", staffRecord.role || "electrician");
+    form.append("status", staffRecord.status || "active");
+    form.append("profile_pic", blob, `profile.${extension}`);
     const response = await fetch(`${base}/api/user/${staffRecord.id}`, { method: "PUT", headers: { Accept: "application/json" }, body: form });
     if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.message || `Profile photo sync failed (${response.status})`); }
-  } catch (error) { console.warn("Could not persist Google photo to staff record:", error?.message || error); }
+  } catch (error) { console.warn("Could not persist profile photo to staff record:", error?.message || error); }
 }
 
 async function allocateNumericId() {
@@ -62,12 +74,15 @@ async function allocateNumericId() {
 }
 
 async function ensureNumericProfileId(profile, firebaseUser, staffRecord) {
-  const existingId = Number(profile?.id);
-  if (Number.isInteger(existingId) && existingId > 0) return { profile, numericId: existingId };
+  // The MySQL staff ID is the single canonical ID for tasks, staff records and reports.
+  // Never reuse an old Firebase-generated numeric ID when a staff record exists.
   const staffId = Number(staffRecord?.id);
-  const numericId = Number.isInteger(staffId) && staffId > 0 ? staffId : await allocateNumericId();
+  const existingId = Number(profile?.id);
+  const numericId = Number.isInteger(staffId) && staffId > 0
+    ? staffId
+    : (Number.isInteger(existingId) && existingId > 0 ? existingId : await allocateNumericId());
   const nextProfile = { ...profile, id: numericId, numericId, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, updatedAt: serverTimestamp() };
-  try { await setDoc(doc(db, "powerhouse_users", firebaseUser.uid), nextProfile, { merge: true }); } catch (error) { if (error?.code !== "permission-denied") throw error; console.warn("Could not persist numeric profile ID because Firestore denied the write."); }
+  try { await setDoc(doc(db, "powerhouse_users", firebaseUser.uid), nextProfile, { merge: true }); } catch (error) { if (error?.code !== "permission-denied") throw error; console.warn("Could not persist canonical numeric profile ID because Firestore denied the write."); }
   return { profile: nextProfile, numericId };
 }
 
@@ -92,9 +107,9 @@ async function buildSession(firebaseUser) {
   } catch (readError) { if (readError?.code === "permission-denied") profilePermissionIssue = true; else throw readError; }
   if (!profile) profile = { id: firebaseUser.uid, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, name: firebaseUser.displayName || staffRecord?.name || authenticatedEmail.split("@")[0] || "User", email: firebaseUser.email || authenticatedEmail, role: staffRecord?.role || defaultRole, status: staffRecord?.status || "active", profile_pic: firebaseUser.photoURL || "", profilePic: firebaseUser.photoURL || "", photoURL: firebaseUser.photoURL || "", profilePermissionIssue };
   const numericProfile = await ensureNumericProfileId(profile, firebaseUser, staffRecord); profile = numericProfile.profile;
-  if (String(profile.status || staffRecord?.status || "active").toLowerCase() === "inactive") { await signOut(auth); throw new Error("Your account is inactive. Contact admin."); }
+  if (String(profile.status || staffRecord?.status || "active").toLowerCase() === "inactive" || String(staffRecord?.status || "active").toLowerCase() === "blocked") { await signOut(auth); throw new Error("Your account is disabled or blocked. Contact admin."); }
   const profilePic = resolveProfilePhoto(profile, firebaseUser);
-  if (staffRecord?.id && firebaseUser.photoURL) void syncStaffGooglePhoto(staffRecord, firebaseUser.photoURL);
+  if (staffRecord?.id && profilePic) void syncStaffPhoto(staffRecord, profilePic);
   return { id: numericProfile.numericId, numericId: numericProfile.numericId, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, name: profile.name || firebaseUser.displayName || staffRecord?.name || authenticatedEmail.split("@")[0] || "User", email: profile.email || staffRecord?.email || firebaseUser.email || authenticatedEmail, role: staffRecord?.role || profile.role || defaultRole, status: staffRecord?.status || profile.status || "active", profile_pic: profilePic, profilePic, photoURL: profile.photoURL || firebaseUser.photoURL || profilePic, profilePermissionIssue: Boolean(profilePermissionIssue) };
 }
 
