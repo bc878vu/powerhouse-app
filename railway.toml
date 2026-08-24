@@ -3,7 +3,9 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npm --prefix backend start"
+# Run from the backend directory explicitly so the task compatibility
+# preload and backend package are always resolved from the same directory.
+startCommand = "cd backend && npm start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
