@@ -1,12 +1,11 @@
 const express = require("express");
 
-// Railway has previously served an older task router while assignment still
-// worked. Mount compatibility routes before the normal task router so old
-// frontend builds and current frontend builds use the same task API.
+// Production-safe task API bridge. This is loaded with Node -r before
+// server.js, so the compatibility router is guaranteed to be mounted before
+// the normal task router even when Railway has an older task route ordering.
 const originalUse = express.application.use;
 let mounted = false;
 let compatRouter = null;
-let preEditRouter = null;
 
 function getCompatRouter() {
   if (!compatRouter) {
@@ -15,27 +14,17 @@ function getCompatRouter() {
   return compatRouter;
 }
 
-function getPreEditRouter() {
-  if (!preEditRouter) {
-    preEditRouter = require("./routes/taskPreCompat");
-  }
-  return preEditRouter;
-}
-
 express.application.use = function patchedUse(...args) {
   const first = args[0];
 
   if (!mounted && first === "/api/task") {
     mounted = true;
 
-    // Complete/report routes and legacy GET /task/:id compatibility.
+    // Must be first under /api/task so these routes win over older handlers.
     originalUse.call(this, "/api/task", getCompatRouter());
 
-    // Legacy edit-loader route: GET /api/task/:id/pre
-    originalUse.call(this, "/api/task", getPreEditRouter());
-
     console.log(
-      "✅ Task compatibility + edit-pre routes mounted before task router"
+      "[TASK-BRIDGE] compatibility routes mounted: GET /:id, GET /:id/pre, GET /single/:id, POST /complete-work/:id"
     );
   }
 
