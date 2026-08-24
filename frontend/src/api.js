@@ -1,31 +1,188 @@
-import { requestFirebase, listUsers } from "./services/firebaseDataStore";
-import { createNotification, sendPushNotification } from "./services/notificationService";
-import { collection, doc, getDocs, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase";
-const CACHE_TTL=60000,REQUEST_TIMEOUT=15000,LEGACY_TIMEOUT=3000,USER_STORAGE_KEY="powerhouse_staff_cache_v3";
-const userCache={data:null,at:0,promise:null},taskRouteMap=new Map();
-const getLegacyBase=()=>{const raw=String(import.meta.env.VITE_API_URL||"").trim();if(!raw)return"";return raw.replace(/\/+$/,"").replace(/\/api$/i,"")};
-const unwrapUsers=v=>{if(Array.isArray(v))return v;if(Array.isArray(v?.users))return v.users;if(Array.isArray(v?.data))return v.data;if(Array.isArray(v?.data?.users))return v.data.users;if(Array.isArray(v?.result))return v.result;return[]};
-const profileValue=v=>{if(!v)return"";if(typeof v==="object")return String(v.url||v.downloadURL||v.path||"");return String(v).trim()};
-const isPlaceholderUser=u=>{const n=String(u?.name||u?.displayName||"").trim().toLowerCase(),e=String(u?.email||"").trim().toLowerCase();if(!n&&!e)return true;if(new Set(["vcvf","lklkj","jhhk","drgdfgfd fsgd"]).has(n))return true;if(/^(dummy|test|testing|sample|demo|fake|temp|temporary|asdf|qwerty|user\s*\d*|new\s*user)$/i.test(n))return true;if(/^(dummy|test|testing|sample|demo|fake|temp)[+_.-]?[^@]*@/i.test(e))return true;return false};
-const normalizeUser=u=>({...u,id:String(u?.numericId??u?.employeeIdNumeric??u?.id??u?.user_id??u?.uid??""),numericId:Number.isInteger(Number(u?.numericId))?Number(u.numericId):(Number.isInteger(Number(u?.id))?Number(u.id):null),uid:String(u?.uid??u?.firebaseUid??u?.firebase_uid??u?.id??u?.user_id??""),firebaseUid:String(u?.firebaseUid??u?.firebase_uid??u?.uid??""),name:u?.name||u?.displayName||u?.fullName||u?.full_name||u?.username||u?.email||"",email:u?.email||"",role:u?.role||u?.category||"staff",status:u?.status||"active",phone:u?.phone||u?.phone_number||"",employeeID:u?.employeeID||u?.employee_id||"",maritalStatus:u?.maritalStatus||u?.marital_status||"",address:u?.address||"",backgroundInfo:u?.backgroundInfo||u?.background_info||"",gender:u?.gender||"",dateOfBirth:u?.dateOfBirth||u?.date_of_birth||"",city:u?.city||"",country:u?.country||"",education:u?.education||"",currentStudy:u?.currentStudy||u?.current_study||"",institution:u?.institution||"",profession:u?.profession||"",occupation:u?.occupation||"",bio:u?.bio||"",skills:Array.isArray(u?.skills)?u.skills:[],languages:Array.isArray(u?.languages)?u.languages:[],interests:Array.isArray(u?.interests)?u.interests:[],socialLinks:u?.socialLinks||{},profile_pic:profileValue(u?.profile_pic||u?.profilePic||u?.profile_image||u?.photoURL||u?.photoUrl),profilePic:profileValue(u?.profilePic||u?.profile_pic||u?.profile_image||u?.photoURL||u?.photoUrl),photoURL:profileValue(u?.photoURL||u?.profilePic||u?.profile_pic||u?.photoUrl)});
-const readStoredUsers=()=>{try{const p=JSON.parse(typeof window!=="undefined"?window.localStorage.getItem(USER_STORAGE_KEY)||"[]":"[]");return Array.isArray(p)?p.map(normalizeUser).filter(u=>!isPlaceholderUser(u)&&(u.id||u.uid)):[]}catch{return[]}};
-const writeStoredUsers=users=>{try{if(typeof window!=="undefined"&&Array.isArray(users))window.localStorage.setItem(USER_STORAGE_KEY,JSON.stringify(users))}catch{}};
-const saveUsers=users=>{const n=users.map(normalizeUser).filter(u=>!isPlaceholderUser(u)&&(u.id||u.uid));userCache.data=n;userCache.at=Date.now();writeStoredUsers(n);return n};
-const ensureNumericIds=async users=>{const clean=users.map(normalizeUser).filter(u=>!isPlaceholderUser(u));let next=10000;try{const s=await getDocs(collection(db,"powerhouse_users"));const ids=s.docs.map(d=>Number(d.data()?.numericId??d.data()?.id)).filter(v=>Number.isInteger(v)&&v>=10000);if(ids.length)next=Math.max(...ids)+1}catch{}for(const u of clean){if(Number.isInteger(Number(u.numericId))&&Number(u.numericId)>0)continue;const numericId=Number.isInteger(Number(u.id))&&Number(u.id)>0?Number(u.id):next++;u.id=String(numericId);u.numericId=numericId;const uid=String(u.uid||u.firebaseUid||"").trim();if(uid){try{await setDoc(doc(db,"powerhouse_users",uid),{id:String(numericId),numericId,uid,firebaseUid:uid,updatedAt:serverTimestamp()},{merge:true})}catch(e){console.warn("Numeric user ID persistence skipped:",e?.message||e)}}}return clean};
-const mergeUsers=(legacy,firebase)=>{const byEmail=new Map(),byUid=new Map();const add=(raw,source)=>{const u=normalizeUser(raw);if(isPlaceholderUser(u))return;const email=String(u.email||"").trim().toLowerCase(),uid=String(u.uid||u.firebaseUid||"").trim(),key=email||uid||String(u.id||"");if(!key)return;const old=byEmail.get(email)||byUid.get(uid)||byEmail.get(key),m=old?{...old,...u,...(source==="firebase"?u:{}),id:Number.isInteger(Number(old.id))?old.id:u.id}:{...u};if(email)byEmail.set(email,m);if(uid)byUid.set(uid,m)};legacy.forEach(u=>add(u,"legacy"));firebase.forEach(u=>add(u,"firebase"));return[...new Set([...byEmail.values(),...byUid.values()])].filter(u=>!isPlaceholderUser(u)).map(normalizeUser).sort((a,b)=>Number(b.id||0)-Number(a.id||0)||String(a.name||"").localeCompare(String(b.name||"")))};
-const withTimeout=(p,ms,msg="Request timed out")=>{let t;const timeout=new Promise((_,r)=>{t=setTimeout(()=>r(new Error(msg)),ms)});return Promise.race([p,timeout]).finally(()=>clearTimeout(t))};
-const legacyGet=async path=>{const base=getLegacyBase();if(!base)throw new Error("VITE_API_URL is not configured");const c=typeof AbortController!=="undefined"?new AbortController():null,t=c?setTimeout(()=>c.abort(),LEGACY_TIMEOUT):null;try{const r=await fetch(`${base}/api${path}`,{headers:{Accept:"application/json"},credentials:"include",signal:c?.signal});if(!r.ok)throw new Error(`Legacy API ${r.status}`);return r.json()}finally{if(t)clearTimeout(t)}};
-const invalidateUsers=()=>{userCache.data=null;userCache.at=0;userCache.promise=null};
-const refreshUsers=async()=>{if(userCache.promise)return userCache.promise;userCache.promise=(async()=>{let legacy=[],firebase=[];await Promise.all([getLegacyBase()?legacyGet("/user/all").then(v=>{legacy=unwrapUsers(v)}).catch(e=>console.warn("Legacy staff API unavailable:",e?.message||e)):Promise.resolve(),withTimeout(listUsers(),REQUEST_TIMEOUT,"Firebase user list timed out").then(v=>{firebase=Array.isArray(v)?v:[]}).catch(e=>console.warn("Direct Firebase staff list unavailable:",e?.message||e))]);if(!firebase.length)try{firebase=unwrapUsers(await withTimeout(requestFirebase("GET","/user/all"),REQUEST_TIMEOUT,"Firebase user list route timed out"))}catch(e){console.warn("Firebase user list route unavailable:",e?.message||e)}firebase=await ensureNumericIds(firebase);const merged=mergeUsers(legacy,firebase);return merged.length?saveUsers(merged):userCache.data||readStoredUsers()})().finally(()=>{userCache.promise=null});return userCache.promise};
-const getUsersFast=async()=>{if(!userCache.data){const stored=readStoredUsers();if(stored.length){userCache.data=stored;userCache.at=Date.now()}}if(userCache.data&&Date.now()-userCache.at<CACHE_TTL)return userCache.data;return refreshUsers()};
-const firebaseRequest=(method,url,data,params={})=>withTimeout(requestFirebase(method,url,data,params),REQUEST_TIMEOUT,`Request timed out: ${method} ${url}`),isTaskPath=url=>/^\/?task\//.test(url);
-const rememberTaskRoutes=activities=>{if(!Array.isArray(activities))return;activities.forEach(task=>{const internalId=task?.document_id||task?.firestore_id||task?.id,numeric=Number(task?.task_number||task?.display_id||task?.numeric_id);if(internalId&&Number.isInteger(numeric)&&numeric>0)taskRouteMap.set(String(numeric),String(internalId))})};
-const resolveTaskId=async id=>{const raw=String(id??"").trim();if(!raw||!/^\d+$/.test(raw))return raw;const c=String(Number(raw));if(taskRouteMap.has(c))return taskRouteMap.get(c);try{const s=await firebaseRequest("GET","/activity/stats");rememberTaskRoutes(s?.activities);return taskRouteMap.get(c)||raw}catch{return raw}};
-const extractAssignedIds=(data,result)=>{if(typeof FormData!=="undefined"&&data instanceof FormData){const values=data.getAll("user_ids[]").map(String).filter(Boolean);if(values.length)return[...new Set(values)];const single=String(data.get("user_id")||"").trim();if(single)return[single]}const raw=result?.assigned_user_ids||result?.user_ids||(result?.user_id?[result.user_id]:[]);return[...new Set((Array.isArray(raw)?raw:[raw]).map(x=>String(x?.id??x?.uid??x?.user_id??x).trim()).filter(Boolean))]};
-const notifyTaskAssignees=async(result,data)=>{try{const selected=extractAssignedIds(data,result);if(!selected.length)return;const users=await getUsersFast(),recipients=users.filter(u=>selected.some(id=>String(u.id)===String(id)||String(u.uid)===String(id)||String(u.firebaseUid)===String(id))&&String(u.status||"active").toLowerCase()!=="inactive"),uids=[...new Set(recipients.map(u=>String(u.uid||u.firebaseUid||"").trim()).filter(Boolean))];if(!uids.length)return;const title=String(result?.title||data?.get?.("title")||"New Task Assigned").trim(),priority=String(result?.priority||data?.get?.("priority")||"High").trim(),taskId=String(result?.id||result?.document_id||result?.task_id||"").trim(),route=taskId?`/task-view/${taskId}`:"/notifications",notificationId=`task-assigned-${taskId||Date.now()}-${uids.join("-")}`;await Promise.all(uids.map(uid=>createNotification(uid,{title:"📋 Task Assigned To You",body:`${title} (${priority} priority)`,type:"task_assigned",route,taskId,sourceId:taskId||null}).catch(e=>console.warn("TASK IN-APP NOTIFICATION ERROR:",e?.message||e))));await sendPushNotification({title:"📋 Task Assigned To You",body:`${title} (${priority} priority)`,route,userIds:uids,notificationId})}catch(e){console.warn("TASK PUSH DELIVERY FAILED:",e?.message||e)}};
-const taskAssignedIds=task=>{const raw=task?.assigned_user_ids??task?.user_ids??(task?.user_id?[task.user_id]:[]);return[...new Set((Array.isArray(raw)?raw:[raw]).map(x=>String(x?.id??x?.uid??x?.user_id??x).trim()).filter(Boolean))]};
-const enrichTaskProfiles=async tasks=>{if(!Array.isArray(tasks)||!tasks.length)return[];const users=await getUsersFast();return tasks.map(task=>{const ids=taskAssignedIds(task),assignedUsers=users.filter(u=>ids.some(id=>String(u.id)===String(id)||String(u.uid)===String(id)||String(u.firebaseUid)===String(id))).map(u=>({...u,user_id:String(u.id||u.uid||"")}));return{...task,assigned_users:assignedUsers.length?assignedUsers:(Array.isArray(task.assigned_users)?task.assigned_users:[]),assigned_user_profiles:assignedUsers}})};
-const normalizeTaskForDisplay=task=>{if(!task||typeof task!=="object")return task;const internalId=task?.document_id||task?.firestore_id||task?.id,raw=task?.task_number??task?.display_id??task?.numeric_id,numeric=raw!==undefined&&raw!==null&&String(raw).trim()!==""?String(raw).padStart(2,"0"):"";return{...task,id:numeric||task.id,document_id:internalId||task.document_id,firestore_id:internalId||task.firestore_id,task_number:numeric||task.task_number,display_id:numeric||task.display_id}};
-const API={get:async(url,config={})=>{const clean=String(url||"").split("?")[0];if(clean==="/user/all"||clean==="user/all"){const users=await getUsersFast();return{data:users,users}}if(isTaskPath(clean)&&/^\/?task\/[^/]+$/.test(clean)){const raw=clean.split("/")[2],resolved=await resolveTaskId(raw),resolvedUrl=clean.replace(`/${raw}`,`/${resolved}`);try{const result=await firebaseRequest("GET",resolvedUrl,undefined,config?.params||{});if(result?.task){const displayId=result.task.task_number||result.task.display_id||(/^\d+$/.test(raw)?String(Number(raw)).padStart(2,"0"):null),enriched=(await enrichTaskProfiles([result.task]))[0];return{data:{...result,task:{...normalizeTaskForDisplay(enriched),document_id:result.task.id||enriched.document_id,firestore_id:result.task.id||enriched.firestore_id,id:displayId||result.task.id,display_id:displayId||result.task.display_id,task_number:displayId||result.task.task_number||null}}}}return{data:result}}catch(e){try{return{data:await legacyGet(resolvedUrl.startsWith("/")?resolvedUrl:`/${resolvedUrl}`)}}catch{throw e}}}if(clean.startsWith("/task/my-tasks/")||clean.startsWith("task/my-tasks/")){try{const result=await firebaseRequest("GET",url,undefined,config?.params||{}),rawTasks=Array.isArray(result)?result:Array.isArray(result?.tasks)?result.tasks:[],enriched=await enrichTaskProfiles(rawTasks),normalized=enriched.map(normalizeTaskForDisplay);return{data:normalized,tasks:normalized}}catch(e){try{return{data:await legacyGet(clean.startsWith("/")?clean:`/${clean}`)}}catch{throw e}}}try{const result=await firebaseRequest("GET",url,undefined,config?.params||{});if(clean.startsWith("/user/")||clean.startsWith("user/")){const id=clean.split("/")[2],users=await getUsersFast(),profile=users.find(u=>String(u.id)===String(id)||String(u.uid)===String(id)||String(u.firebaseUid)===String(id));if(clean.startsWith("/user/full/")||clean.startsWith("user/full/"))return{data:{...result,user:{...(profile||{}),...(result?.user||{})}}};return{...(profile||{}),...(result||{})}}if(clean==="/duty/staff"||clean==="duty/staff"){const staff=unwrapUsers(result?.staff);return staff.length?result:{...result,staff:await getUsersFast()}}if(clean==="/duty/summary"||clean==="duty/summary"){const users=await getUsersFast();return{...result,totalStaff:users.length||Number(result?.totalStaff||0)}}if(clean==="/activity/stats"||clean==="activity/stats"){const raw=Array.isArray(result?.activities)?result.activities:[],ordered=[...raw].sort((a,b)=>new Date(a?.created_at||a?.createdAt||0)-new Date(b?.created_at||b?.createdAt||0)),numberById=new Map();ordered.forEach((t,i)=>{const internal=t?.document_id||t?.firestore_id||t?.id;if(internal)numberById.set(String(internal),String(t?.task_number||t?.display_id||t?.numeric_id||i+1).padStart(2,"0"))});const activities=raw.map((t,i)=>{const internal=t?.document_id||t?.firestore_id||t?.id,numeric=numberById.get(String(internal))||String(t?.task_number||t?.display_id||t?.numeric_id||i+1).padStart(2,"0");return{...t,id:numeric,document_id:internal,firestore_id:internal,task_number:numeric,display_id:numeric}});rememberTaskRoutes(activities);const users=await getUsersFast(),normalized={...(result||{}),activities,staffCount:users.length};return{...normalized,data:normalized}}if(clean.startsWith("/tools/user/")||clean.startsWith("tools/user/")){if(Array.isArray(result)&&result.length)return result;try{return unwrapUsers(await legacyGet(clean.startsWith("/")?clean:`/${clean}`))}catch{return result}}return result}catch(e){try{const legacy=await legacyGet(clean.startsWith("/")?clean:`/${clean}`);if(clean.startsWith("/user/full/")||clean.startsWith("user/full/")){const id=clean.split("/")[2];let tools=[];try{tools=unwrapUsers(await legacyGet(`/tools/user/${id}`))}catch{}return{data:{user:legacy?.user||legacy,tasks:[],tools}}}return legacy}catch{throw e}}},post:async(url,data,config={})=>{const result=await firebaseRequest("POST",url,data,config?.params||{});if(String(url).includes("/user"))invalidateUsers();if(String(url).replace(/\?.*$/, "/").startsWith("/task/assign"))void notifyTaskAssignees(result?.data||result,data);return result},put:async(url,data,config={})=>{const clean=String(url||"").split("?")[0];let requestUrl=url;if(isTaskPath(clean)&&/^\/?task\/[^/]+$/.test(clean)){const raw=clean.split("/")[2],resolved=await resolveTaskId(raw);requestUrl=clean.replace(`/${raw}`,`/${resolved}`)}const result=await firebaseRequest("PUT",requestUrl,data,config?.params||{});if(String(url).includes("/user/"))invalidateUsers();return result},patch:(url,data,config={})=>firebaseRequest("PATCH",url,data,config?.params||{}),delete:async(url,config={})=>{const clean=String(url||"").split("?")[0];let requestUrl=url;if(isTaskPath(clean)&&/^\/?task\/[^/]+$/.test(clean)){const raw=clean.split("/")[2],resolved=await resolveTaskId(raw);requestUrl=clean.replace(`/${raw}`,`/${resolved}`)}const result=await firebaseRequest("DELETE",requestUrl,undefined,config?.params||{});if(String(url).includes("/user/"))invalidateUsers();return result}};
+import { requestFirebase } from "./services/firebaseDataStore";
+
+const LEGACY_TIMEOUT = 20000;
+
+const getLegacyBase = () => {
+  const raw = String(import.meta.env.VITE_API_URL || "").trim();
+  if (!raw) return "";
+  return raw.replace(/\/+$/, "").replace(/\/api$/i, "");
+};
+
+const normalizePath = (value) => {
+  const path = String(value || "").split("?")[0];
+  return path.startsWith("/") ? path : `/${path}`;
+};
+
+const isLegacyPath = (path) =>
+  /^\/(user|task|duty|tools|activity)(?:\/|$)/i.test(normalizePath(path));
+
+const withTimeout = async (promise, ms, message) => {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const unwrapUsers = (value) => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.users)) return value.users;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.result)) return value.result;
+  return [];
+};
+
+const isFakeUser = (user) => {
+  const name = String(user?.name || "").trim().toLowerCase();
+  const email = String(user?.email || "").trim().toLowerCase();
+  const fakeNames = new Set([
+    "vcvf", "lklkj", "jhhk", "drgdfgfd fsgd", "dummy", "test",
+    "testing", "sample", "demo", "fake", "temporary", "temp user", "new user",
+  ]);
+  if (fakeNames.has(name)) return true;
+  if (/^(dummy|test|testing|sample|demo|fake|temp)[+_.-]?[^@]*@/i.test(email)) return true;
+  return false;
+};
+
+const normalizeUser = (user) => ({
+  ...user,
+  id: String(user?.id ?? user?.numericId ?? user?.user_id ?? ""),
+  numericId: Number.isInteger(Number(user?.id)) ? Number(user.id) : null,
+  uid: String(user?.uid ?? user?.firebaseUid ?? ""),
+  name: user?.name || user?.displayName || user?.email || "",
+  email: String(user?.email || "").trim().toLowerCase(),
+  role: user?.role || user?.category || "staff",
+  status: user?.status || "active",
+  phone: user?.phone || "",
+  employeeID: user?.employeeID || "",
+  maritalStatus: user?.maritalStatus || "",
+  address: user?.address || "",
+  backgroundInfo: user?.backgroundInfo || "",
+  profile_pic: user?.profile_pic || user?.profilePic || "",
+});
+
+const dedupeUsers = (users) => {
+  const byEmail = new Map();
+  const byId = new Map();
+  for (const raw of users || []) {
+    const user = normalizeUser(raw);
+    if (isFakeUser(user)) continue;
+    const email = user.email;
+    const id = user.id;
+    if (!email && !id) continue;
+    const existing = (email && byEmail.get(email)) || byId.get(id);
+    const preferred = existing && Number(existing.id) > Number(user.id) ? existing : user;
+    if (email) byEmail.set(email, preferred);
+    if (id) byId.set(id, preferred);
+  }
+  return [...new Set([...byEmail.values(), ...byId.values()])]
+    .sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+};
+
+const buildLegacyUrl = (path) => {
+  const base = getLegacyBase();
+  if (!base) throw new Error("VITE_API_URL is not configured.");
+  return `${base}/api${normalizePath(path)}`;
+};
+
+const legacyRequest = async (method, path, data, config = {}) => {
+  const url = buildLegacyUrl(path);
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), config.timeout || LEGACY_TIMEOUT) : null;
+  try {
+    const options = {
+      method,
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      signal: controller?.signal,
+    };
+    if (data !== undefined && data !== null && method !== "GET" && method !== "HEAD") {
+      if (typeof FormData !== "undefined" && data instanceof FormData) {
+        options.body = data;
+      } else {
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(data);
+      }
+    }
+    const response = await fetch(url, options);
+    const text = await response.text();
+    let body = {};
+    try { body = text ? JSON.parse(text) : {}; } catch { body = { message: text }; }
+    if (!response.ok) {
+      const error = new Error(body?.message || body?.error || `API ${response.status}`);
+      error.response = { status: response.status, data: body };
+      throw error;
+    }
+    return { data: body, status: response.status, headers: response.headers };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
+const firebaseRequest = (method, url, data, config = {}) =>
+  withTimeout(
+    requestFirebase(method, url, data, config?.params || {}),
+    config?.timeout || 20000,
+    `Request timed out: ${method} ${url}`
+  );
+
+const API = {
+  get: async (url, config = {}) => {
+    const path = normalizePath(url);
+    if (path === "/user/all") {
+      const response = await legacyRequest("GET", "/user/all", undefined, config);
+      const users = dedupeUsers(unwrapUsers(response.data));
+      return { ...response, data: users, users };
+    }
+    if (isLegacyPath(path)) {
+      try {
+        return await legacyRequest("GET", path, undefined, config);
+      } catch (legacyError) {
+        try {
+          const data = await firebaseRequest("GET", path, undefined, config);
+          return { data };
+        } catch {
+          throw legacyError;
+        }
+      }
+    }
+    const data = await firebaseRequest("GET", url, undefined, config);
+    return { data };
+  },
+
+  post: async (url, data, config = {}) => {
+    const path = normalizePath(url);
+    if (isLegacyPath(path)) return legacyRequest("POST", path, data, config);
+    const result = await firebaseRequest("POST", url, data, config);
+    return { data: result };
+  },
+
+  put: async (url, data, config = {}) => {
+    const path = normalizePath(url);
+    if (isLegacyPath(path)) return legacyRequest("PUT", path, data, config);
+    const result = await firebaseRequest("PUT", url, data, config);
+    return { data: result };
+  },
+
+  patch: async (url, data, config = {}) => {
+    const path = normalizePath(url);
+    if (isLegacyPath(path)) return legacyRequest("PATCH", path, data, config);
+    const result = await firebaseRequest("PATCH", url, data, config);
+    return { data: result };
+  },
+
+  delete: async (url, config = {}) => {
+    const path = normalizePath(url);
+    if (isLegacyPath(path)) return legacyRequest("DELETE", path, undefined, config);
+    const result = await firebaseRequest("DELETE", url, undefined, config);
+    return { data: result };
+  },
+};
+
 export default API;
