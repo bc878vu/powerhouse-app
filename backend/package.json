@@ -1,9 +1,9 @@
 {
   "name": "powerhouse-backend",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "main": "server.js",
   "scripts": {
-    "start": "node boot.js"
+    "start": "node server.js"
   },
   "engines": {
     "node": "18.x"
