@@ -34,8 +34,12 @@ const allowedStatuses = new Set(["active", "inactive", "blocked"]);
 const fakeName = (user) => {
   const name = String(user?.name || "").trim().toLowerCase();
   const email = normalizeEmail(user?.email);
+  const localPart = email.split("@")[0] || "";
   const exact = new Set(["vcvf", "lklkj", "jhhk", "drgdfgfd fsgd", "dummy", "test", "testing", "sample", "demo", "fake", "temporary", "temp user", "new user"]);
-  return exact.has(name) || /^(dummy|test|testing|sample|demo|fake|temp)[+_.-]?[^@]*@/i.test(email);
+  if (exact.has(name)) return true;
+  if (/^(dummy|test|testing|sample|demo|fake|temp)[+_.-]?[^@]*@/i.test(email)) return true;
+  if (name === localPart && /\d/.test(name)) return true;
+  return false;
 };
 const normalizeUser = (user) => user ? { ...user, id: Number(user.id), email: normalizeEmail(user.email), status: user.status || "active", employeeID: user.employeeID || "", profile_pic: user.profile_pic || null } : null;
 const cleanupUpload = async (file) => { if (!file?.path) return; try { await fs.promises.unlink(file.path); } catch {} };
@@ -51,7 +55,6 @@ const publicUserSelect = `
   FROM users
 `;
 
-// MySQL is the canonical staff source for login, CRUD and task assignment.
 router.get("/all", async (_req, res) => {
   try {
     const rows = await query(`${publicUserSelect} ORDER BY id DESC`);
