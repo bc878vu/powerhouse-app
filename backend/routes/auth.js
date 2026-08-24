@@ -4,55 +4,47 @@ const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 
 router.post('/login', (req, res) => {
-  const email = req.body.email?.toLowerCase();
-  const { password } = req.body;
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
 
-  if (!email || !password) {
-    return res.status(400).json({ msg: "Email aur password required hain" });
-  }
+  if (!email || !password) return res.status(400).json({ msg: 'Email aur password required hain' });
 
-  const sql = "SELECT * FROM users WHERE email = ?";
-
-  db.query(sql, [email], async (err, results) => {
-    if (err) {
-      console.log("❌ DB ERROR:", err);
-      return res.status(500).json({ msg: "Database Error" });
-    }
-
-    if (results.length === 0) {
-      return res.status(401).json({ msg: "Email nahi mila!" });
-    }
-
-    const user = results[0];
-
-    if (user.status === "inactive") {
-      return res.status(403).json({
-        msg: "Your account is inactive. Contact admin."
-      });
-    }
-
-    try {
-      const isMatch = await bcrypt.compare(password, user.password);
-
-      if (!isMatch) {
-        return res.status(401).json({ msg: "Ghalat Password!" });
+  db.query(
+    'SELECT * FROM users WHERE LOWER(TRIM(email)) = ? ORDER BY id DESC LIMIT 1',
+    [email],
+    async (err, results) => {
+      if (err) {
+        console.error('DB LOGIN ERROR:', err);
+        return res.status(500).json({ msg: 'Database Error' });
       }
+      if (!results.length) return res.status(401).json({ msg: 'Email nahi mila!' });
 
-      // ✅ SAFE RESPONSE (no password)
-      res.json({
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role
-        }
-      });
+      const user = results[0];
+      const status = String(user.status || 'active').toLowerCase();
 
-    } catch (e) {
-      console.log("❌ BCRYPT ERROR:", e);
-      res.status(500).json({ msg: "Hashing error" });
+      if (status === 'inactive') return res.status(403).json({ msg: 'Your account is disabled. Contact admin.' });
+      if (status === 'blocked') return res.status(403).json({ msg: 'Your account is blocked. Contact admin.' });
+
+      try {
+        const match = await bcrypt.compare(password, String(user.password || ''));
+        if (!match) return res.status(401).json({ msg: 'Ghalat Password!' });
+
+        return res.json({
+          user: {
+            id: Number(user.id),
+            name: user.name,
+            email: String(user.email || '').trim().toLowerCase(),
+            role: user.role,
+            status,
+            employeeID: user.employeeID || ''
+          }
+        });
+      } catch (error) {
+        console.error('BCRYPT LOGIN ERROR:', error);
+        return res.status(500).json({ msg: 'Hashing error' });
+      }
     }
-  });
+  );
 });
 
 module.exports = router;
