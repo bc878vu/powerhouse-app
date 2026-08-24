@@ -3,9 +3,10 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Run from the backend directory explicitly so the task compatibility
-# preload and backend package are always resolved from the same directory.
-startCommand = "cd backend && npm start"
+# Always launch the deterministic backend entrypoint directly.
+# This prevents an old/cached npm start command from bypassing
+# the task compatibility router.
+startCommand = "cd backend && node boot.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
