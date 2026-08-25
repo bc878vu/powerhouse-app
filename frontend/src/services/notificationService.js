@@ -2,11 +2,13 @@ import {
   addDoc,
   collection,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
+  where,
   writeBatch
 } from "firebase/firestore";
 import { auth, db, getFCMToken, isFirebaseConfigured, missingConfig } from "../firebase";
@@ -24,6 +26,22 @@ const normalizeUid = (value) => {
 
 const notificationsRef = (uid) => collection(db, "powerhouse_notifications", normalizeUid(uid), "items");
 
+async function resolveNotificationUid(value) {
+  const normalized = normalizeUid(value);
+  if (!normalized) return null;
+  // Numeric PowerHouse staff IDs are mapped to the Firebase UID so automatic
+  // task alerts and manually sent admin notifications share the same inbox.
+  if (/^\d+$/.test(normalized)) {
+    try {
+      const snapshot = await getDocs(query(collection(db, "powerhouse_users"), where("id", "==", normalized), limit(1)));
+      if (!snapshot.empty) return String(snapshot.docs[0].data()?.uid || snapshot.docs[0].id || normalized);
+    } catch (error) {
+      console.warn("Notification UID lookup skipped:", error?.message || error);
+    }
+  }
+  return normalized;
+}
+
 export function subscribeToNotifications(uid, callback) {
   const safeUid = normalizeUid(uid);
   if (!safeUid) return () => {};
@@ -39,7 +57,7 @@ export function subscribeToNotifications(uid, callback) {
 }
 
 export async function createNotification(uid, payload = {}) {
-  const safeUid = normalizeUid(uid);
+  const safeUid = await resolveNotificationUid(uid);
   if (!safeUid) throw new Error("Notification recipient is required");
   const ref = await addDoc(notificationsRef(safeUid), {
     title: String(payload.title || "PowerHouse notification"),
@@ -55,13 +73,13 @@ export async function createNotification(uid, payload = {}) {
 }
 
 export async function markNotificationRead(uid, notificationId) {
-  const safeUid = normalizeUid(uid);
+  const safeUid = await resolveNotificationUid(uid);
   if (!safeUid || !notificationId) return;
   await updateDoc(doc(db, "powerhouse_notifications", safeUid, "items", String(notificationId)), { read: true, readAt: serverTimestamp() });
 }
 
 export async function markAllNotificationsRead(uid, notifications = []) {
-  const safeUid = normalizeUid(uid);
+  const safeUid = await resolveNotificationUid(uid);
   if (!safeUid) return;
   const unread = notifications.filter((item) => !item.read);
   if (!unread.length) return;
@@ -80,20 +98,12 @@ export async function enablePushNotifications() {
 
 export async function sendPushNotification({ title, body, route = "/notifications", userIds = [], notificationId = "" } = {}) {
   if (!auth.currentUser) return { success: false, skipped: true, reason: "not-authenticated" };
-
-  const backendUrl = String(import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || "")
-    .replace(/\/+$/, "")
-    .replace(/\/api$/, "");
-
+  const backendUrl = String(import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || "").replace(/\/+$/, "").replace(/\/api$/, "");
   if (!backendUrl) return { success: false, skipped: true, reason: "backend-url-missing" };
-
   try {
     const token = await auth.currentUser.getIdToken();
-    const response = await fetch(`${backendUrl}/api/notifications/push`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title, body, route, userIds, notificationId })
-    });
+    const resolvedUserIds = await Promise.all(userIds.map((id) => resolveNotificationUid(id)));
+    const response = await fetch(`${backendUrl}/api/notifications/push`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ title, body, route, userIds: resolvedUserIds.filter(Boolean), notificationId }) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) console.warn("Push notification request failed:", data?.message || response.statusText);
     return data;
@@ -103,6 +113,4 @@ export async function sendPushNotification({ title, body, route = "/notification
   }
 }
 
-export function getCurrentNotificationUid() {
-  return normalizeUid(auth.currentUser?.uid);
-}
+export function getCurrentNotificationUid() { return normalizeUid(auth.currentUser?.uid); }
