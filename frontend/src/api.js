@@ -1,6 +1,7 @@
 import { requestFirebase } from "./services/firebaseDataStore";
 import { db } from "./firebase";
 import { doc, updateDoc } from "firebase/firestore";
+import { getUser } from "./utils/auth";
 
 // Firebase-only API adapter.
 // Preserve the existing axios-like { data } contract used throughout the UI.
@@ -28,42 +29,34 @@ const numericTaskId = () => {
 
 const normalizeTask = (task) => {
   if (!task || typeof task !== "object") return task;
-  const publicId =
-    /^\d+$/.test(String(task.task_number ?? ""))
-      ? String(task.task_number)
-      : /^\d+$/.test(String(task.display_id ?? ""))
-        ? String(task.display_id)
-        : null;
-
+  const publicId = /^\d+$/.test(String(task.task_number ?? ""))
+    ? String(task.task_number)
+    : /^\d+$/.test(String(task.display_id ?? ""))
+      ? String(task.display_id)
+      : null;
   if (!publicId) return task;
-
-  return {
-    ...task,
-    firestore_id: task.firestore_id || task.id || null,
-    id: publicId,
-    task_number: publicId,
-    display_id: publicId,
-  };
+  return { ...task, firestore_id: task.firestore_id || task.id || null, id: publicId, task_number: publicId, display_id: publicId };
 };
 
 const normalizeTaskResponse = (result) => {
   if (Array.isArray(result)) return result.map(normalizeTask);
   if (!result || typeof result !== "object") return result;
-  if (result.task && typeof result.task === "object") {
-    return { ...result, task: normalizeTask(result.task) };
-  }
-  if (result.tasks && Array.isArray(result.tasks)) {
-    return { ...result, tasks: result.tasks.map(normalizeTask) };
-  }
-  if (result.id || result.task_number || result.display_id) {
-    return normalizeTask(result);
-  }
+  if (result.task && typeof result.task === "object") return { ...result, task: normalizeTask(result.task) };
+  if (result.tasks && Array.isArray(result.tasks)) return { ...result, tasks: result.tasks.map(normalizeTask) };
+  if (result.id || result.task_number || result.display_id) return normalizeTask(result);
   return result;
+};
+
+const normalizeTaskStatusPayload = (method, url, data) => {
+  if (method !== "PUT" || !String(url || "").includes("/task/update-status/")) return data;
+  if (!data || typeof data !== "object" || data instanceof FormData) return data;
+  const user = getUser();
+  return { ...data, user_id: data.user_id || user?.id || user?.user_id || user?.uid || "" };
 };
 
 const requestFirebaseApi = (method, url, data, config = {}) =>
   withTimeout(
-    requestFirebase(method, url, data, config?.params || {}),
+    requestFirebase(method, url, normalizeTaskStatusPayload(method, url, data), config?.params || {}),
     config?.timeout || 20000,
     `Firebase request timed out: ${method} ${url}`
   );
@@ -72,42 +65,21 @@ const request = async (method, url, data, config = {}) => {
   try {
     let result = await requestFirebaseApi(method, url, data, config);
 
-    // Every newly assigned task receives a numeric public ID.
-    // The Firestore random document ID remains internal for database lookups.
     if (method === "POST" && String(url || "").replace(/^\/api\/?/, "").split("?")[0] === "task/assign") {
       const created = result?.task || result;
       const firestoreId = created?.id;
-
       if (firestoreId && !/^\d+$/.test(String(firestoreId))) {
         const publicId = numericTaskId();
-        await updateDoc(doc(db, "tasks", String(firestoreId)), {
-          task_number: publicId,
-          display_id: publicId,
-        });
-
-        result = {
-          ...result,
-          id: publicId,
-          task_number: publicId,
-          display_id: publicId,
-          firestore_id: firestoreId,
-        };
+        await updateDoc(doc(db, "tasks", String(firestoreId)), { task_number: publicId, display_id: publicId });
+        result = { ...result, id: publicId, task_number: publicId, display_id: publicId, firestore_id: firestoreId };
       }
     }
 
     return { data: normalizeTaskResponse(result), status: 200, headers: {} };
   } catch (error) {
-    const message =
-      error?.response?.data?.message ||
-      error?.response?.data?.msg ||
-      error?.message ||
-      `Firebase request failed: ${method} ${url}`;
-
+    const message = error?.response?.data?.message || error?.response?.data?.msg || error?.message || `Firebase request failed: ${method} ${url}`;
     error.message = message;
-    error.response = {
-      status: error?.response?.status || 500,
-      data: { success: false, message, msg: message },
-    };
+    error.response = { status: error?.response?.status || 500, data: { success: false, message, msg: message } };
     throw error;
   }
 };
