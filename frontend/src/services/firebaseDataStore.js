@@ -1,6 +1,6 @@
 import { createUserWithEmailAndPassword, getAuth, signOut } from "firebase/auth";
 import { initializeApp, getApps } from "firebase/app";
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, query, runTransaction, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { auth, db, firebaseConfig, storage } from "../firebase";
 import { getUser } from "../utils/auth";
@@ -14,7 +14,6 @@ const dutiesRef = collection(db, "duties");
 const toolsRef = collection(db, "tools");
 const categoriesRef = collection(db, "categories");
 const activitiesRef = collection(db, "activities");
-const taskCounterRef = doc(db, "system_counters", "tasks");
 const READ_CACHE_TTL = 10000;
 
 let usersCache = null, usersCacheAt = 0, usersPromise = null;
@@ -115,30 +114,23 @@ export async function listTasks() {
   return tasksPromise;
 }
 function publicTaskNumber(task, fallbackIndex = 0) { const numeric = Number(task?.task_number ?? task?.display_id ?? task?.public_id); return Number.isInteger(numeric) && numeric > 0 ? numeric : fallbackIndex + 1; }
-async function nextPublicTaskNumber(existingTasks = []) {
+
+// Generate a numeric public ID without a Firestore counter transaction.
+// This avoids a permission-dependent write during task creation while still
+// guaranteeing a practically unique numeric ID for normal admin usage.
+function nextPublicTaskNumber(existingTasks = []) {
   const maxExisting = existingTasks.reduce((max, task) => Math.max(max, publicTaskNumber(task, 0)), 0);
-  return runTransaction(db, async (transaction) => {
-    const snapshot = await transaction.get(taskCounterRef);
-    const stored = Number(snapshot.exists() ? snapshot.data()?.value : 0);
-    const next = Math.max(stored, maxExisting) + 1;
-    transaction.set(taskCounterRef, { value: next, updatedAt: serverTimestamp() }, { merge: true });
-    return next;
-  });
+  const timestampId = Number(String(Date.now()));
+  return Math.max(maxExisting + 1, timestampId);
 }
 
 async function findTaskById(id) {
   const raw = String(id ?? "").trim();
   if (!raw) return null;
-
-  // Preferred path for CRUD actions: the private Firestore document id.
   const direct = await getDoc(doc(db, "tasks", raw));
   if (direct.exists()) return direct;
-
-  // Support legacy documents where a separate id field was stored.
   const byStoredId = await getDocs(query(tasksRef, where("id", "==", raw), limit(1)));
   if (!byStoredId.empty) return byStoredId.docs[0];
-
-  // Numeric public IDs may exist as strings or numbers in older task records.
   if (/^\d+$/.test(raw)) {
     const numeric = Number(raw);
     const [byTaskNumberString, byTaskNumberNumber, byDisplayString, byDisplayNumber] = await Promise.all([
@@ -151,9 +143,6 @@ async function findTaskById(id) {
     if (!byTaskNumberNumber.empty) return byTaskNumberNumber.docs[0];
     if (!byDisplayString.empty) return byDisplayString.docs[0];
     if (!byDisplayNumber.empty) return byDisplayNumber.docs[0];
-
-    // Last-resort legacy mapping: the dashboard may display an index for an
-    // old task that never had task_number/display_id fields.
     const tasks = await listTasks();
     const sorted = [...tasks].sort((a, b) => new Date(a.created_at || a.createdAt || 0).getTime() - new Date(b.created_at || b.createdAt || 0).getTime());
     const indexed = sorted[numeric - 1];
@@ -179,7 +168,7 @@ export async function assignTask(payload) {
   if (!ids.length) throw new Error("Please select at least one staff member.");
   const created = nowIso();
   const existingTasks = await listTasks();
-  const numericId = await nextPublicTaskNumber(existingTasks);
+  const numericId = nextPublicTaskNumber(existingTasks);
   const numericTaskId = String(numericId);
   const status = payload.status || "Pending";
   const history = buildCycleHistory(ids, 1, created, status);
@@ -258,7 +247,7 @@ async function completeTask(id, payload) {
   const history = Array.isArray(task.assignment_history) ? task.assignment_history : [];
   const currentIndex = findHistoryIndex(history, currentCycle, userId);
   const currentRecord = currentIndex >= 0 ? history[currentIndex] : null;
-  if (task.status === "Completed" || currentRecord?.status === "Completed") throw new Error("This task cycle is already completed. Wait for a new assignment cycle.");
+  if (task.status === "Completed" || currentRecord?.status === "Completed") throw new Error("This assignment cycle is already completed. Wait for a new assignment cycle.");
   if (currentRecord && currentRecord.status !== "In Progress") throw new Error("Task must be accepted and In Progress before it can be completed.");
   const report = { id: `completion-${Date.now()}`, assignment_cycle: currentCycle, completion_note: normalized.completion_note || normalized.note || "", submitted_by: { id: userId, name: getUser()?.name || "User", email: auth.currentUser?.email || getUser()?.email || "" }, submitted_at: nowIso(), media_files: Array.isArray(normalized.files) ? normalized.files : [], voice_notes: Array.isArray(normalized.voiceNotes) ? normalized.voiceNotes : [] };
   const reports = Array.isArray(task.completion_reports) ? [...task.completion_reports, report] : [report];
