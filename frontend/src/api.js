@@ -1,8 +1,17 @@
 import { requestFirebase } from "./services/firebaseDataStore";
 import { getUser } from "./utils/auth";
+import {
+  activityStats as taskActivityStats,
+  assignTask as createTask,
+  completeTask,
+  deleteTask,
+  getTask,
+  isTaskPath,
+  listMyTasks,
+  updateTask,
+  updateTaskStatus,
+} from "./services/taskService";
 
-// Firebase-only API adapter.
-// Preserve the existing axios-like { data } contract used throughout the UI.
 const withTimeout = async (promise, ms, message) => {
   let timer;
   try {
@@ -25,7 +34,7 @@ const normalizeTask = (task) => {
       ? String(task.display_id)
       : null;
   if (!publicId) return task;
-  return { ...task, firestore_id: task.firestore_id || task.id || null, id: publicId, task_number: publicId, display_id: publicId };
+  return { ...task, firestore_id: task.firestore_id || null, id: publicId, task_number: publicId, display_id: publicId };
 };
 
 const normalizeTaskResponse = (result) => {
@@ -37,11 +46,13 @@ const normalizeTaskResponse = (result) => {
   return result;
 };
 
+const taskPath = (url) => String(url || "").replace(/^\/api\/?/, "").split("?")[0].replace(/^\/+/, "");
+
 const normalizeTaskRequest = (method, url, data) => {
-  const path = String(url || "").replace(/^\/api\/?/, "").split("?")[0];
+  const path = taskPath(url);
   if (method === "PUT" && path.startsWith("task/update-status/") && data && typeof data === "object" && !(data instanceof FormData)) {
     const user = getUser();
-    return { ...data, user_id: data.user_id || user?.id || user?.user_id || user?.uid || "" };
+    return { ...data, user_id: data.user_id || user?.firebaseUid || user?.uid || user?.id || user?.user_id || "" };
   }
   if (method === "PUT" && path.startsWith("task/") && typeof FormData !== "undefined" && data instanceof FormData) {
     const status = String(data.get("status") || "").toLowerCase();
@@ -50,16 +61,39 @@ const normalizeTaskRequest = (method, url, data) => {
   return data;
 };
 
-const requestFirebaseApi = (method, url, data, config = {}) =>
-  withTimeout(
+const requestTaskApi = (method, url, data, config = {}) => {
+  const path = taskPath(url);
+  if (!isTaskPath(path)) return null;
+  const payload = normalizeTaskRequest(method, url, data);
+  if (path === "task/assign" && method === "POST") return createTask(payload);
+  if (path.startsWith("task/my-tasks/") && method === "GET") return listMyTasks(path.split("/").pop());
+  if (path.startsWith("task/update-status/") && method === "PUT") return updateTaskStatus(path.split("/")[2], payload);
+  if (path.startsWith("task/complete-work/") && method === "POST") return completeTask(path.split("/")[2], payload);
+  if (path.startsWith("task/") && path.split("/").length === 2) {
+    const id = path.split("/")[1];
+    if (method === "GET") return getTask(id).then((task) => ({ task }));
+    if (method === "PUT") return updateTask(id, payload);
+    if (method === "DELETE") return deleteTask(id);
+  }
+  return null;
+};
+
+const requestFirebaseApi = (method, url, data, config = {}) => {
+  const taskResult = requestTaskApi(method, url, data, config);
+  if (taskResult) return withTimeout(taskResult, config?.timeout || 20000, `Task request timed out: ${method} ${url}`);
+  return withTimeout(
     requestFirebase(method, url, normalizeTaskRequest(method, url, data), config?.params || {}),
     config?.timeout || 20000,
     `Firebase request timed out: ${method} ${url}`
   );
+};
 
 const request = async (method, url, data, config = {}) => {
   try {
-    const result = await requestFirebaseApi(method, url, data, config);
+    const path = taskPath(url);
+    const result = path === "activity/stats" && method === "GET"
+      ? await withTimeout(taskActivityStats(), config?.timeout || 20000, "Task dashboard request timed out")
+      : await requestFirebaseApi(method, url, data, config);
     return { data: normalizeTaskResponse(result), status: 200, headers: {} };
   } catch (error) {
     const message = error?.response?.data?.message || error?.response?.data?.msg || error?.message || `Firebase request failed: ${method} ${url}`;
