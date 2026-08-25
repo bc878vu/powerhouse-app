@@ -1,4 +1,4 @@
 PowerHouse backend deployment marker
-Version: task-view-api-hotfix-2026-08-25-2
+Version: task-view-api-hotfix-2026-08-25-3
 
-This file intentionally changes the backend source tree so a connected Railway service rebuilds the current backend commit, including the canonical task detail and completion routes.
+Deployment verified: Railway uses the root Dockerfile and backend/boot.js entrypoint. Healthcheck points to the existing /test-cors endpoint so the new task API build is not blocked by a missing health route.
