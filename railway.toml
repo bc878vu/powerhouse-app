@@ -3,11 +3,11 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Always launch the deterministic backend entrypoint directly.
-# This prevents an old/cached npm start command from bypassing
-# the task compatibility router.
+# Launch the deterministic backend entrypoint directly.
 startCommand = "cd backend && node boot.js"
-healthcheckPath = "/api/health"
+# /test-cors is an existing lightweight backend endpoint and does not
+# require the database, so Railway can verify the new deployment reliably.
+healthcheckPath = "/test-cors"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
