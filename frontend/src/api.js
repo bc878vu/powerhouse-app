@@ -1,6 +1,4 @@
 import { requestFirebase } from "./services/firebaseDataStore";
-import { db } from "./firebase";
-import { doc, updateDoc } from "firebase/firestore";
 import { getUser } from "./utils/auth";
 
 // Firebase-only API adapter.
@@ -19,14 +17,6 @@ const withTimeout = async (promise, ms, message) => {
   }
 };
 
-// Firestore's document id is intentionally kept private.
-// The UI uses the stable numeric task_number/display_id instead.
-const numericTaskId = () => {
-  const timestamp = String(Date.now());
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-  return `${timestamp}${random}`;
-};
-
 const normalizeTask = (task) => {
   if (!task || typeof task !== "object") return task;
   const publicId = /^\d+$/.test(String(task.task_number ?? ""))
@@ -35,7 +25,13 @@ const normalizeTask = (task) => {
       ? String(task.display_id)
       : null;
   if (!publicId) return task;
-  return { ...task, firestore_id: task.firestore_id || task.id || null, id: publicId, task_number: publicId, display_id: publicId };
+  return {
+    ...task,
+    firestore_id: task.firestore_id || task.id || null,
+    id: publicId,
+    task_number: publicId,
+    display_id: publicId,
+  };
 };
 
 const normalizeTaskResponse = (result) => {
@@ -51,7 +47,10 @@ const normalizeTaskStatusPayload = (method, url, data) => {
   if (method !== "PUT" || !String(url || "").includes("/task/update-status/")) return data;
   if (!data || typeof data !== "object" || data instanceof FormData) return data;
   const user = getUser();
-  return { ...data, user_id: data.user_id || user?.id || user?.user_id || user?.uid || "" };
+  return {
+    ...data,
+    user_id: data.user_id || user?.id || user?.user_id || user?.uid || "",
+  };
 };
 
 const requestFirebaseApi = (method, url, data, config = {}) =>
@@ -63,18 +62,7 @@ const requestFirebaseApi = (method, url, data, config = {}) =>
 
 const request = async (method, url, data, config = {}) => {
   try {
-    let result = await requestFirebaseApi(method, url, data, config);
-
-    if (method === "POST" && String(url || "").replace(/^\/api\/?/, "").split("?")[0] === "task/assign") {
-      const created = result?.task || result;
-      const firestoreId = created?.id;
-      if (firestoreId && !/^\d+$/.test(String(firestoreId))) {
-        const publicId = numericTaskId();
-        await updateDoc(doc(db, "tasks", String(firestoreId)), { task_number: publicId, display_id: publicId });
-        result = { ...result, id: publicId, task_number: publicId, display_id: publicId, firestore_id: firestoreId };
-      }
-    }
-
+    const result = await requestFirebaseApi(method, url, data, config);
     return { data: normalizeTaskResponse(result), status: 200, headers: {} };
   } catch (error) {
     const message = error?.response?.data?.message || error?.response?.data?.msg || error?.message || `Firebase request failed: ${method} ${url}`;
