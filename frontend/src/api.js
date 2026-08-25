@@ -8,6 +8,7 @@ import {
   getTask,
   isTaskPath,
   listMyTasks,
+  listUserTasks,
   updateTask,
   updateTaskStatus,
 } from "./services/taskService";
@@ -15,28 +16,16 @@ import {
 const withTimeout = async (promise, ms, message) => {
   let timer;
   try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
+    return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })]);
+  } finally { clearTimeout(timer); }
 };
 
 const normalizeTask = (task) => {
   if (!task || typeof task !== "object") return task;
-  const publicId = /^\d+$/.test(String(task.task_number ?? ""))
-    ? String(task.task_number)
-    : /^\d+$/.test(String(task.display_id ?? ""))
-      ? String(task.display_id)
-      : null;
+  const publicId = /^\d+$/.test(String(task.task_number ?? "")) ? String(task.task_number) : /^\d+$/.test(String(task.display_id ?? "")) ? String(task.display_id) : null;
   if (!publicId) return task;
   return { ...task, firestore_id: task.firestore_id || null, id: publicId, task_number: publicId, display_id: publicId };
 };
-
 const normalizeTaskResponse = (result) => {
   if (Array.isArray(result)) return result.map(normalizeTask);
   if (!result || typeof result !== "object") return result;
@@ -45,9 +34,7 @@ const normalizeTaskResponse = (result) => {
   if (result.id || result.task_number || result.display_id) return normalizeTask(result);
   return result;
 };
-
 const taskPath = (url) => String(url || "").replace(/^\/api\/?/, "").split("?")[0].replace(/^\/+/, "");
-
 const normalizeTaskRequest = (method, url, data) => {
   const path = taskPath(url);
   if (method === "PUT" && path.startsWith("task/update-status/") && data && typeof data === "object" && !(data instanceof FormData)) {
@@ -60,8 +47,7 @@ const normalizeTaskRequest = (method, url, data) => {
   }
   return data;
 };
-
-const requestTaskApi = (method, url, data, config = {}) => {
+const requestTaskApi = (method, url, data) => {
   const path = taskPath(url);
   if (!isTaskPath(path)) return null;
   const payload = normalizeTaskRequest(method, url, data);
@@ -77,17 +63,19 @@ const requestTaskApi = (method, url, data, config = {}) => {
   }
   return null;
 };
-
 const requestFirebaseApi = (method, url, data, config = {}) => {
-  const taskResult = requestTaskApi(method, url, data, config);
+  const taskResult = requestTaskApi(method, url, data);
   if (taskResult) return withTimeout(taskResult, config?.timeout || 20000, `Task request timed out: ${method} ${url}`);
-  return withTimeout(
-    requestFirebase(method, url, normalizeTaskRequest(method, url, data), config?.params || {}),
-    config?.timeout || 20000,
-    `Firebase request timed out: ${method} ${url}`
-  );
+  const path = taskPath(url);
+  if (path.startsWith("user/full/") && method === "GET") {
+    return withTimeout(requestFirebase(method, url, normalizeTaskRequest(method, url, data), config?.params || {}).then(async (result) => {
+      const id = path.split("/")[2];
+      const canonicalTasks = await listUserTasks(id);
+      return { ...result, tasks: canonicalTasks };
+    }), config?.timeout || 20000, `Staff profile request timed out: ${method} ${url}`);
+  }
+  return withTimeout(requestFirebase(method, url, normalizeTaskRequest(method, url, data), config?.params || {}), config?.timeout || 20000, `Firebase request timed out: ${method} ${url}`);
 };
-
 const request = async (method, url, data, config = {}) => {
   try {
     const path = taskPath(url);
@@ -110,5 +98,4 @@ const API = {
   patch: (url, data, config = {}) => request("PATCH", url, data, config),
   delete: (url, config = {}) => request("DELETE", url, undefined, config),
 };
-
 export default API;
