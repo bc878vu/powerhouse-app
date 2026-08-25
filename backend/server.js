@@ -1,5 +1,4 @@
 require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
 const db = require("./config/db");
@@ -10,31 +9,16 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-
 server.keepAliveTimeout = 60000;
 server.headersTimeout = 65000;
 
-process.on("uncaughtException", (err) => {
-  console.error("🔥 UNCAUGHT EXCEPTION:", err);
-});
+process.on("uncaughtException", (err) => console.error("🔥 UNCAUGHT EXCEPTION:", err));
+process.on("unhandledRejection", (err) => console.error("🔥 UNHANDLED REJECTION:", err));
 
-process.on("unhandledRejection", (err) => {
-  console.error("🔥 UNHANDLED REJECTION:", err);
-});
-
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "https://powerhouse-app-eight.vercel.app",
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
+const allowedOrigins = ["http://localhost:5173", "http://127.0.0.1:5173", "https://powerhouse-app-eight.vercel.app", process.env.FRONTEND_URL].filter(Boolean);
 const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
-
 console.log("🌐 Allowed frontend origins:");
-uniqueAllowedOrigins.forEach((origin) => {
-  console.log(`   ✅ ${origin}`);
-});
+uniqueAllowedOrigins.forEach((origin) => console.log(`   ✅ ${origin}`));
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -44,96 +28,38 @@ const corsOptions = {
     return callback(new Error(`CORS blocked origin: ${origin}`));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Origin",
-    "X-Requested-With",
-    "Content-Type",
-    "Accept",
-    "Authorization",
-    "role",
-    "Role",
-    "x-user-id",
-    "X-User-Id",
-    "x-user-role",
-    "X-User-Role",
-    "x-auth-token",
-    "X-Auth-Token",
-  ],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "role", "Role", "x-user-id", "X-User-Id", "x-user-role", "X-User-Role", "x-auth-token", "X-Auth-Token"],
   exposedHeaders: ["Content-Disposition", "Content-Length"],
   credentials: true,
   optionsSuccessStatus: 204,
   preflightContinue: false,
 };
-
 app.use(cors(corsOptions));
-
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && uniqueAllowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  if (origin && uniqueAllowedOrigins.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].join(", ")
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    [
-      "Origin",
-      "X-Requested-With",
-      "Content-Type",
-      "Accept",
-      "Authorization",
-      "role",
-      "Role",
-      "x-user-id",
-      "X-User-Id",
-      "x-user-role",
-      "X-User-Role",
-      "x-auth-token",
-      "X-Auth-Token",
-    ].join(", ")
-  );
-  res.setHeader(
-    "Access-Control-Expose-Headers",
-    ["Content-Disposition", "Content-Length"].join(", ")
-  );
-  if (req.method === "OPTIONS") {
-    console.log(`🌐 CORS PREFLIGHT: ${req.method} ${req.originalUrl}`);
-    return res.sendStatus(204);
-  }
+  res.setHeader("Access-Control-Allow-Methods", ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].join(", "));
+  res.setHeader("Access-Control-Allow-Headers", ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "role", "Role", "x-user-id", "X-User-Id", "x-user-role", "X-User-Role", "x-auth-token", "X-Auth-Token"].join(", "));
+  res.setHeader("Access-Control-Expose-Headers", ["Content-Disposition", "Content-Length"].join(", "));
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
-
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.originalUrl}`);
-  if (req.headers["x-user-id"]) {
-    console.log("👤 X-User-Id:", req.headers["x-user-id"]);
-  }
-  if (req.headers.role) {
-    console.log("🛡️ Role:", req.headers.role);
-  }
+  if (req.headers["x-user-id"]) console.log("👤 X-User-Id:", req.headers["x-user-id"]);
+  if (req.headers.role) console.log("🛡️ Role:", req.headers.role);
   next();
 });
 
 const uploadDir = path.resolve(__dirname, "uploads");
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-  console.log("📁 Upload directory created:", uploadDir);
-}
-
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 console.log("📂 Static uploads directory:", uploadDir);
-
 app.use("/uploads", (req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && uniqueAllowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  if (origin && uniqueAllowedOrigins.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -141,70 +67,30 @@ app.use("/uploads", (req, res, next) => {
   res.setHeader("Expires", "0");
   next();
 });
-
-app.use(
-  "/uploads",
-  express.static(uploadDir, {
-    fallthrough: true,
-    setHeaders: (res) => {
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    },
-  })
-);
-
-app.use("/uploads", (req, res) => {
-  console.warn(`❌ Upload file not found: ${req.originalUrl}`);
-  return res.status(404).json({
-    success: false,
-    message: "Upload file not found",
-    requested_path: req.originalUrl,
-    uploads_directory: uploadDir,
-  });
-});
+app.use("/uploads", express.static(uploadDir, { fallthrough: true, setHeaders: (res) => { res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate"); } }));
+app.use("/uploads", (req, res) => res.status(404).json({ success: false, message: "Upload file not found", requested_path: req.originalUrl, uploads_directory: uploadDir }));
 
 const io = new Server(server, {
-  cors: {
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (uniqueAllowedOrigins.includes(origin)) return callback(null, true);
-      console.warn("⚠️ Socket.IO CORS blocked origin:", origin);
-      return callback(new Error(`Socket.IO CORS blocked origin: ${origin}`));
-    },
-    methods: ["GET", "POST"],
-    allowedHeaders: [
-      "Origin",
-      "Content-Type",
-      "Authorization",
-      "role",
-      "x-user-id",
-      "X-User-Id",
-    ],
-    credentials: true,
-  },
+  cors: { origin: function (origin, callback) { if (!origin) return callback(null, true); if (uniqueAllowedOrigins.includes(origin)) return callback(null, true); return callback(new Error(`Socket.IO CORS blocked origin: ${origin}`)); }, methods: ["GET", "POST"], allowedHeaders: ["Origin", "Content-Type", "Authorization", "role", "x-user-id", "X-User-Id"], credentials: true },
   transports: ["websocket", "polling"],
 });
-
 app.set("io", io);
 
 io.on("connection", (socket) => {
   console.log("⚡ Client connected:", socket.id);
-  socket.onAny((event, ...args) => {
-    console.log("📡 EVENT:", event, args);
-  });
-  socket.on("joinUser", (userId) => {
-    if (!userId) return;
-    socket.join(`user_${userId}`);
-    console.log(`👤 User joined room: user_${userId}`);
-  });
-  socket.on("joinPanelMonitoring", () => {
-    socket.join("panel_monitoring");
-    console.log(`⚡ Client joined panel monitoring room: ${socket.id}`);
-  });
+  socket.onAny((event, ...args) => console.log("📡 EVENT:", event, args));
+  socket.on("joinUser", (userId) => { if (!userId) return; socket.join(`user_${userId}`); });
+  socket.on("joinPanelMonitoring", () => socket.join("panel_monitoring"));
+  socket.on("joinAdmin", () => socket.join("admins"));
+  const broadcastToUsers = (event, data = {}) => {
+    const ids = Array.isArray(data.userIds || data.user_ids) ? (data.userIds || data.user_ids) : (data.userId || data.user_id ? [data.userId || data.user_id] : []);
+    ids.map(String).filter(Boolean).forEach((id) => io.to(`user_${id}`).emit(event, data));
+  };
+  socket.on("taskAssigned", (data) => broadcastToUsers("taskAssigned", data));
+  socket.on("taskReassigned", (data) => broadcastToUsers("taskReassigned", data));
+  socket.on("taskUpdate", (data) => { broadcastToUsers("taskUpdate", data); io.to("admins").emit("taskUpdate", data); });
   socket.emit("connected", "Welcome Client ✅");
-  socket.on("disconnect", (reason) => {
-    console.log("❌ Client disconnected:", socket.id, "| Reason:", reason);
-  });
+  socket.on("disconnect", (reason) => console.log("❌ Client disconnected:", socket.id, "| Reason:", reason));
 });
 
 const userRoutes = require("./routes/user");
@@ -217,75 +103,33 @@ const mcpRoutes = require("./routes/mcp");
 const panelRoutes = require("./routes/panels");
 const dutyRoutes = require("./routes/duty");
 const taskFirebaseFallback = require("./routes/taskFirebaseFallback");
+const notificationRoutes = require("./routes/notifications");
 
 app.use("/api", mcpRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/auth", authRoutes);
-
-// Firebase compatibility fallback for legacy Task View clients.
-// It is read-only and only runs when the Firebase task exists.
-// Otherwise the request continues to the canonical MySQL task router.
 app.get("/api/task/:id", taskFirebaseFallback);
-
 app.use("/api/task", taskRoutes);
-
-// Legacy compatibility endpoints remain available without intercepting
-// canonical task requests.
 app.use("/api/task-compat", taskCompatRoutes);
-
-// Plural alias for older clients.
 app.use("/api/tasks", taskRoutes);
-
 app.use("/api/activity", activityRoutes);
 app.use("/api/tools", toolsRoutes);
 app.use("/api/panels", panelRoutes);
 app.use("/api/duty", dutyRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.get("/test-db", async (req, res) => {
-  try {
-    const [rows] = await db.promise().query("SELECT 1 AS database_test");
-    return res.status(200).json({
-      success: true,
-      msg: "DB OK",
-      result: rows,
-    });
-  } catch (err) {
-    console.error("❌ DB TEST ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message,
-    });
-  }
+  try { const [rows] = await db.promise().query("SELECT 1 AS database_test"); return res.status(200).json({ success: true, msg: "DB OK", result: rows }); }
+  catch (err) { console.error("❌ DB TEST ERROR:", err); return res.status(500).json({ success: false, error: err.message }); }
 });
-
-app.get("/test-cors", (req, res) => {
-  return res.status(200).json({
-    success: true,
-    message: "CORS is working correctly",
-    origin: req.headers.origin || null,
-    user_id: req.headers["x-user-id"] || null,
-    role: req.headers.role || null,
-    time: new Date().toISOString(),
-  });
-});
-
-app.use((req, res) => {
-  console.warn("❌ API 404:", req.method, req.originalUrl);
-  return res.status(404).json({
-    success: false,
-    message: "API route not found",
-    method: req.method,
-    path: req.originalUrl,
-  });
-});
+app.get("/test-cors", (req, res) => res.status(200).json({ success: true, message: "CORS is working correctly", origin: req.headers.origin || null, user_id: req.headers["x-user-id"] || null, role: req.headers.role || null, time: new Date().toISOString() }));
+app.use((req, res) => res.status(404).json({ success: false, message: "API route not found", method: req.method, path: req.originalUrl }));
 
 const PORT = Number(process.env.PORT) || 5000;
-
 server.listen(PORT, "0.0.0.0", () => {
   console.log("============================================================");
   console.log(`🚀 PowerHouse backend running on port ${PORT}`);
   console.log("✅ Canonical task router mounted at /api/task");
   console.log("============================================================");
 });
-
 module.exports = { app, server, io };
