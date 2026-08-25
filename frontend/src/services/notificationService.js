@@ -79,8 +79,28 @@ export async function enablePushNotifications() {
 }
 
 export async function sendPushNotification({ title, body, route = "/notifications", userIds = [], notificationId = "" } = {}) {
-  void title; void body; void route; void userIds; void notificationId;
-  return { success: false, skipped: true, reason: "backend-task-push" };
+  if (!auth.currentUser) return { success: false, skipped: true, reason: "not-authenticated" };
+
+  const backendUrl = String(import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || "")
+    .replace(/\/+$/, "")
+    .replace(/\/api$/, "");
+
+  if (!backendUrl) return { success: false, skipped: true, reason: "backend-url-missing" };
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const response = await fetch(`${backendUrl}/api/notifications/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title, body, route, userIds, notificationId })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) console.warn("Push notification request failed:", data?.message || response.statusText);
+    return data;
+  } catch (error) {
+    console.warn("Push notification request skipped:", error?.message || error);
+    return { success: false, skipped: true, reason: error?.message || "network-error" };
+  }
 }
 
 export function getCurrentNotificationUid() {
