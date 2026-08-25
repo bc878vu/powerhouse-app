@@ -216,15 +216,17 @@ const toolsRoutes = require("./routes/tools");
 const mcpRoutes = require("./routes/mcp");
 const panelRoutes = require("./routes/panels");
 const dutyRoutes = require("./routes/duty");
+const taskFirebaseFallback = require("./routes/taskFirebaseFallback");
 
 app.use("/api", mcpRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/auth", authRoutes);
 
-// Canonical task router owns all normal task endpoints.
-// The compatibility router is isolated so it cannot shadow the canonical
-// GET /:id, GET /single/:id, PUT /update-status/:id, or POST /complete-work/:id
-// handlers in task.js.
+// Firebase compatibility fallback for legacy Task View clients.
+// It is read-only and only runs when the Firebase task exists.
+// Otherwise the request continues to the canonical MySQL task router.
+app.get("/api/task/:id", taskFirebaseFallback);
+
 app.use("/api/task", taskRoutes);
 
 // Legacy compatibility endpoints remain available without intercepting
