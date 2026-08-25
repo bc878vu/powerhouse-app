@@ -29,12 +29,15 @@ const notificationsRef = (uid) => collection(db, "powerhouse_notifications", nor
 async function resolveNotificationUid(value) {
   const normalized = normalizeUid(value);
   if (!normalized) return null;
-  // Numeric PowerHouse staff IDs are mapped to the Firebase UID so automatic
-  // task alerts and manually sent admin notifications share the same inbox.
   if (/^\d+$/.test(normalized)) {
     try {
-      const snapshot = await getDocs(query(collection(db, "powerhouse_users"), where("id", "==", normalized), limit(1)));
-      if (!snapshot.empty) return String(snapshot.docs[0].data()?.uid || snapshot.docs[0].id || normalized);
+      const numeric = Number(normalized);
+      const [asString, asNumber] = await Promise.all([
+        getDocs(query(collection(db, "powerhouse_users"), where("id", "==", normalized), limit(1))),
+        getDocs(query(collection(db, "powerhouse_users"), where("id", "==", numeric), limit(1)))
+      ]);
+      const match = !asString.empty ? asString.docs[0] : (!asNumber.empty ? asNumber.docs[0] : null);
+      if (match) return String(match.data()?.uid || match.id || normalized);
     } catch (error) {
       console.warn("Notification UID lookup skipped:", error?.message || error);
     }
