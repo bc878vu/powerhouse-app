@@ -98,6 +98,8 @@ const authRoutes = require("./routes/auth");
 const taskRoutes = require("./routes/task");
 const taskCompatRoutes = require("./routes/taskCompat");
 const activityRoutes = require("./routes/activity");
+const taskFastRoutes = require("./routes/taskFast");
+const activityFastRoutes = require("./routes/activityFast");
 const toolsRoutes = require("./routes/tools");
 const mcpRoutes = require("./routes/mcp");
 const panelRoutes = require("./routes/panels");
@@ -109,9 +111,13 @@ app.use("/api", mcpRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/auth", authRoutes);
 app.get("/api/task/:id", taskFirebaseFallback);
+// Fast read routes must be registered before the canonical task/activity routers.
+// They only replace the heavy read paths; writes and task detail routes remain unchanged.
+app.use("/api/task", taskFastRoutes);
 app.use("/api/task", taskRoutes);
 app.use("/api/task-compat", taskCompatRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/activity", activityFastRoutes);
 app.use("/api/activity", activityRoutes);
 app.use("/api/tools", toolsRoutes);
 app.use("/api/panels", panelRoutes);
