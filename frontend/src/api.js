@@ -25,13 +25,7 @@ const normalizeTask = (task) => {
       ? String(task.display_id)
       : null;
   if (!publicId) return task;
-  return {
-    ...task,
-    firestore_id: task.firestore_id || task.id || null,
-    id: publicId,
-    task_number: publicId,
-    display_id: publicId,
-  };
+  return { ...task, firestore_id: task.firestore_id || task.id || null, id: publicId, task_number: publicId, display_id: publicId };
 };
 
 const normalizeTaskResponse = (result) => {
@@ -43,19 +37,22 @@ const normalizeTaskResponse = (result) => {
   return result;
 };
 
-const normalizeTaskStatusPayload = (method, url, data) => {
-  if (method !== "PUT" || !String(url || "").includes("/task/update-status/")) return data;
-  if (!data || typeof data !== "object" || data instanceof FormData) return data;
-  const user = getUser();
-  return {
-    ...data,
-    user_id: data.user_id || user?.id || user?.user_id || user?.uid || "",
-  };
+const normalizeTaskRequest = (method, url, data) => {
+  const path = String(url || "").replace(/^\/api\/?/, "").split("?")[0];
+  if (method === "PUT" && path.startsWith("task/update-status/") && data && typeof data === "object" && !(data instanceof FormData)) {
+    const user = getUser();
+    return { ...data, user_id: data.user_id || user?.id || user?.user_id || user?.uid || "" };
+  }
+  if (method === "PUT" && path.startsWith("task/") && typeof FormData !== "undefined" && data instanceof FormData) {
+    const status = String(data.get("status") || "").toLowerCase();
+    if ((status === "completed" || status === "rejected") && !data.get("reassign_task")) data.append("reassign_task", "true");
+  }
+  return data;
 };
 
 const requestFirebaseApi = (method, url, data, config = {}) =>
   withTimeout(
-    requestFirebase(method, url, normalizeTaskStatusPayload(method, url, data), config?.params || {}),
+    requestFirebase(method, url, normalizeTaskRequest(method, url, data), config?.params || {}),
     config?.timeout || 20000,
     `Firebase request timed out: ${method} ${url}`
   );
