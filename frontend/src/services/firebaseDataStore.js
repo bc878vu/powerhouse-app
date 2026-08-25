@@ -125,24 +125,41 @@ async function nextPublicTaskNumber(existingTasks = []) {
     return next;
   });
 }
+
 async function findTaskById(id) {
   const raw = String(id ?? "").trim();
   if (!raw) return null;
+
+  // Preferred path for CRUD actions: the private Firestore document id.
   const direct = await getDoc(doc(db, "tasks", raw));
   if (direct.exists()) return direct;
-  const stored = await getDocs(query(tasksRef, where("id", "==", raw), limit(1)));
-  if (!stored.empty) return stored.docs[0];
-  const byTaskNumber = await getDocs(query(tasksRef, where("task_number", "==", raw), limit(1)));
-  if (!byTaskNumber.empty) return byTaskNumber.docs[0];
-  const byDisplayId = await getDocs(query(tasksRef, where("display_id", "==", raw), limit(1)));
-  if (!byDisplayId.empty) return byDisplayId.docs[0];
-  if (!/^\d+$/.test(raw)) return null;
-  const numeric = Number(raw);
-  if (!Number.isInteger(numeric) || numeric < 1) return null;
-  const tasks = await listTasks();
-  const sorted = [...tasks].sort((a, b) => new Date(a.created_at || a.createdAt || 0).getTime() - new Date(b.created_at || b.createdAt || 0).getTime());
-  const indexed = sorted[numeric - 1];
-  return indexed?.id ? getDoc(doc(db, "tasks", String(indexed.id))) : null;
+
+  // Support legacy documents where a separate id field was stored.
+  const byStoredId = await getDocs(query(tasksRef, where("id", "==", raw), limit(1)));
+  if (!byStoredId.empty) return byStoredId.docs[0];
+
+  // Numeric public IDs may exist as strings or numbers in older task records.
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    const [byTaskNumberString, byTaskNumberNumber, byDisplayString, byDisplayNumber] = await Promise.all([
+      getDocs(query(tasksRef, where("task_number", "==", raw), limit(1))),
+      getDocs(query(tasksRef, where("task_number", "==", numeric), limit(1))),
+      getDocs(query(tasksRef, where("display_id", "==", raw), limit(1))),
+      getDocs(query(tasksRef, where("display_id", "==", numeric), limit(1))),
+    ]);
+    if (!byTaskNumberString.empty) return byTaskNumberString.docs[0];
+    if (!byTaskNumberNumber.empty) return byTaskNumberNumber.docs[0];
+    if (!byDisplayString.empty) return byDisplayString.docs[0];
+    if (!byDisplayNumber.empty) return byDisplayNumber.docs[0];
+
+    // Last-resort legacy mapping: the dashboard may display an index for an
+    // old task that never had task_number/display_id fields.
+    const tasks = await listTasks();
+    const sorted = [...tasks].sort((a, b) => new Date(a.created_at || a.createdAt || 0).getTime() - new Date(b.created_at || b.createdAt || 0).getTime());
+    const indexed = sorted[numeric - 1];
+    if (indexed?.id) return getDoc(doc(db, "tasks", String(indexed.id)));
+  }
+  return null;
 }
 async function getTask(id) { const target = await findTaskById(id); return target ? fromDoc(target) : null; }
 function normalizeUserIds(payload = {}) { const raw = payload.assigned_user_ids ?? payload.user_ids ?? payload.user_id ?? []; return [...new Set((Array.isArray(raw) ? raw : [raw]).map((item) => String(item?.id ?? item?.user_id ?? item).trim()).filter(Boolean))]; }
@@ -169,7 +186,7 @@ export async function assignTask(payload) {
   const task = { ...payload, task_number: numericTaskId, display_id: numericTaskId, public_id: numericId, assigned_user_ids: ids, user_ids: ids, user_id: ids[0] || "", status, assignment_cycle: 1, assignment_count: 1, assignment_history: history, created_at: created, updated_at: created, createdAt: serverTimestamp() };
   delete task.id;
   const docRef = await addDoc(tasksRef, task);
-  const storedTask = { ...task, id: docRef.id };
+  const storedTask = { ...task, id: docRef.id, firestore_id: docRef.id };
   await addDoc(activitiesRef, { type: "task_created", task_id: docRef.id, status, task_number: numericTaskId, public_id: numericId, created_at: serverTimestamp() });
   invalidateTasks();
   await notifyTaskAssigned(storedTask, ids);
@@ -181,7 +198,7 @@ async function updateTask(id, payload) {
   if (!target) throw new Error("Task not found.");
   const existing = fromDoc(target);
   const next = { ...payload };
-  delete next.id; delete next.createdAt; delete next.task_number; delete next.display_id; delete next.public_id;
+  delete next.id; delete next.firestore_id; delete next.createdAt; delete next.task_number; delete next.display_id; delete next.public_id;
   const requestedIds = normalizeUserIds(payload);
   const existingIds = normalizeUserIds(existing);
   const assignmentChanged = requestedIds.length > 0 && (requestedIds.length !== existingIds.length || requestedIds.some((item) => !existingIds.includes(item)));
@@ -197,13 +214,13 @@ async function updateTask(id, payload) {
     const cyclePayload = { ...next, assigned_user_ids: assignedIds, user_ids: assignedIds, user_id: assignedIds[0] || existing.user_id || "", status: "Pending", assignment_cycle: nextCycle, assignment_count: nextCycle, assignment_history: history, assigned_at: updatedAt, accepted_at: null, completed_at: null, rejected_at: null, rejection_reason: "", updated_at: updatedAt };
     await updateDoc(target.ref, cyclePayload);
     invalidateTasks();
-    const result = { ...existing, ...cyclePayload, id: target.id, task_number: existing.task_number, display_id: existing.display_id, public_id: existing.public_id };
+    const result = { ...existing, ...cyclePayload, id: target.id, firestore_id: target.id, task_number: existing.task_number, display_id: existing.display_id, public_id: existing.public_id };
     await notifyTaskAssigned(result, assignedIds, { reassigned: true });
     return result;
   }
   await updateDoc(target.ref, { ...next, updated_at: updatedAt });
   invalidateTasks();
-  return { ...existing, ...next, id: target.id, updated_at: updatedAt, task_number: existing.task_number, display_id: existing.display_id, public_id: existing.public_id };
+  return { ...existing, ...next, id: target.id, firestore_id: target.id, updated_at: updatedAt, task_number: existing.task_number, display_id: existing.display_id, public_id: existing.public_id };
 }
 function findHistoryIndex(history, cycle, userId) { return history.findIndex((item) => Number(item.assignment_cycle || 1) === Number(cycle) && String(item.user_id || "") === String(userId || "")); }
 
@@ -228,7 +245,7 @@ async function updateTaskStatus(id, payload) {
   await addDoc(activitiesRef, { type: "task_status", task_id: target.id, status, user_id: userId, assignment_cycle: cycle, task_number: task.task_number || task.display_id || null, created_at: serverTimestamp() });
   invalidateTasks();
   try { socket.emit("taskUpdate", { taskId: publicTaskNumber(task), task_id: publicTaskNumber(task), status, userId, user_id: userId, assignment_cycle: cycle }); } catch {}
-  return { ...task, status, assignment_history: history, assignment_cycle: cycle, id: target.id };
+  return { ...task, status, assignment_history: history, assignment_cycle: cycle, id: target.id, firestore_id: target.id };
 }
 
 async function completeTask(id, payload) {
@@ -248,22 +265,13 @@ async function completeTask(id, payload) {
   await updateTaskStatus(id, { status: "Completed", user_id: userId, assignment_cycle: currentCycle });
   await updateDoc(target.ref, { completion_reports: reports, latest_completion: report, status: "Completed", updated_at: nowIso() });
   invalidateTasks();
-  return { ...task, status: "Completed", assignment_history: history, completion_reports: reports, latest_completion: report, id: target.id };
+  return { ...task, status: "Completed", assignment_history: history, completion_reports: reports, latest_completion: report, id: target.id, firestore_id: target.id };
 }
 
 export async function dutyStaff(year, month) {
   const [users, duties] = await Promise.all([listUsers(), listDuties()]);
-  const selectedYear = Number(year || new Date().getFullYear());
-  const selectedMonth = Number(month || new Date().getMonth() + 1);
-  const prefix = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`;
-  const today = new Date().toISOString().slice(0, 10);
-  return users.map((user) => {
-    const userId = String(user.id || user.uid); const mine = duties.filter((item) => String(item.user_id) === userId);
-    const monthDuties = mine.filter((item) => item.record_type === "status" && String(item.duty_date || "").startsWith(prefix));
-    const todayDuty = mine.filter((item) => item.record_type === "status" && item.duty_date === today).sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))[0] || null;
-    const shifts = mine.filter((item) => item.record_type === "shift").sort((a, b) => String(b.effective_from || b.created_at || "").localeCompare(String(a.effective_from || a.created_at || "")));
-    return { ...user, currentShift: shifts[0] || null, todayDuty, monthlySummary: { dutyDays: monthDuties.filter((d) => d.status === "on_duty").length, leaveDays: monthDuties.filter((d) => d.status === "leave").length, offDays: monthDuties.filter((d) => d.status === "off_duty").length, recordedDays: monthDuties.length } };
-  });
+  const selectedYear = Number(year || new Date().getFullYear()); const selectedMonth = Number(month || new Date().getMonth() + 1); const prefix = `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`; const today = new Date().toISOString().slice(0, 10);
+  return users.map((user) => { const userId = String(user.id || user.uid); const mine = duties.filter((item) => String(item.user_id) === userId); const monthDuties = mine.filter((item) => item.record_type === "status" && String(item.duty_date || "").startsWith(prefix)); const todayDuty = mine.filter((item) => item.record_type === "status" && item.duty_date === today).sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))[0] || null; const shifts = mine.filter((item) => item.record_type === "shift").sort((a, b) => String(b.effective_from || b.created_at || "").localeCompare(String(a.effective_from || a.created_at || ""))); return { ...user, currentShift: shifts[0] || null, todayDuty, monthlySummary: { dutyDays: monthDuties.filter((d) => d.status === "on_duty").length, leaveDays: monthDuties.filter((d) => d.status === "leave").length, offDays: monthDuties.filter((d) => d.status === "off_duty").length, recordedDays: monthDuties.length } }; });
 }
 export async function dutySummary() { const [users, duties] = await Promise.all([listUsers(), listDuties()]); const today = new Date().toISOString().slice(0, 10); const todays = duties.filter((d) => d.record_type === "status" && d.duty_date === today); return { totalStaff: users.length, onDutyToday: todays.filter((d) => d.status === "on_duty").length, onLeaveToday: todays.filter((d) => d.status === "leave").length, offToday: todays.filter((d) => d.status === "off_duty").length }; }
 export async function markDuty(payload) { const id = `${payload.user_id}_${payload.duty_date}`; const record = { ...payload, id, record_type: "status", updated_at: nowIso(), created_at: nowIso() }; await setDoc(doc(db, "duties", id), record, { merge: true }); invalidateDuties(); return record; }
@@ -296,7 +304,12 @@ export async function requestFirebase(method, url, data, params = {}) {
   if (path === "task/assign" && method === "POST") return assignTask(payload);
   if (path.startsWith("task/update-status/") && method === "PUT") return updateTaskStatus(path.split("/")[2], payload);
   if (path.startsWith("task/complete-work/") && method === "POST") return completeTask(path.split("/")[2], data);
-  if (path.startsWith("task/") && path.split("/").length === 2) { const id = path.split("/")[1]; if (method === "GET") { const task = await getTask(id); if (!task) throw new Error("Task not found."); return { task }; } if (method === "PUT") return updateTask(id, payload); if (method === "DELETE") { const target = await findTaskById(id); if (!target) throw new Error("Task not found."); await deleteDoc(target.ref); invalidateTasks(); return { success: true }; } }
+  if (path.startsWith("task/") && path.split("/").length === 2) {
+    const id = path.split("/")[1];
+    if (method === "GET") { const task = await getTask(id); if (!task) throw new Error("Task not found."); return { task: { ...task, firestore_id: task.id, id: publicTaskNumber(task) } }; }
+    if (method === "PUT") return updateTask(id, payload);
+    if (method === "DELETE") { const target = await findTaskById(id); if (!target) throw new Error(`Task not found: ${id}`); await deleteDoc(target.ref); invalidateTasks(); return { success: true, deleted_id: target.id, task_number: publicTaskNumber(fromDoc(target)) }; }
+  }
   if (path === "tools" && method === "GET") return listTools();
   if (path === "tools" && method === "POST") { const r = await addDoc(toolsRef, { ...payload, created_at: nowIso() }); invalidateTools(); return { id: r.id, ...payload }; }
   if (path === "tools/assign" && method === "POST") { const userId = String(payload.userId || payload.user_id || payload.assigned_to || "").trim(); const toolName = String(payload.toolName || payload.tool_name || "").trim(); if (!userId) throw new Error("Please select a staff member."); if (!toolName) throw new Error("Tool name is required."); const record = { ...payload, userId, user_id: userId, assigned_to: userId, userName: String(payload.userName || ""), toolName, tool_name: toolName, category: String(payload.category || "General"), quantity: Math.max(1, Number(payload.quantity) || 1), date: payload.date || new Date().toISOString().slice(0, 10), status: payload.status || "assigned", assigned_at: nowIso(), created_at: nowIso(), assigned_by: auth.currentUser?.uid || "" }; const r = await addDoc(toolsRef, record); invalidateTools(); return { id: r.id, ...record }; }
