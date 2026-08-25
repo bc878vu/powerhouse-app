@@ -1,4 +1,6 @@
 import { requestFirebase } from "./services/firebaseDataStore";
+import { db } from "./firebase";
+import { doc, updateDoc } from "firebase/firestore";
 
 // Firebase-only API adapter.
 // Preserve the existing axios-like { data } contract used throughout the UI.
@@ -16,6 +18,49 @@ const withTimeout = async (promise, ms, message) => {
   }
 };
 
+// Firestore's document id is intentionally kept private.
+// The UI uses the stable numeric task_number/display_id instead.
+const numericTaskId = () => {
+  const timestamp = String(Date.now());
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+  return `${timestamp}${random}`;
+};
+
+const normalizeTask = (task) => {
+  if (!task || typeof task !== "object") return task;
+  const publicId =
+    /^\d+$/.test(String(task.task_number ?? ""))
+      ? String(task.task_number)
+      : /^\d+$/.test(String(task.display_id ?? ""))
+        ? String(task.display_id)
+        : null;
+
+  if (!publicId) return task;
+
+  return {
+    ...task,
+    firestore_id: task.firestore_id || task.id || null,
+    id: publicId,
+    task_number: publicId,
+    display_id: publicId,
+  };
+};
+
+const normalizeTaskResponse = (result) => {
+  if (Array.isArray(result)) return result.map(normalizeTask);
+  if (!result || typeof result !== "object") return result;
+  if (result.task && typeof result.task === "object") {
+    return { ...result, task: normalizeTask(result.task) };
+  }
+  if (result.tasks && Array.isArray(result.tasks)) {
+    return { ...result, tasks: result.tasks.map(normalizeTask) };
+  }
+  if (result.id || result.task_number || result.display_id) {
+    return normalizeTask(result);
+  }
+  return result;
+};
+
 const requestFirebaseApi = (method, url, data, config = {}) =>
   withTimeout(
     requestFirebase(method, url, data, config?.params || {}),
@@ -25,8 +70,32 @@ const requestFirebaseApi = (method, url, data, config = {}) =>
 
 const request = async (method, url, data, config = {}) => {
   try {
-    const result = await requestFirebaseApi(method, url, data, config);
-    return { data: result, status: 200, headers: {} };
+    let result = await requestFirebaseApi(method, url, data, config);
+
+    // Every newly assigned task receives a numeric public ID.
+    // The Firestore random document ID remains internal for database lookups.
+    if (method === "POST" && String(url || "").replace(/^\/api\/?/, "").split("?")[0] === "task/assign") {
+      const created = result?.task || result;
+      const firestoreId = created?.id;
+
+      if (firestoreId && !/^\d+$/.test(String(firestoreId))) {
+        const publicId = numericTaskId();
+        await updateDoc(doc(db, "tasks", String(firestoreId)), {
+          task_number: publicId,
+          display_id: publicId,
+        });
+
+        result = {
+          ...result,
+          id: publicId,
+          task_number: publicId,
+          display_id: publicId,
+          firestore_id: firestoreId,
+        };
+      }
+    }
+
+    return { data: normalizeTaskResponse(result), status: 200, headers: {} };
   } catch (error) {
     const message =
       error?.response?.data?.message ||
