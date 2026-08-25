@@ -224,7 +224,12 @@ const API = {
       } catch (legacyError) {
         const taskMatch = path.match(/^\/task\/(\d+)$/i);
         if (taskMatch) {
+          // Canonical endpoint is preferred. If the deployed backend is on an
+          // older task router, use the explicitly isolated compatibility API.
           for (const fallbackPath of [
+            `/task-compat/single/${taskMatch[1]}`,
+            `/task-compat/${taskMatch[1]}/pre`,
+            `/task-compat/${taskMatch[1]}`,
             `/task/single/${taskMatch[1]}`,
             `/task/${taskMatch[1]}/pre`,
           ]) {
