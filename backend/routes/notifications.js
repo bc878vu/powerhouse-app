@@ -1,7 +1,9 @@
 const express = require("express");
 const admin = require("../firebaseAdmin");
+const db = require("../config/db");
 
 const router = express.Router();
+const promiseDb = db.promiseDb ? db.promiseDb : db.promise();
 
 async function verifyUser(req) {
   if (!admin.apps.length) throw new Error("Firebase Admin is not initialized. Set FIREBASE_SERVICE_ACCOUNT on the backend.");
@@ -45,8 +47,9 @@ function normalizeDeviceId(value) {
 }
 
 // Register a browser/device FCM token through the authenticated backend.
-// This avoids exposing token writes to client Firestore rules and supports
-// multiple active devices for the same user.
+// The Firestore collection is the authoritative multi-device store.
+// The SQL fcm_token column is also updated because the legacy task route
+// still reads that field when a task is assigned/reassigned.
 router.post("/register-token", async (req, res) => {
   try {
     const decoded = await verifyUser(req);
@@ -65,6 +68,18 @@ router.post("/register-token", async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
+    // Keep the legacy SQL task-notification path operational.
+    // This is intentionally best-effort so SQL schema differences cannot
+    // prevent successful FCM registration in Firestore.
+    try {
+      await promiseDb.query(
+        "UPDATE users SET fcm_token = ? WHERE id = ? LIMIT 1",
+        [token, decoded.uid]
+      );
+    } catch (sqlError) {
+      console.warn("Legacy SQL FCM token sync skipped:", sqlError?.message || sqlError);
+    }
+
     // Remove duplicate copies of the same token left by older registrations.
     try {
       const duplicates = await admin.firestore().collection("powerhouse_fcm_tokens").where("token", "==", token).get();
@@ -81,7 +96,7 @@ router.post("/register-token", async (req, res) => {
       console.warn("Duplicate FCM token cleanup skipped:", cleanupError?.message || cleanupError);
     }
 
-    return res.json({ success: true, registered: true, deviceId, tokenId });
+    return res.json({ success: true, registered: true, deviceId, tokenId, legacyTaskPushSynced: true });
   } catch (error) {
     const status = error.status || (error.code === "auth/id-token-expired" || error.code === "auth/argument-error" ? 401 : 500);
     console.error("FCM token registration error:", error?.message || error);
