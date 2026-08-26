@@ -4,23 +4,12 @@ import { auth, getFCMToken, onForegroundMessage } from "./firebase";
 import { socket } from "./utils/socket";
 
 const TASK_EVENTS = new Set([
-  "taskAssigned",
-  "taskReassigned",
-  "taskUpdate",
-  "taskUpdated",
-  "taskEdited",
-  "taskDeleted",
-  "taskDelete",
-  "taskAccepted",
-  "taskRejected",
-  "taskCompleted",
-  "taskStatusChanged",
+  "taskAssigned", "taskReassigned", "taskUpdate", "taskUpdated", "taskEdited",
+  "taskDeleted", "taskDelete", "taskAccepted", "taskRejected", "taskCompleted", "taskStatusChanged",
 ]);
 
 function setAppBadge() {
-  try {
-    if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(1);
-  } catch {}
+  try { if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(1); } catch {}
 }
 
 function clearAppBadge() {
@@ -36,17 +25,9 @@ function taskEventText(event, data = {}) {
   if (title || body) return { title: title || "PowerHouse Task Alert", body: body || "A task has been updated." };
   const taskId = data.taskId ?? data.task_id ?? data.id ?? "";
   const labels = {
-    taskAssigned: "New task assigned",
-    taskReassigned: "Task reassigned",
-    taskUpdate: "Task updated",
-    taskUpdated: "Task updated",
-    taskEdited: "Task edited",
-    taskDeleted: "Task deleted",
-    taskDelete: "Task deleted",
-    taskAccepted: "Task accepted",
-    taskRejected: "Task rejected",
-    taskCompleted: "Task completed",
-    taskStatusChanged: "Task status changed",
+    taskAssigned: "New task assigned", taskReassigned: "Task reassigned", taskUpdate: "Task updated", taskUpdated: "Task updated",
+    taskEdited: "Task edited", taskDeleted: "Task deleted", taskDelete: "Task deleted", taskAccepted: "Task accepted",
+    taskRejected: "Task rejected", taskCompleted: "Task completed", taskStatusChanged: "Task status changed",
   };
   return { title: labels[event] || "Task notification", body: taskId ? `Task #${taskId} has a new update.` : "A PowerHouse task has a new update." };
 }
@@ -59,10 +40,7 @@ function eventRoute(data = {}) {
 }
 
 function getUserIds(user) {
-  return [user?.uid, user?.numericId, user?.id]
-    .filter((value) => value !== undefined && value !== null && String(value).trim())
-    .map(String)
-    .filter((value, index, list) => list.indexOf(value) === index);
+  return [user?.uid, user?.numericId, user?.id].filter((value) => value !== undefined && value !== null && String(value).trim()).map(String).filter((value, index, list) => list.indexOf(value) === index);
 }
 
 function getEventRecipientIds(data = {}) {
@@ -76,7 +54,7 @@ export default function NotificationRuntime() {
   const timerRef = useRef(null);
   const audioContextRef = useRef(null);
   const recentEventsRef = useRef(new Map());
-  const permissionAttemptedRef = useRef(false);
+  const pushRefreshTimerRef = useRef(null);
 
   useEffect(() => {
     let unsubscribeAuth = () => {};
@@ -89,9 +67,7 @@ export default function NotificationRuntime() {
         if (!AudioContextClass) return;
         if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
         if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
-      } catch (error) {
-        console.warn("Notification audio unlock skipped:", error?.message || error);
-      }
+      } catch (error) { console.warn("Notification audio unlock skipped:", error?.message || error); }
     };
 
     const playNotificationTone = async () => {
@@ -100,26 +76,26 @@ export default function NotificationRuntime() {
         const context = audioContextRef.current;
         if (!context || context.state !== "running") return;
         const now = context.currentTime;
-        const notes = [[880, 0.00, 0.22], [660, 0.24, 0.22], [880, 0.48, 0.22], [660, 0.72, 0.28]];
+        // Strong foreground tone. Browser/Android still controls the master volume.
+        const notes = [
+          [988, 0.00, 0.26], [740, 0.28, 0.26], [988, 0.56, 0.26],
+          [740, 0.84, 0.26], [988, 1.12, 0.34], [740, 1.50, 0.34],
+        ];
         notes.forEach(([frequency, offset, duration]) => {
           const oscillator = context.createOscillator();
           const gain = context.createGain();
           oscillator.type = "sine";
           oscillator.frequency.setValueAtTime(frequency, now + offset);
           gain.gain.setValueAtTime(0.0001, now + offset);
-          gain.gain.exponentialRampToValueAtTime(0.22, now + offset + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.72, now + offset + 0.025);
           gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + duration);
           oscillator.connect(gain);
           gain.connect(context.destination);
           oscillator.start(now + offset);
-          oscillator.stop(now + offset + duration + 0.02);
+          oscillator.stop(now + offset + duration + 0.03);
         });
-        try {
-          if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([220, 100, 220, 100, 320]);
-        } catch {}
-      } catch (error) {
-        console.warn("Notification tone skipped:", error?.message || error);
-      }
+        try { if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([350, 120, 350, 120, 500, 120, 700]); } catch {}
+      } catch (error) { console.warn("Notification tone skipped:", error?.message || error); }
     };
 
     const showSystemNotification = async (title, body, route, notificationId) => {
@@ -135,41 +111,49 @@ export default function NotificationRuntime() {
           renotify: true,
           requireInteraction: true,
           silent: false,
-          vibrate: [220, 100, 220, 100, 320, 100, 420],
+          vibrate: [350, 120, 350, 120, 500, 120, 700],
           timestamp: Date.now(),
           data: { route, notificationId },
         });
-      } catch (error) {
-        console.warn("Persistent foreground notification skipped:", error?.message || error);
-      }
+      } catch (error) { console.warn("Persistent foreground notification skipped:", error?.message || error); }
     };
 
     const showAlert = async (title, body, route = "/notifications", notificationId = "") => {
       if (disposed) return;
-      const key = String(notificationId || `${title}|${body}|${route}`).slice(0, 300);
+      const key = String(notificationId || `${title}|${body}|${route}|${Date.now()}`).slice(0, 300);
       const now = Date.now();
       const previous = recentEventsRef.current.get(key);
-      if (previous && now - previous < 10000) return;
+      if (previous && now - previous < 5000) return;
       recentEventsRef.current.set(key, now);
       for (const [eventKey, timestamp] of recentEventsRef.current) if (now - timestamp > 15000) recentEventsRef.current.delete(eventKey);
       setAppBadge();
       setAlert({ title, body, route });
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => setAlert(null), 12000);
+      timerRef.current = window.setTimeout(() => setAlert(null), 15000);
       void playNotificationTone();
       void showSystemNotification(title, body, route, key || `powerhouse-${Date.now()}`);
+    };
+
+    const refreshPushRegistration = async (forceFresh = false) => {
+      if (disposed || !auth.currentUser || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      try {
+        const token = await getFCMToken({ requestPermission: false, forceFresh });
+        if (token) console.log("PowerHouse push registration refreshed");
+      } catch (error) {
+        console.warn("PowerHouse push registration refresh failed; will retry:", error?.message || error);
+      }
     };
 
     const setup = async (user) => {
       unsubscribeMessage();
       unsubscribeMessage = () => {};
+      if (pushRefreshTimerRef.current) { clearInterval(pushRefreshTimerRef.current); pushRefreshTimerRef.current = null; }
       if (!user || disposed) return;
 
-      try {
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") await getFCMToken({ requestPermission: false });
-      } catch (error) {
-        console.warn("Silent push token refresh skipped:", error?.message || error);
-      }
+      // Always refresh/register the current browser token after auth restoration.
+      // This fixes intermittent delivery after service-worker/token rotation.
+      await refreshPushRegistration(false);
+      pushRefreshTimerRef.current = window.setInterval(() => void refreshPushRegistration(false), 5 * 60 * 1000);
 
       try {
         unsubscribeMessage = await onForegroundMessage((payload) => {
@@ -179,9 +163,7 @@ export default function NotificationRuntime() {
           const notificationId = String(payload?.data?.notificationId || payload?.messageId || `fcm-${payload?.data?.taskId || Date.now()}`);
           void showAlert(title, body, route, notificationId);
         });
-      } catch (error) {
-        console.warn("Foreground notification listener skipped:", error?.message || error);
-      }
+      } catch (error) { console.warn("Foreground notification listener skipped:", error?.message || error); }
 
       if (socket) {
         const userIds = getUserIds(user);
@@ -200,52 +182,39 @@ export default function NotificationRuntime() {
           if (!belongsToUser && !isAdmin) return;
           const text = taskEventText(event, data);
           const taskId = data.taskId ?? data.task_id ?? data.id ?? "";
-          const notificationId = String(data.notificationId || `${event}-${taskId || "general"}-${data.assignment_cycle || ""}`);
+          const notificationId = String(data.notificationId || `${event}-${taskId || "general"}-${data.assignment_cycle || Date.now()}`);
           void showAlert(text.title, text.body, eventRoute(data), notificationId);
         };
 
         socket.onAny(onAny);
-        const cleanupSocket = () => {
-          socket.off("connect", join);
-          socket.offAny(onAny);
-        };
+        const cleanupSocket = () => { socket.off("connect", join); socket.offAny(onAny); };
         const previousCleanup = unsubscribeMessage;
-        unsubscribeMessage = () => {
-          previousCleanup();
-          cleanupSocket();
-        };
+        unsubscribeMessage = () => { previousCleanup(); cleanupSocket(); };
       }
     };
 
     unsubscribeAuth = onAuthStateChanged(auth, (user) => { void setup(user); });
 
-    // Keep listening until auth is ready and push permission/token registration
-    // actually succeeds. A one-shot listener could otherwise fire too early,
-    // before Firebase Auth had restored the session.
-    const requestOnFirstGesture = async () => {
-      void unlockAudio();
-      if (permissionAttemptedRef.current || !auth.currentUser || typeof Notification === "undefined") return;
-      if (Notification.permission === "denied") {
-        permissionAttemptedRef.current = true;
-        return;
-      }
-      try {
-        const token = await getFCMToken({ requestPermission: true });
-        if (token) permissionAttemptedRef.current = true;
-      } catch (error) {
-        console.warn("Push permission gesture registration skipped; will retry on the next user gesture:", error?.message || error);
-      }
+    const handleUserGesture = () => { void unlockAudio(); };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refreshPushRegistration(true);
     };
+    const handlePageShow = () => void refreshPushRegistration(true);
 
-    window.addEventListener("pointerdown", requestOnFirstGesture, { passive: true });
-    window.addEventListener("keydown", requestOnFirstGesture, { passive: true });
+    window.addEventListener("pointerdown", handleUserGesture, { passive: true });
+    window.addEventListener("keydown", handleUserGesture, { passive: true });
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pageshow", handlePageShow);
 
     return () => {
       disposed = true;
       unsubscribeAuth();
       unsubscribeMessage();
-      window.removeEventListener("pointerdown", requestOnFirstGesture);
-      window.removeEventListener("keydown", requestOnFirstGesture);
+      if (pushRefreshTimerRef.current) clearInterval(pushRefreshTimerRef.current);
+      window.removeEventListener("pointerdown", handleUserGesture);
+      window.removeEventListener("keydown", handleUserGesture);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pageshow", handlePageShow);
       if (timerRef.current) clearTimeout(timerRef.current);
       try { void audioContextRef.current?.close?.(); } catch {}
     };
@@ -256,10 +225,7 @@ export default function NotificationRuntime() {
   return (
     <button
       type="button"
-      onClick={() => {
-        clearAppBadge();
-        window.location.href = alert.route;
-      }}
+      onClick={() => { clearAppBadge(); window.location.href = alert.route; }}
       className="fixed right-4 top-24 z-[200] w-[min(92vw,420px)] rounded-2xl border border-yellow-500/30 bg-[#020617]/95 p-4 text-left shadow-2xl backdrop-blur-xl"
       aria-label="Open notification"
     >
