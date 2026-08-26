@@ -2,6 +2,7 @@ import { getApp, getApps, initializeApp } from "firebase/app";
 import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 const env = import.meta.env || {};
 const VERIFIED_PROJECT_ID = "powerhouse-app-47c4a";
@@ -39,6 +40,7 @@ if (!isFirebaseConfigured) {
 export const firebaseConfig = envConfig;
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export const functions = getFunctions(app, "us-central1");
 
 void setPersistence(auth, browserLocalPersistence).catch((error) => {
   console.warn("Firebase auth persistence setup failed:", error?.message || error);
@@ -99,24 +101,15 @@ export const getFCMToken = async () => {
     const permission = await Notification.requestPermission();
     if (permission !== "granted") return null;
     if (!import.meta.env.VITE_VAPID_KEY) throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
-
     const serviceWorkerRegistration = await getMessagingServiceWorker();
     if (!serviceWorkerRegistration) return null;
     const { getToken } = await import("firebase/messaging");
-    const token = await getToken(messagingService, {
-      vapidKey: import.meta.env.VITE_VAPID_KEY,
-      serviceWorkerRegistration
-    });
+    const token = await getToken(messagingService, { vapidKey: import.meta.env.VITE_VAPID_KEY, serviceWorkerRegistration });
     if (!token) return null;
-
     const currentUser = auth.currentUser;
     if (currentUser?.uid) {
       const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
-      await setDoc(doc(db, "powerhouse_fcm_tokens", currentUser.uid), {
-        token,
-        userId: currentUser.uid,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      await setDoc(doc(db, "powerhouse_fcm_tokens", currentUser.uid), { token, userId: currentUser.uid, updatedAt: serverTimestamp() }, { merge: true });
     }
     return token;
   } catch (err) {
@@ -125,7 +118,6 @@ export const getFCMToken = async () => {
   }
 };
 
-// Persistent foreground listener. Returns the Firebase unsubscribe function.
 export const onForegroundMessage = async (callback) => {
   if (!isFirebaseConfigured || typeof callback !== "function") return () => {};
   const messagingService = await getMessagingInstance();
@@ -134,7 +126,6 @@ export const onForegroundMessage = async (callback) => {
   return onMessage(messagingService, callback);
 };
 
-// Backward-compatible one-shot helper.
 export const onMessageListener = async () => {
   if (!isFirebaseConfigured) return null;
   const messagingService = await getMessagingInstance();
