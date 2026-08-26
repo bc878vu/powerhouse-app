@@ -2,7 +2,7 @@ importScripts("/firebase-config.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.0.0/firebase-messaging-compat.js");
 
-const CACHE_VERSION = "powerhouse-static-v7";
+const CACHE_VERSION = "powerhouse-static-v8";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.svg", "/icon-192.svg", "/icon-512.svg"];
 const NETWORK_ONLY_HOSTS = [
   "firestore.googleapis.com",
