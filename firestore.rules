@@ -17,7 +17,10 @@ service cloud.firestore {
 
     function isAdminEmail() {
       return signedIn()
-        && (userEmail() == 'admin@powerhouse.com' || userEmail() == 'Admin@powerhouse.com');
+        && (
+          userEmail() == 'admin@powerhouse.com' ||
+          userEmail() == 'Admin@powerhouse.com'
+        );
     }
 
     function isAdminProfile() {
@@ -44,16 +47,23 @@ service cloud.firestore {
 
     match /powerhouse_users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
+
       allow create: if isAdmin()
-        || (isOwner(uid)
+        || (
+          isOwner(uid)
           && request.resource.data.uid == uid
           && safeUserRole()
-          && request.resource.data.status == 'active');
+          && request.resource.data.status == 'active'
+        );
+
       allow update: if isAdmin()
-        || (isOwner(uid)
+        || (
+          isOwner(uid)
           && request.resource.data.uid == uid
           && request.resource.data.role == resource.data.role
-          && request.resource.data.status == resource.data.status);
+          && request.resource.data.status == resource.data.status
+        );
+
       allow delete: if isAdmin();
     }
 
@@ -103,10 +113,9 @@ service cloud.firestore {
     // =========================================================
     // WAPDA METER READINGS
     // =========================================================
-    // The WAPDA report uses a realtime collection listener.
-    // Read is intentionally public so the report listener cannot fail
-    // because the application session and Firebase Auth state diverge.
-    // Writes remain authenticated.
+    // WapdaManagement.jsx uses a realtime listener on this collection.
+    // Keep read access public to preserve the existing monitoring/report
+    // behavior; writes remain authenticated.
 
     match /wapdaReadings/{id} {
       allow read: if true;
@@ -114,8 +123,9 @@ service cloud.firestore {
     }
 
     // =========================================================
-    // FUEL REPORT DOWNLOADS
+    // FUEL REPORT DOWNLOAD AUDIT
     // =========================================================
+    // Used when generated/downloaded fuel reports are persisted.
 
     match /fuelReportDownloads/{id} {
       allow read: if signedIn();
@@ -129,15 +139,29 @@ service cloud.firestore {
 
     match /powerhouse_fcm_tokens/{tokenId} {
       allow read: if isAdmin()
-        || (signedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin()
-        || (signedIn() && request.resource.data.userId == request.auth.uid);
-      allow update: if isAdmin()
-        || (signedIn()
+        || (
+          signedIn()
           && resource.data.userId == request.auth.uid
-          && request.resource.data.userId == request.auth.uid);
+        );
+
+      allow create: if isAdmin()
+        || (
+          signedIn()
+          && request.resource.data.userId == request.auth.uid
+        );
+
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid
+        );
+
       allow delete: if isAdmin()
-        || (signedIn() && resource.data.userId == request.auth.uid);
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
     }
 
     // =========================================================
@@ -156,7 +180,10 @@ service cloud.firestore {
     // =========================================================
 
     match /powerhouse_alert_events/{eventId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     // =========================================================
