@@ -1,11 +1,12 @@
 const express = require("express");
 
 // Production-safe task API bridge. This is loaded with Node -r before
-// server.js, so the compatibility router is guaranteed to be mounted before
-// the normal task router even when Railway has an older task route ordering.
+// server.js, so compatibility/override routes are mounted before the normal
+// task router even when Railway has an older task route ordering.
 const originalUse = express.application.use;
 let mounted = false;
 let compatRouter = null;
+let myTasksOverrideRouter = null;
 
 function getCompatRouter() {
   if (!compatRouter) {
@@ -14,17 +15,28 @@ function getCompatRouter() {
   return compatRouter;
 }
 
+function getMyTasksOverrideRouter() {
+  if (!myTasksOverrideRouter) {
+    myTasksOverrideRouter = require("./routes/taskMyTasksOverride");
+  }
+  return myTasksOverrideRouter;
+}
+
 express.application.use = function patchedUse(...args) {
   const first = args[0];
 
   if (!mounted && first === "/api/task") {
     mounted = true;
 
-    // Must be first under /api/task so these routes win over older handlers.
+    // The override router must be first so My Tasks gets deterministic
+    // current-user status/order and repeated Accept cannot regress state.
+    originalUse.call(this, "/api/task", getMyTasksOverrideRouter());
+
+    // Existing compatibility routes remain intact for all other task APIs.
     originalUse.call(this, "/api/task", getCompatRouter());
 
     console.log(
-      "[TASK-BRIDGE] compatibility routes mounted: GET /:id, GET /:id/pre, GET /single/:id, POST /complete-work/:id"
+      "[TASK-BRIDGE] My Tasks override + compatibility routes mounted"
     );
   }
 
