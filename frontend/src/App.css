@@ -21,58 +21,25 @@
 /* ============================================================
    HERO
 ============================================================ */
-
-.hero {
-  position: relative;
-}
-
+.hero { position: relative; }
 .hero .base,
 .hero .framework,
-.hero .vite {
-  inset-inline: 0;
-  margin: 0 auto;
-}
-
-.hero .base {
-  width: 170px;
-  position: relative;
-  z-index: 0;
-}
-
+.hero .vite { inset-inline: 0; margin: 0 auto; }
+.hero .base { width: 170px; position: relative; z-index: 0; }
 .hero .framework,
-.hero .vite {
-  position: absolute;
-}
-
+.hero .vite { position: absolute; }
 .hero .framework {
-  z-index: 1;
-  top: 34px;
-  height: 28px;
-  transform:
-    perspective(2000px)
-    rotateZ(300deg)
-    rotateX(44deg)
-    rotateY(39deg)
-    scale(1.4);
+  z-index: 1; top: 34px; height: 28px;
+  transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg) scale(1.4);
 }
-
 .hero .vite {
-  z-index: 0;
-  top: 107px;
-  height: 26px;
-  width: auto;
-  transform:
-    perspective(2000px)
-    rotateZ(300deg)
-    rotateX(40deg)
-    rotateY(39deg)
-    scale(0.8);
+  z-index: 0; top: 107px; height: 26px; width: auto;
+  transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg) scale(0.8);
 }
 
 /* ============================================================
    CENTER
 ============================================================ */
-
 #center {
   display: flex;
   flex-direction: column;
@@ -81,155 +48,124 @@
   place-items: center;
   flex-grow: 1;
 }
-
 @media (max-width: 1024px) {
-  #center {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
+  #center { padding: 32px 20px 24px; gap: 18px; }
 }
 
 /* ============================================================
    NEXT STEPS
 ============================================================ */
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-}
-
-#next-steps > div {
-  flex: 1 1 0;
-  padding: 32px;
-}
-
-#next-steps .icon {
-  margin-bottom: 16px;
-  width: 22px;
-  height: 22px;
-}
-
+#next-steps { display: flex; border-top: 1px solid var(--border); text-align: left; }
+#next-steps > div { flex: 1 1 0; padding: 32px; }
+#next-steps .icon { margin-bottom: 16px; width: 22px; height: 22px; }
 @media (max-width: 1024px) {
-  #next-steps {
-    flex-direction: column;
-    text-align: center;
-  }
-
-  #next-steps > div {
-    padding: 24px 20px;
-  }
+  #next-steps { flex-direction: column; text-align: center; }
+  #next-steps > div { padding: 24px 20px; }
 }
 
 /* ============================================================
    DOCS
 ============================================================ */
-
-#docs {
-  border-right: 1px solid var(--border);
-}
-
+#docs { border-right: 1px solid var(--border); }
 @media (max-width: 1024px) {
-  #docs {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
+  #docs { border-right: none; border-bottom: 1px solid var(--border); }
 }
 
 /* ============================================================
    NEXT STEPS LIST
 ============================================================ */
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-}
-
-#next-steps ul .logo {
-  height: 18px;
-}
-
+#next-steps ul { list-style: none; padding: 0; display: flex; gap: 8px; margin: 32px 0 0; }
+#next-steps ul .logo { height: 18px; }
 #next-steps ul a {
-  color: var(--text-h);
-  font-size: 16px;
-  border-radius: 6px;
-  background: var(--social-bg);
-  display: flex;
-  padding: 6px 12px;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  transition: box-shadow 0.3s;
+  color: var(--text-h); font-size: 16px; border-radius: 6px; background: var(--social-bg);
+  display: flex; padding: 6px 12px; align-items: center; gap: 8px; text-decoration: none; transition: box-shadow 0.3s;
 }
-
-#next-steps ul a:hover {
-  box-shadow: var(--shadow);
-}
-
-#next-steps ul a .button-icon {
-  height: 18px;
-  width: 18px;
-}
-
+#next-steps ul a:hover { box-shadow: var(--shadow); }
+#next-steps ul a .button-icon { height: 18px; width: 18px; }
 @media (max-width: 1024px) {
-  #next-steps ul {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  #next-steps ul li {
-    flex: 1 1 calc(50% - 8px);
-  }
-
-  #next-steps ul a {
-    width: 100%;
-    justify-content: center;
-    box-sizing: border-box;
-  }
+  #next-steps ul { margin-top: 20px; flex-wrap: wrap; justify-content: center; }
+  #next-steps ul li { flex: 1 1 calc(50% - 8px); }
+  #next-steps ul a { width: 100%; justify-content: center; box-sizing: border-box; }
 }
 
 /* ============================================================
    SPACER
 ============================================================ */
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-}
-
-@media (max-width: 1024px) {
-  #spacer {
-    height: 48px;
-  }
-}
+#spacer { height: 88px; border-top: 1px solid var(--border); }
+@media (max-width: 1024px) { #spacer { height: 48px; } }
 
 /* ============================================================
    TICKS
 ============================================================ */
-
-.ticks {
-  position: relative;
-  width: 100%;
-}
-
+.ticks { position: relative; width: 100%; }
 .ticks::before,
 .ticks::after {
-  content: "";
-  position: absolute;
-  top: -4.5px;
-  border: 5px solid transparent;
+  content: ""; position: absolute; top: -4.5px; border: 5px solid transparent;
+}
+.ticks::before { left: 0; border-left-color: var(--border); }
+.ticks::after { right: 0; border-right-color: var(--border); }
+
+/* ============================================================
+   POWERHOUSE WAPDA — MODERN RESPONSIVE POLISH
+   Existing functionality/layout is preserved; these styles only improve presentation.
+============================================================ */
+.wapda-module { width: 100%; max-width: 1400px; margin-inline: auto; }
+.wapda-module > .no-print:first-child {
+  padding: 14px 16px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(15,23,42,.98), rgba(2,6,23,.94));
+  box-shadow: 0 12px 35px rgba(0,0,0,.18);
+}
+.wapda-module .wapda-print-area > .no-print {
+  border-color: rgba(255,255,255,.08);
+  box-shadow: 0 10px 30px rgba(0,0,0,.16);
+}
+.wapda-module .wapda-print-summary {
+  display: grid;
+  grid-template-columns: repeat(5,minmax(0,1fr));
+  gap: 10px;
+}
+.wapda-module .wapda-print-summary > div {
+  border: 1px solid rgba(255,255,255,.08) !important;
+  background: linear-gradient(145deg,#07101f,#020617) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 22px rgba(0,0,0,.12);
+  border-radius: 14px;
+}
+.wapda-module .wapda-print-summary > div > div:first-child { color: #64748b; }
+.wapda-module .wapda-print-summary > div > div:last-child { font-size: 20px; }
+.wapda-module .wapda-print-summary > div:hover { transform: translateY(-1px); border-color: rgba(250,204,21,.24) !important; }
+.wapda-module .wapda-print-area section.overflow-hidden {
+  border-radius: 18px;
+  box-shadow: 0 12px 35px rgba(0,0,0,.14);
+}
+.wapda-module .wapda-print-area table th { white-space: nowrap; }
+.wapda-module form > div > .space-y-4 > section,
+.wapda-module form aside {
+  box-shadow: 0 12px 30px rgba(15,23,42,.10);
+}
+.wapda-module form section { transition: border-color .2s ease, box-shadow .2s ease; }
+.wapda-module form section:hover { border-color: rgba(148,163,184,.55); }
+.wapda-module input,
+.wapda-module select,
+.wapda-module button { min-height: 42px; }
+.wapda-module form input[type="number"]::-webkit-inner-spin-button,
+.wapda-module form input[type="number"]::-webkit-outer-spin-button { opacity: .75; }
+@media (max-width: 900px) {
+  .wapda-module .wapda-print-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 640px) {
+  .wapda-module > .no-print:first-child { padding: 12px; border-radius: 14px; }
+  .wapda-module .wapda-print-summary { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .wapda-module .wapda-print-summary > div { padding: 10px !important; }
+  .wapda-module .wapda-print-summary > div > div:last-child { font-size: 17px; }
+  .wapda-module .wapda-print-area section.overflow-hidden { border-radius: 14px; }
+}
+@media (max-width: 420px) {
+  .wapda-module .wapda-print-summary { grid-template-columns: 1fr; }
 }
 
-.ticks::before {
-  left: 0;
-  border-left-color: var(--border);
-}
-
-.ticks::after {
-  right: 0;
-  border-right-color: var(--border);
+@media print {
+  .wapda-module .wapda-print-summary { display: grid !important; }
 }
