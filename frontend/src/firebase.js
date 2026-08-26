@@ -1,7 +1,7 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 
@@ -59,7 +59,19 @@ void setPersistence(auth, browserLocalPersistence).catch((error) => {
 });
 
 export const storage = getStorage(app);
-export const db = getFirestore(app);
+
+// IndexedDB persistent cache keeps Firestore data available immediately on repeat visits.
+// If persistence cannot be initialized (for example, an older browser), fall back safely.
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache()
+  });
+} catch (error) {
+  console.warn("Persistent Firestore cache unavailable; using default cache:", error?.message || error);
+  firestoreDb = getFirestore(app);
+}
+export const db = firestoreDb;
 
 let messagingInstance = null;
 export let messaging = null;
