@@ -1,8 +1,11 @@
 rules_version = '2';
 
 service cloud.firestore {
-
   match /databases/{database}/documents {
+
+    // =========================================================
+    // AUTH / ROLE HELPERS
+    // =========================================================
 
     function signedIn() {
       return request.auth != null;
@@ -13,7 +16,8 @@ service cloud.firestore {
     }
 
     function isAdminEmail() {
-      return signedIn() && (userEmail() == 'admin@powerhouse.com' || userEmail() == 'Admin@powerhouse.com');
+      return signedIn()
+        && (userEmail() == 'admin@powerhouse.com' || userEmail() == 'Admin@powerhouse.com');
     }
 
     function isAdminProfile() {
@@ -34,49 +38,84 @@ service cloud.firestore {
       return request.resource.data.role in ['electrician', 'staff', 'cro'];
     }
 
+    // =========================================================
+    // USERS
+    // =========================================================
+
     match /powerhouse_users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      allow create: if isAdmin() || (isOwner(uid) && request.resource.data.uid == uid && safeUserRole() && request.resource.data.status == 'active');
-      allow update: if isAdmin() || (isOwner(uid) && request.resource.data.uid == uid && request.resource.data.role == resource.data.role && request.resource.data.status == resource.data.status);
+      allow create: if isAdmin()
+        || (isOwner(uid)
+          && request.resource.data.uid == uid
+          && safeUserRole()
+          && request.resource.data.status == 'active');
+      allow update: if isAdmin()
+        || (isOwner(uid)
+          && request.resource.data.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status);
       allow delete: if isAdmin();
     }
+
+    // =========================================================
+    // PUBLIC OPERATIONAL MONITOR DATA
+    // =========================================================
 
     match /powerhouse_panels/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
     match /powerhouse_panel_routes/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
     match /powerhouse_panel_history/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
     match /powerhouse_machines/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
     match /powerhouse_machine_load_logs/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
     match /powerhouse_machine_categories/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
     }
+
+    // =========================================================
+    // FUEL / ENTRIES
+    // =========================================================
 
     match /entries/{id} {
       allow read: if true;
       allow create, update, delete: if signedIn();
     }
 
-    // WAPDA meter readings are report data, so they must be readable by the report listener.
-    // Writes remain authenticated to prevent anonymous data creation/deletion.
+    // =========================================================
+    // WAPDA METER READINGS
+    // =========================================================
+    // The WAPDA report uses a realtime collection listener.
+    // Read is intentionally public so the report listener cannot fail
+    // because the application session and Firebase Auth state diverge.
+    // Writes remain authenticated.
+
     match /wapdaReadings/{id} {
       allow read: if true;
       allow create, update, delete: if signedIn();
     }
+
+    // =========================================================
+    // FUEL REPORT DOWNLOADS
+    // =========================================================
 
     match /fuelReportDownloads/{id} {
       allow read: if signedIn();
@@ -84,12 +123,26 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // =========================================================
+    // FCM PUSH TOKENS
+    // =========================================================
+
     match /powerhouse_fcm_tokens/{tokenId} {
-      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin() || (signedIn() && request.resource.data.userId == request.auth.uid);
-      allow update: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid);
-      allow delete: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.userId == request.auth.uid);
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
     }
+
+    // =========================================================
+    // USER NOTIFICATIONS
+    // =========================================================
 
     match /powerhouse_notifications/{uid}/items/{notificationId} {
       allow read: if isOwner(uid) || isAdmin();
@@ -98,30 +151,67 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // =========================================================
+    // ALERT EVENTS
+    // =========================================================
+
     match /powerhouse_alert_events/{eventId} {
       allow read, create, update, delete: if isAdmin();
     }
 
+    // =========================================================
+    // TASK NUMBER COUNTER
+    // =========================================================
+
     match /system_counters/{id} {
       allow read, write: if signedIn();
     }
+
+    // =========================================================
+    // TASKS
+    // =========================================================
+
     match /tasks/{id} {
       allow read, write: if signedIn();
     }
+
+    // =========================================================
+    // ACTIVITIES
+    // =========================================================
+
     match /activities/{id} {
       allow read, write: if signedIn();
     }
+
+    // =========================================================
+    // DUTIES
+    // =========================================================
+
     match /duties/{id} {
       allow read, write: if signedIn();
     }
+
+    // =========================================================
+    // TOOLS
+    // =========================================================
+
     match /tools/{id} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
+
+    // =========================================================
+    // CATEGORIES
+    // =========================================================
+
     match /categories/{id} {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
+
+    // =========================================================
+    // DEFAULT DENY
+    // =========================================================
 
     match /{document=**} {
       allow read, write: if false;
