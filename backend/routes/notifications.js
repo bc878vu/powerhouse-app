@@ -41,19 +41,31 @@ async function getTokens(recipientIds = []) {
   const tokenSet = new Set();
   const collection = firestore.collection("powerhouse_fcm_tokens");
 
-  if (recipientIds.length === 0) {
-    const snapshot = await collection.get();
+  const addSnapshotTokens = (snapshot) => {
     snapshot.forEach((doc) => {
-      const token = doc.data()?.token;
-      if (token) tokenSet.add(String(token));
+      const data = doc.data() || {};
+      const token = String(data.token || "").trim();
+      if (token) tokenSet.add(token);
     });
+  };
+
+  if (recipientIds.length === 0) {
+    // Supports all registered devices, including legacy one-token-per-user records.
+    addSnapshotTokens(await collection.get());
   } else {
-    const snapshots = await Promise.all(recipientIds.map((uid) => collection.doc(uid).get()));
-    snapshots.forEach((snapshot) => {
-      if (!snapshot.exists) return;
-      const token = snapshot.data()?.token;
-      if (token) tokenSet.add(String(token));
-    });
+    // New records use one document per user/device so every active device receives the push.
+    // The legacy uid document is also checked for backwards compatibility.
+    const snapshots = await Promise.all(
+      recipientIds.map(async (uid) => {
+        const [byUser, legacy] = await Promise.all([
+          collection.where("userId", "==", String(uid)).get(),
+          collection.doc(String(uid)).get()
+        ]);
+        addSnapshotTokens(byUser);
+        if (legacy.exists) addSnapshotTokens({ forEach: (fn) => fn(legacy) });
+      })
+    );
+    void snapshots;
   }
   return [...tokenSet];
 }
@@ -72,18 +84,29 @@ router.post("/push", async (req, res) => {
       return res.json({ success: true, sent: 0, skipped: 0, reason: "No registered push tokens for the selected users." });
     }
 
+    const frontendUrl = process.env.FRONTEND_URL || "https://powerhouse-app-eight.vercel.app";
+    const link = new URL(route, frontendUrl).href;
     const response = await admin.messaging().sendEachForMulticast({
       tokens,
       notification: { title, body: messageBody },
-      data: { title, body: messageBody, route },
+      data: {
+        title,
+        body: messageBody,
+        route,
+        notificationId: String(body.notificationId || "")
+      },
       webpush: {
-        fcmOptions: { link: new URL(route, process.env.FRONTEND_URL || "https://powerhouse-app-eight.vercel.app").href },
+        headers: { Urgency: "high" },
+        fcmOptions: { link },
         notification: {
           title,
           body: messageBody,
-          icon: "/favicon.svg",
-          badge: "/favicon.svg",
-          tag: String(body.notificationId || "powerhouse-alert")
+          icon: "/icon-192.svg",
+          badge: "/icon-192.svg",
+          tag: String(body.notificationId || `powerhouse-alert-${Date.now()}`),
+          requireInteraction: true,
+          silent: false,
+          vibrate: [180, 100, 180]
         }
       }
     });
@@ -96,12 +119,12 @@ router.post("/push", async (req, res) => {
 
     if (invalidTokens.length) {
       await Promise.all(invalidTokens.map(async (token) => {
-        const snapshot = await admin.firestore().collection("powerhouse_fcm_tokens").where("token", "==", token).get();
+        const snapshot = await collection.where("token", "==", token).get();
         await Promise.all(snapshot.docs.map((item) => item.ref.delete()));
       }));
     }
 
-    return res.json({ success: true, sent: response.successCount, failed: response.failureCount, cleaned: invalidTokens.length, recipients: recipientIds.length ? recipientIds.length : "all" });
+    return res.json({ success: true, sent: response.successCount, failed: response.failureCount, cleaned: invalidTokens.length, recipients: recipientIds.length ? recipientIds.length : "all", devices: tokens.length });
   } catch (error) {
     const status = error.status || (error.code === "auth/id-token-expired" || error.code === "auth/argument-error" ? 401 : 500);
     console.error("FCM notification error:", error?.message || error);
