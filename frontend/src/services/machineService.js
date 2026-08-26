@@ -33,22 +33,30 @@ const normalizeMachine = (machine = {}) => ({
 const sortByCreated = (items) => items.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
 
 export function subscribeToMachines(callback, onError) {
-  return onSnapshot(collection(db, MACHINE_COLLECTION), (snapshot) => {
-    callback(sortByCreated(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+  return onSnapshot(collection(db, MACHINE_COLLECTION), snapshot => {
+    callback(sortByCreated(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))));
+  }, onError);
+}
+
+export function subscribeToMachine(id, callback, onError) {
+  if (!id) { onError?.(new Error("Machine ID is required.")); return () => {}; }
+  return onSnapshot(doc(db, MACHINE_COLLECTION, id), snapshot => {
+    if (snapshot.exists()) callback({ id: snapshot.id, ...snapshot.data() });
+    else onError?.(new Error("Machine record was not found."));
   }, onError);
 }
 
 export function subscribeToMachineLoadLogs(callback, onError) {
-  return onSnapshot(collection(db, LOG_COLLECTION), (snapshot) => {
-    const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return onSnapshot(collection(db, LOG_COLLECTION), snapshot => {
+    const items = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     items.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     callback(items);
   }, onError);
 }
 
 export function subscribeToMachineCategories(callback, onError) {
-  return onSnapshot(collection(db, CATEGORY_COLLECTION), (snapshot) => {
-    const items = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  return onSnapshot(collection(db, CATEGORY_COLLECTION), snapshot => {
+    const items = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     items.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     callback(items);
   }, onError);
@@ -109,10 +117,7 @@ export async function addMachineLoadLog(log) {
     updatedAt: serverTimestamp()
   });
 
-  const machinePatch = {
-    currentRunningLoad: actualLoad,
-    updatedAt: serverTimestamp()
-  };
+  const machinePatch = { currentRunningLoad: actualLoad, updatedAt: serverTimestamp() };
   if (status) machinePatch.status = status;
   batch.update(doc(db, MACHINE_COLLECTION, machineId), machinePatch);
   await batch.commit();
