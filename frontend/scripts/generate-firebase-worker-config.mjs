@@ -10,13 +10,32 @@ const values = {
   appId: process.env.VITE_FIREBASE_APP_ID || ""
 };
 
-if (!values.apiKey || !values.projectId || !values.appId) {
+if (!values.apiKey || !values.projectId || !values.appId || !values.messagingSenderId) {
   console.warn("Firebase worker config is incomplete; the main app will report the missing VITE_FIREBASE_* values.");
 }
 
 const publicDir = resolve(process.cwd(), "public");
 await mkdir(publicDir, { recursive: true });
 
-const output = `self.POWERHOUSE_FIREBASE_CONFIG = ${JSON.stringify(values)};\n`;
-await writeFile(resolve(publicDir, "firebase-config.js"), output, "utf8");
-console.log("Generated public/firebase-config.js from VITE_FIREBASE_* deployment variables.");
+const workerOutput = `self.POWERHOUSE_FIREBASE_CONFIG = ${JSON.stringify(values)};\n`;
+await writeFile(resolve(publicDir, "firebase-config.js"), workerOutput, "utf8");
+
+const manifest = {
+  name: "PowerHouse Management Portal",
+  short_name: "PowerHouse",
+  description: "PowerHouse management, fuel, machines, panels, staff and task monitoring portal.",
+  start_url: "/",
+  scope: "/",
+  display: "standalone",
+  orientation: "any",
+  background_color: "#020617",
+  theme_color: "#eab308",
+  gcm_sender_id: values.messagingSenderId,
+  gcm_user_visible_only: true,
+  icons: [
+    { src: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
+    { src: "/icon-512.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+  ]
+};
+await writeFile(resolve(publicDir, "manifest.webmanifest"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+console.log("Generated Firebase worker config and Android-friendly FCM manifest from VITE_FIREBASE_* deployment variables.");
