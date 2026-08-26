@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Ban, CheckCircle2, Edit3, Eye, Loader2, LockKeyhole, Mail, MapPin, Plus, RefreshCw, Search, ShieldOff, Trash2, UserCog, Users, X } from "lucide-react";
+import { Ban, CheckCircle2, Edit3, Eye, Loader2, LockKeyhole, Mail, MapPin, Phone, Plus, RefreshCw, Search, ShieldOff, Trash2, UserCog, Users, X } from "lucide-react";
 import API from "./api";
 
 const EMPTY = { name: "", email: "", phone: "", role: "electrician", status: "active", maritalStatus: "Single", address: "", backgroundInfo: "" };
