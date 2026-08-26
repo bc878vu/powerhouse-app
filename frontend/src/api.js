@@ -30,7 +30,17 @@ const withTimeout = async (promise, ms, message) => {
 };
 
 class DisplayIdArray extends Array {
+  static get [Symbol.species]() {
+    return Array;
+  }
+
   constructor(values = [], displayValues = []) {
+    if (typeof values === "number") {
+      super(values);
+      this._displayValues = [];
+      return;
+    }
+
     super(...values);
     this._displayValues = Array.isArray(displayValues) ? displayValues : [];
   }
@@ -230,10 +240,6 @@ const getCurrentTaskIdentities = (suppliedId) => {
     .filter((value, index, array) => array.indexOf(value) === index);
 };
 
-// Lightweight user-task read. The older taskService path also checks
-// notifications and several identity fields sequentially; this path queries
-// the assignment indexes in parallel and falls back to the complete service
-// when Firestore permissions/legacy data require it.
 const fastListMyTasks = async (userId) => {
   const identities = getCurrentTaskIdentities(userId);
   const cacheKey = identities.join("|");
@@ -295,9 +301,6 @@ const requestTaskApi = async (method, url, data) => {
     return fastListMyTasks(path.split("/").pop());
   }
 
-  // taskService.findTask() already resolves public task numbers to the real
-  // Firestore document. Avoid a separate listTasks() scan here because it is
-  // slower and can produce permission warnings for user-scoped accounts.
   if (path.startsWith("task/update-status/") && method === "PUT") {
     const id = path.split("/")[2];
     return updateTaskStatus(id, payload);
@@ -310,7 +313,6 @@ const requestTaskApi = async (method, url, data) => {
 
   if (path.startsWith("task/") && path.split("/").length === 2) {
     const id = path.split("/")[1];
-
     if (method === "GET") return getTask(id).then((task) => ({ task }));
     if (method === "PUT") return updateTask(id, payload);
     if (method === "DELETE") return deleteTask(id);
