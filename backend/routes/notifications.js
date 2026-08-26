@@ -47,9 +47,9 @@ function normalizeDeviceId(value) {
 }
 
 // Register a browser/device FCM token through the authenticated backend.
-// The Firestore collection is the authoritative multi-device store.
-// The SQL fcm_token column is also updated because the legacy task route
-// still reads that field when a task is assigned/reassigned.
+// Firestore is the authoritative multi-device token store. The SQL fcm_token
+// column is maintained only for the legacy task route, which expects the
+// numeric SQL users.id rather than the Firebase Auth UID.
 router.post("/register-token", async (req, res) => {
   try {
     const decoded = await verifyUser(req);
@@ -68,14 +68,30 @@ router.post("/register-token", async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    // Keep the legacy SQL task-notification path operational.
-    // This is intentionally best-effort so SQL schema differences cannot
-    // prevent successful FCM registration in Firestore.
+    // Legacy SQL compatibility: Firebase Auth UID must NEVER be compared to
+    // the numeric users.id column. Resolve the SQL user by authenticated email
+    // first, then write the token using the numeric primary key.
+    let legacyTaskPushSynced = false;
     try {
-      await promiseDb.query(
-        "UPDATE users SET fcm_token = ? WHERE id = ? LIMIT 1",
-        [token, decoded.uid]
-      );
+      const authEmail = String(decoded.email || "").trim().toLowerCase();
+      if (authEmail) {
+        const [userRows] = await promiseDb.query(
+          "SELECT id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+          [authEmail]
+        );
+        const numericUserId = Number(userRows?.[0]?.id);
+        if (Number.isInteger(numericUserId) && numericUserId > 0) {
+          await promiseDb.query(
+            "UPDATE users SET fcm_token = ? WHERE id = ? LIMIT 1",
+            [token, numericUserId]
+          );
+          legacyTaskPushSynced = true;
+        } else {
+          console.warn("Legacy SQL FCM token sync skipped: no SQL user matched Firebase email.", authEmail);
+        }
+      } else {
+        console.warn("Legacy SQL FCM token sync skipped: Firebase Auth user has no email.");
+      }
     } catch (sqlError) {
       console.warn("Legacy SQL FCM token sync skipped:", sqlError?.message || sqlError);
     }
@@ -96,7 +112,7 @@ router.post("/register-token", async (req, res) => {
       console.warn("Duplicate FCM token cleanup skipped:", cleanupError?.message || cleanupError);
     }
 
-    return res.json({ success: true, registered: true, deviceId, tokenId, legacyTaskPushSynced: true });
+    return res.json({ success: true, registered: true, deviceId, tokenId, legacyTaskPushSynced });
   } catch (error) {
     const status = error.status || (error.code === "auth/id-token-expired" || error.code === "auth/argument-error" ? 401 : 500);
     console.error("FCM token registration error:", error?.message || error);
@@ -159,7 +175,7 @@ router.post("/push", async (req, res) => {
         notificationId: String(body.notificationId || "")
       },
       webpush: {
-        headers: { Urgency: "high" },
+        headers: { Urgency: "high", TTL: "86400" },
         fcmOptions: { link },
         notification: {
           title,
@@ -169,7 +185,7 @@ router.post("/push", async (req, res) => {
           tag: String(body.notificationId || `powerhouse-alert-${Date.now()}`),
           requireInteraction: true,
           silent: false,
-          vibrate: [180, 100, 180]
+          vibrate: [220, 100, 220, 100, 320]
         }
       }
     });
