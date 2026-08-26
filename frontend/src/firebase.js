@@ -28,7 +28,8 @@ let messagingInstance = null;
 export let messaging = null;
 const MESSAGING_WORKER_PREFIX = "/firebase-messaging-sw";
 const CURRENT_MESSAGING_WORKER = "/powerhouse-sw.js";
-const DEVICE_ID_KEY = "powerhouse_push_device_id_v2";
+const DEVICE_ID_KEY = "powerhouse_push_device_id_v3";
+const MESSAGING_DB_NAME = "firebase-messaging-database";
 
 const getPushDeviceId = () => {
   if (typeof window === "undefined") return "server";
@@ -48,14 +49,21 @@ const getMessagingInstance = async () => {
   const { getMessaging } = await import("firebase/messaging"); messagingInstance = getMessaging(app); messaging = messagingInstance; return messagingInstance;
 };
 
+const deleteMessagingRegistration = async () => {
+  if (!messagingInstance) return;
+  try { const { deleteToken } = await import("firebase/messaging"); await deleteToken(messagingInstance); } catch (error) { console.warn("FCM deleteToken cleanup skipped:", error?.message || error); }
+  try { if (typeof indexedDB !== "undefined") indexedDB.deleteDatabase(MESSAGING_DB_NAME); } catch (error) { console.warn("FCM IndexedDB cleanup skipped:", error?.message || error); }
+};
+
 const getMessagingServiceWorker = async (forceFresh = false) => {
   if (!("serviceWorker" in navigator)) return null;
   if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
   if (forceFresh) {
+    await deleteMessagingRegistration();
     const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.filter((r) => [r.active?.scriptURL, r.installing?.scriptURL, r.waiting?.scriptURL].some((url) => url && url.includes(CURRENT_MESSAGING_WORKER))).map(async (r) => { try { const s = await r.pushManager?.getSubscription?.(); if (s) await s.unsubscribe(); } catch {} try { await r.unregister(); } catch {} }));
+    await Promise.all(regs.filter((r) => [r.active?.scriptURL, r.installing?.scriptURL, r.waiting?.scriptURL].some((url) => url && (url.includes(CURRENT_MESSAGING_WORKER) || url.includes("firebase-messaging-sw")))).map(async (r) => { try { const s = await r.pushManager?.getSubscription?.(); if (s) await s.unsubscribe(); } catch {} try { await r.unregister(); } catch {} }));
   }
-  const registration = await navigator.serviceWorker.register(`${CURRENT_MESSAGING_WORKER}?v=11`, { scope: "/", updateViaCache: "none" });
+  const registration = await navigator.serviceWorker.register(`${CURRENT_MESSAGING_WORKER}?v=12`, { scope: "/", updateViaCache: "none" });
   await registration.update().catch(() => {});
   await navigator.serviceWorker.ready;
   if (!registration.active) throw new Error("PowerHouse notification service worker did not become active.");
@@ -65,15 +73,23 @@ const getMessagingServiceWorker = async (forceFresh = false) => {
 
 const isPushSubscriptionError = (error) => { const text = String(error?.message || error || "").toLowerCase(); const code = String(error?.code || "").toLowerCase(); return text.includes("push service error") || text.includes("failed to subscribe") || code.includes("token-subscribe-failed"); };
 const clearBrowserPushSubscription = async (registration) => { try { const s = await registration?.pushManager?.getSubscription?.(); if (s) await s.unsubscribe(); } catch (error) { console.warn("Browser push subscription cleanup skipped:", error?.message || error); } };
+const subscribeWithVapid = async (messagingService, registration, vapidKey) => { const { getToken } = await import("firebase/messaging"); const options = { serviceWorkerRegistration: registration }; if (vapidKey) options.vapidKey = vapidKey; return getToken(messagingService, options); };
 const getTokenWithRecovery = async (messagingService, registration, vapidKey) => {
-  const { getToken } = await import("firebase/messaging");
-  try { return await getToken(messagingService, { vapidKey, serviceWorkerRegistration: registration }); }
+  try { return await subscribeWithVapid(messagingService, registration, vapidKey); }
   catch (error) {
     if (!isPushSubscriptionError(error)) throw error;
-    console.warn("FCM subscription failed; rebuilding the PowerHouse messaging worker once.", error?.message || error);
+    console.warn("FCM subscription failed; clearing token database, browser subscription and messaging workers.", error?.message || error);
     await clearBrowserPushSubscription(registration);
     const freshRegistration = await getMessagingServiceWorker(true);
-    return getToken(messagingService, { vapidKey, serviceWorkerRegistration: freshRegistration });
+    try { return await subscribeWithVapid(messagingService, freshRegistration, vapidKey); }
+    catch (secondError) {
+      if (!isPushSubscriptionError(secondError) || !vapidKey) throw secondError;
+      console.warn("Custom VAPID subscription still failed; trying Firebase's default VAPID key once.", secondError?.message || secondError);
+      await deleteMessagingRegistration();
+      await clearBrowserPushSubscription(freshRegistration);
+      const defaultRegistration = await getMessagingServiceWorker(true);
+      return subscribeWithVapid(messagingService, defaultRegistration, "");
+    }
   }
 };
 
@@ -85,15 +101,23 @@ const registerTokenWithBackend = async (token, currentUser) => {
   const data = await response.json().catch(() => ({})); if (!response.ok || data?.success === false) throw new Error(data?.message || `Push token registration failed (${response.status})`); return true;
 };
 
+export const getPushDiagnostics = async () => {
+  const diagnostics = { secureContext: Boolean(typeof window !== "undefined" && window.isSecureContext), notificationPermission: typeof Notification !== "undefined" ? Notification.permission : "unsupported", serviceWorkerSupported: Boolean(typeof navigator !== "undefined" && "serviceWorker" in navigator), pushManagerSupported: Boolean(typeof window !== "undefined" && "PushManager" in window), serviceWorkerActive: false, subscriptionExists: false, messagingDb: false };
+  try { if (diagnostics.serviceWorkerSupported) { const reg = await navigator.serviceWorker.getRegistration("/"); diagnostics.serviceWorkerActive = Boolean(reg?.active); diagnostics.subscriptionExists = Boolean(await reg?.pushManager?.getSubscription?.()); } } catch {}
+  try { if (typeof indexedDB !== "undefined") diagnostics.messagingDb = (await new Promise((resolve) => { const request = indexedDB.open(MESSAGING_DB_NAME); request.onsuccess = () => { request.result.close(); resolve(true); }; request.onerror = () => resolve(false); request.onupgradeneeded = () => { request.result.close(); resolve(false); }; })); } catch {}
+  return diagnostics;
+};
+
 export const getFCMToken = async ({ requestPermission = true, forceFresh = false } = {}) => {
   try {
     const messagingService = await getMessagingInstance(); if (!messagingService || typeof Notification === "undefined") return null;
     if (!window.isSecureContext) throw new Error("Web Push requires HTTPS. Open PowerHouse using the HTTPS address.");
+    if (!("PushManager" in window)) throw new Error("This browser does not support Web Push.");
     let permission = Notification.permission; if (permission === "default" && requestPermission) permission = await Notification.requestPermission();
     if (permission !== "granted") throw new Error(`Notification permission is ${permission}. Please allow notifications for this site.`);
     const vapidKey = String(import.meta.env.VITE_VAPID_KEY || "").trim();
-    if (!vapidKey) throw new Error("VITE_VAPID_KEY is missing. Add the Firebase Web Push certificate public key for powerhouse-app-47c4a.");
-    if (!/^[A-Za-z0-9_-]{80,200}$/.test(vapidKey)) throw new Error("VITE_VAPID_KEY is malformed. Use the Web Push certificate public key from Firebase Console → Project Settings → Cloud Messaging.");
+    if (!vapidKey) console.warn("VITE_VAPID_KEY is not set; Firebase default VAPID key fallback will be attempted.");
+    if (vapidKey && !/^[A-Za-z0-9_-]{80,200}$/.test(vapidKey)) throw new Error("VITE_VAPID_KEY is malformed. Use the Web Push certificate public key from Firebase Console → Project Settings → Cloud Messaging.");
     const registration = await getMessagingServiceWorker(forceFresh);
     const token = await getTokenWithRecovery(messagingService, registration, vapidKey); if (!token) throw new Error("Firebase did not return a push registration token.");
     const currentUser = auth.currentUser;
@@ -113,7 +137,7 @@ export const getFCMToken = async ({ requestPermission = true, forceFresh = false
     return token;
   } catch (err) {
     const text = String(err?.message || err || "");
-    if (/push service error|failed to subscribe|token-subscribe-failed/i.test(text)) err = new Error(`${text} — Browser FCM subscription could not be created. The code has rebuilt the service worker; if it still fails, the deployed VAPID public key must be from Firebase project powerhouse-app-47c4a.`);
+    if (/push service error|failed to subscribe|token-subscribe-failed/i.test(text)) err = new Error(`${text} — The app has now performed a full FCM reset (token + IndexedDB + service worker) and retried. If this exact error remains, Chrome/Android's push service is rejecting the subscription on this device; app code cannot repair that server-side browser registration.`);
     console.error("FCM setup failed:", err); throw err;
   }
 };
