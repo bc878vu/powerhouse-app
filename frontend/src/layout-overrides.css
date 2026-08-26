@@ -1,4 +1,4 @@
-/* PowerHouse layout polish — additive only, no existing modules removed. */
+/* PowerHouse responsive header polish — additive only, no existing modules removed. */
 
 /* Keep the Module Pages drawer above every dashboard/page layer. */
 aside[class*="z-[110]"] {
@@ -10,31 +10,33 @@ div[class*="z-[100]"] {
 }
 
 /* =========================================================
-   REQUESTED HEADER
-   Left: PowerHouse logo/name
-   Center: Dashboard -> Assign Tasks -> Fuel -> Machines -> Panels
-   Right: Module Pages hamburger -> Bell
+   ADMIN HEADER
+   Desktop: PowerHouse -> Dashboard -> Assign Tasks -> Fuel -> Machines -> Panels -> Menu -> Bell
+   Mobile:  PowerHouse -> Dashboard -> Assign Tasks -> Fuel -> Menu -> Bell
+   Machines/Panels remain available through the Module Pages drawer.
    ========================================================= */
 header[class*="z-[90]"] {
   gap: 10px !important;
   padding-left: clamp(12px, 2vw, 28px) !important;
   padding-right: clamp(12px, 2vw, 28px) !important;
   overflow: hidden !important;
+  box-sizing: border-box !important;
 }
 
-/* PowerHouse branding stays at the top-left. */
-header[class*="z-[90]"] > div.hidden.md\\:block {
+/* PowerHouse branding: never hide it on admin mobile. */
+header[class*="z-[90]"] > div:nth-child(2) {
   order: 1 !important;
   display: flex !important;
   align-items: center !important;
   flex: 0 0 auto !important;
+  min-width: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
   white-space: nowrap !important;
 }
 
-/* Small app mark beside POWERHOUSE name. */
-header[class*="z-[90]"] > div.hidden.md\\:block::before {
+/* Small PowerHouse mark beside the name. */
+header[class*="z-[90]"] > div:nth-child(2)::before {
   content: "";
   display: inline-block;
   width: 22px;
@@ -44,7 +46,15 @@ header[class*="z-[90]"] > div.hidden.md\\:block::before {
   background: url('/favicon.svg') center / contain no-repeat;
 }
 
-/* Main navigation stays in the middle in the requested sequence. */
+header[class*="z-[90]"] > div:nth-child(2) h1 {
+  white-space: nowrap !important;
+}
+
+header[class*="z-[90]"] > div:nth-child(2) p {
+  white-space: nowrap !important;
+}
+
+/* Main navigation occupies the flexible middle area. */
 header[class*="z-[90]"] > nav {
   order: 2 !important;
   display: flex !important;
@@ -52,21 +62,31 @@ header[class*="z-[90]"] > nav {
   min-width: 0 !important;
   max-width: none !important;
   justify-content: center !important;
+  align-items: center !important;
   overflow-x: auto !important;
   overflow-y: hidden !important;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
+  scrollbar-width: none !important;
+  overscroll-behavior-x: contain !important;
+  white-space: nowrap !important;
 }
 
 header[class*="z-[90]"] > nav::-webkit-scrollbar {
-  display: none;
+  display: none !important;
 }
 
 header[class*="z-[90]"] > nav > a {
   flex: 0 0 auto !important;
 }
 
-/* Module Pages becomes a clean 3-line hamburger at top-right. */
+/* Desktop-only extra navigation stays available. */
+@media (min-width: 768px) {
+  header[class*="z-[90]"] > nav > a {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+
+/* Module Pages button becomes the clean hamburger at the right. */
 header[class*="z-[90]"] > button {
   order: 3 !important;
   width: 42px !important;
@@ -78,6 +98,7 @@ header[class*="z-[90]"] > button {
   background: transparent !important;
   color: #cbd5e1 !important;
   box-shadow: none !important;
+  flex: 0 0 42px !important;
 }
 
 header[class*="z-[90]"] > button:hover {
@@ -86,6 +107,10 @@ header[class*="z-[90]"] > button:hover {
 }
 
 header[class*="z-[90]"] > button > svg {
+  display: none !important;
+}
+
+header[class*="z-[90]"] > button > span {
   display: none !important;
 }
 
@@ -98,68 +123,75 @@ header[class*="z-[90]"] > button::before {
   font-family: Arial, sans-serif;
 }
 
-/* Bell stays immediately beside the hamburger. */
-header[class*="z-[90]"] > div.ml-auto {
+/* Bell stays directly beside the hamburger — no auto-margin gap. */
+header[class*="z-[90]"] > div:nth-child(4) {
   order: 4 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   flex: 0 0 auto !important;
-  margin: 0 !important;
+  margin-left: 2px !important;
 }
 
-header[class*="z-[90]"] > div.ml-auto a {
+header[class*="z-[90]"] > div:nth-child(4) a {
   padding: 9px !important;
 }
 
 /* =========================================================
-   DESKTOP
-   ========================================================= */
-@media (min-width: 768px) {
-  header[class*="z-[90]"] > nav > a {
-    padding-left: 12px !important;
-    padding-right: 12px !important;
-  }
-}
-
-/* =========================================================
-   MOBILE / SMALL SCREENS
-   Keep logo visible, keep navigation usable, keep hamburger+bell
-   fixed at the right without creating a second navbar.
+   MOBILE / TABLET
    ========================================================= */
 @media (max-width: 767px) {
   header[class*="z-[90]"] {
     height: 64px !important;
-    gap: 4px !important;
+    gap: 8px !important;
     padding-left: 10px !important;
-    padding-right: 8px !important;
+    padding-right: 10px !important;
   }
 
-  header[class*="z-[90]"] > div.hidden.md\\:block {
-    min-width: 126px !important;
+  /* Keep the full PowerHouse brand visible, including subtitle. */
+  header[class*="z-[90]"] > div:nth-child(2) {
+    min-width: 124px !important;
+    max-width: 124px !important;
   }
 
-  header[class*="z-[90]"] > div.hidden.md\\:block h1 {
+  header[class*="z-[90]"] > div:nth-child(2)::before {
+    width: 18px !important;
+    height: 18px !important;
+    flex-basis: 18px !important;
+    margin-right: 5px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(2) h1 {
     font-size: 15px !important;
+    line-height: 1 !important;
   }
 
-  header[class*="z-[90]"] > div.hidden.md\\:block p {
+  header[class*="z-[90]"] > div:nth-child(2) p {
+    display: block !important;
     font-size: 6px !important;
-    letter-spacing: .22em !important;
+    line-height: 1 !important;
+    letter-spacing: .20em !important;
+    margin-top: 4px !important;
   }
 
-  header[class*="z-[90]"] > div.hidden.md\\:block::before {
-    width: 18px;
-    height: 18px;
-    flex-basis: 18px;
-    margin-right: 5px;
+  /* Only Dashboard, Assign Tasks and Fuel remain in the main mobile header. */
+  header[class*="z-[90]"] > nav > a:nth-child(n+4) {
+    display: none !important;
   }
 
   header[class*="z-[90]"] > nav {
     justify-content: flex-start !important;
+    gap: 2px !important;
     overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x !important;
   }
 
   header[class*="z-[90]"] > nav > a {
     padding: 8px 9px !important;
     font-size: 8px !important;
+    line-height: 1 !important;
   }
 
   header[class*="z-[90]"] > nav > a svg {
@@ -168,39 +200,113 @@ header[class*="z-[90]"] > div.ml-auto a {
     margin-right: 4px !important;
   }
 
+  /* Hamburger and bell remain fixed at the far right. */
   header[class*="z-[90]"] > button {
     width: 38px !important;
     min-width: 38px !important;
     height: 38px !important;
+    flex-basis: 38px !important;
   }
 
   header[class*="z-[90]"] > button::before {
-    font-size: 22px;
+    font-size: 22px !important;
   }
 
-  header[class*="z-[90]"] > div.ml-auto a {
+  header[class*="z-[90]"] > div:nth-child(4) {
+    margin-left: 2px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(4) a {
     padding: 8px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(4) a svg {
+    width: 19px !important;
+    height: 19px !important;
   }
 }
 
-/* Very narrow phones: logo remains intact and nav becomes a compact scroller. */
-@media (max-width: 430px) {
-  header[class*="z-[90]"] > div.hidden.md\\:block {
-    min-width: 105px !important;
+/* =========================================================
+   NARROW PHONES
+   ========================================================= */
+@media (max-width: 480px) {
+  header[class*="z-[90]"] {
+    gap: 6px !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
   }
 
-  header[class*="z-[90]"] > div.hidden.md\\:block h1 {
+  header[class*="z-[90]"] > div:nth-child(2) {
+    min-width: 112px !important;
+    max-width: 112px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(2)::before {
+    width: 17px !important;
+    height: 17px !important;
+    flex-basis: 17px !important;
+    margin-right: 4px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(2) h1 {
     font-size: 13px !important;
   }
 
-  header[class*="z-[90]"] > div.hidden.md\\:block p {
-    display: none !important;
+  header[class*="z-[90]"] > div:nth-child(2) p {
+    font-size: 5px !important;
+    letter-spacing: .16em !important;
+  }
+
+  header[class*="z-[90]"] > nav > a {
+    padding: 7px 8px !important;
+    font-size: 7px !important;
+  }
+
+  header[class*="z-[90]"] > nav > a svg {
+    width: 11px !important;
+    height: 11px !important;
+    margin-right: 3px !important;
+  }
+
+  header[class*="z-[90]"] > button {
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    flex-basis: 36px !important;
+  }
+
+  header[class*="z-[90]"] > button::before {
+    font-size: 21px !important;
+  }
+}
+
+/* =========================================================
+   VERY NARROW PHONES
+   ========================================================= */
+@media (max-width: 360px) {
+  header[class*="z-[90]"] {
+    gap: 5px !important;
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(2) {
+    min-width: 102px !important;
+    max-width: 102px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(2) h1 {
+    font-size: 12px !important;
+  }
+
+  header[class*="z-[90]"] > div:nth-child(2) p {
+    font-size: 4.5px !important;
+    letter-spacing: .12em !important;
   }
 
   header[class*="z-[90]"] > nav > a {
     padding-left: 7px !important;
     padding-right: 7px !important;
-    font-size: 7px !important;
   }
 }
 
@@ -208,5 +314,6 @@ header[class*="z-[90]"] > div.ml-auto a {
 @media (max-width: 767px) {
   aside[class*="z-[110]"] {
     width: min(340px, 90vw) !important;
+    max-width: 90vw !important;
   }
 }
