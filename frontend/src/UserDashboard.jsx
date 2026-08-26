@@ -39,8 +39,6 @@ export default function UserDashboard() {
   const userId = user?.id;
   const cachedTasks = useMemo(() => userId ? readTaskCache(userId) : [], [userId]);
 
-  // IMPORTANT: never block the dashboard on the task request.
-  // Cached tasks are painted immediately; fresh data arrives in the background.
   const [tasks, setTasks] = useState(cachedTasks);
   const [refreshing, setRefreshing] = useState(false);
   const [popup, setPopup] = useState(null);
@@ -65,11 +63,10 @@ export default function UserDashboard() {
     if (manual) setRefreshing(true);
     try {
       const res = await API.get(`/task/my-tasks/${userId}`, { timeout: 12000 });
-      const fresh = Array.isArray(res?.data) ? res.data : [];
+      const fresh = Array.isArray(res?.data) ? res.data : Array.isArray(res?.data?.tasks) ? res.data.tasks : [];
       setTasks(fresh);
       writeTaskCache(userId, fresh);
     } catch (error) {
-      // Keep cached/visible data. A slow or offline request must never blank the dashboard.
       console.warn("Dashboard background task refresh skipped:", error?.message || error);
     } finally {
       if (manual) setRefreshing(false);
@@ -78,69 +75,85 @@ export default function UserDashboard() {
 
   useEffect(() => {
     if (!userId) return;
-    // Background refresh only; first paint is already done.
     void fetchTasks(false);
-    // Socket is the primary realtime path. This is only a low-frequency fallback.
-    const interval = window.setInterval(() => void fetchTasks(false), 30000);
+    const interval = window.setInterval(() => void fetchTasks(false), 15000);
     return () => window.clearInterval(interval);
   }, [userId, fetchTasks]);
 
   useEffect(() => {
     if (!userId) return;
-    socket.emit("joinUser", userId);
+
+    const joinedIds = [user?.id, user?.numericId, user?.uid, user?.firebaseUid]
+      .filter((value) => value !== undefined && value !== null && String(value).trim())
+      .map(String)
+      .filter((value, index, list) => list.indexOf(value) === index);
+
+    const joinRooms = () => {
+      joinedIds.forEach((id) => socket.emit("joinUser", id));
+    };
 
     const refreshFromSocket = async (data) => {
-      // If the server sent the complete task, update locally without another Firestore read.
       const incoming = data?.task || (data?.title && (data?.id || data?.taskId) ? data : null);
-      if (incoming?.id) {
+      if (incoming?.id || incoming?.taskId) {
+        const incomingId = String(incoming.id ?? incoming.taskId);
         setTasks((prev) => {
-          const id = String(incoming.id ?? incoming.taskId);
-          const exists = prev.some((item) => String(item.id) === id);
+          const exists = prev.some((item) => String(item.id) === incomingId);
           const next = exists
-            ? prev.map((item) => String(item.id) === id ? { ...item, ...incoming } : item)
+            ? prev.map((item) => String(item.id) === incomingId ? { ...item, ...incoming } : item)
             : [incoming, ...prev];
           writeTaskCache(userId, next);
           return next;
         });
-      } else {
-        void fetchTasks(false);
       }
+      void fetchTasks(false);
     };
 
-    const handleAssigned = async (data) => {
+    const handleAssigned = async (data = {}) => {
       await refreshFromSocket(data);
       showPopup("New Task Assigned", data?.title || "You received a new task", "new");
       playNotificationSound();
     };
 
-    const handleUpdate = async (data) => {
+    const handleTaskEvent = async (data = {}) => {
       await refreshFromSocket(data);
-      if (data?.status) {
-        showPopup("Task Update", `Task ${data?.taskId || data?.id ? `#${data.taskId || data.id}` : ""} → ${data.status}`, data.status === "Completed" ? "success" : data.status === "Rejected" ? "error" : "info");
+      const status = String(data?.status || "").trim();
+      if (status || data?.taskId || data?.id) {
+        showPopup(
+          data?.title || "Task Update",
+          status ? `Task ${data?.taskId || data?.id ? `#${data.taskId || data.id}` : ""} → ${status}` : "Your task list was updated.",
+          status === "Completed" ? "success" : status === "Rejected" ? "error" : "info"
+        );
       }
     };
 
-    socket.on("taskAssigned", handleAssigned);
-    socket.on("taskUpdate", handleUpdate);
-    return () => {
-      socket.off("taskAssigned", handleAssigned);
-      socket.off("taskUpdate", handleUpdate);
-    };
-  }, [userId, fetchTasks, showPopup, playNotificationSound]);
+    if (socket.connected) joinRooms();
+    socket.on("connect", joinRooms);
 
-  // Notifications are initialized after the dashboard has painted.
+    const events = [
+      "taskAssigned", "taskReassigned", "taskUpdate", "taskUpdated", "taskEdited",
+      "taskDeleted", "taskDelete", "taskAccepted", "taskRejected", "taskCompleted",
+      "taskStatusChanged", "updateData"
+    ];
+    events.forEach((event) => socket.on(event, event === "taskAssigned" ? handleAssigned : handleTaskEvent));
+
+    return () => {
+      socket.off("connect", joinRooms);
+      events.forEach((event) => socket.off(event, event === "taskAssigned" ? handleAssigned : handleTaskEvent));
+    };
+  }, [userId, user?.id, user?.numericId, user?.uid, user?.firebaseUid, fetchTasks, showPopup, playNotificationSound]);
+
   useEffect(() => {
     let mounted = true;
     const timer = window.setTimeout(() => {
       onMessageListener().then((payload) => {
         if (!mounted || !payload) return;
-        const title = payload?.notification?.title || "Task Notification";
-        const message = payload?.notification?.body || payload?.data?.message || "You have a task update";
+        const title = payload?.notification?.title || payload?.data?.title || "Task Notification";
+        const message = payload?.notification?.body || payload?.data?.body || payload?.data?.message || "You have a task update";
         showPopup(title, message, "new");
         playNotificationSound();
         void fetchTasks(false);
       }).catch(() => {});
-    }, 1500);
+    }, 300);
     return () => { mounted = false; window.clearTimeout(timer); };
   }, [fetchTasks, playNotificationSound, showPopup]);
 
