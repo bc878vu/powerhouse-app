@@ -39,14 +39,17 @@ export default function NotificationRuntime() {
       unsubscribeMessage = () => {};
       if (!user || disposed) return;
 
-      // Always refresh/register the FCM token for an authenticated user.
-      // getFCMToken() is idempotent from the browser's point of view: when
-      // permission was already granted it returns immediately without another
-      // prompt, and when it was not granted it requests it once.
+      // IMPORTANT: never request notification permission automatically during
+      // login/page load. Modern browsers may reject permission prompts that are
+      // not triggered by a user gesture. If permission was already granted,
+      // silently refresh/register the FCM token; otherwise the Notifications
+      // page's "Enable Push" button performs the user-initiated registration.
       try {
-        await getFCMToken();
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          await getFCMToken({ requestPermission: false });
+        }
       } catch (error) {
-        console.warn("Push token registration skipped:", error?.message || error);
+        console.warn("Silent push token refresh skipped:", error?.message || error);
       }
 
       try {
