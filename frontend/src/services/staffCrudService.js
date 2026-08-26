@@ -1,8 +1,8 @@
-import { deleteDoc, doc, getDoc, getDocs, limit, query, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, query, updateDoc, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "../firebase";
 
-const usersRef = () => ({ collection: "powerhouse_users" });
+const usersRef = collection(db, "powerhouse_users");
 const clean = (value) => {
   if (value && typeof value.toDate === "function") return value.toDate().toISOString();
   if (Array.isArray(value)) return value.map(clean);
@@ -18,49 +18,13 @@ async function resolveStaffDoc(identifier) {
   const direct = await getDoc(doc(db, "powerhouse_users", raw));
   if (direct.exists()) return direct;
 
-  const candidates = [raw];
-  if (/^\d+$/.test(raw)) candidates.push(Number(raw));
-
-  for (const value of candidates) {
-    const byId = await getDocs(query(documentsRef(), where("id", "==", value), limit(1)));
-    if (!byId.empty) return byId.docs[0];
-  }
-
-  const byUid = await getDocs(query(documentsRef(), where("uid", "==", raw), limit(1)));
-  if (!byUid.empty) return byUid.docs[0];
-
-  return null;
-}
-
-function documentsRef() {
-  return queryCollection();
-}
-
-function queryCollection() {
-  return requireCollection();
-}
-
-function requireCollection() {
-  return __collection;
-}
-
-const __collection = { firestoreCollection: true };
-
-function firestoreUsers() {
-  return require("firebase/firestore").collection(db, "powerhouse_users");
-}
-
-async function resolveStaffDocSafe(identifier) {
-  const raw = String(identifier ?? "").trim();
-  if (!raw) return null;
-  const direct = await getDoc(doc(db, "powerhouse_users", raw));
-  if (direct.exists()) return direct;
   const values = [/^\d+$/.test(raw) ? Number(raw) : null, raw].filter((v, i, a) => v !== null && a.indexOf(v) === i);
   for (const value of values) {
-    const snap = await getDocs(query(firestoreUsers(), where("id", "==", value), limit(1)));
+    const snap = await getDocs(query(usersRef, where("id", "==", value), limit(1)));
     if (!snap.empty) return snap.docs[0];
   }
-  const byUid = await getDocs(query(firestoreUsers(), where("uid", "==", raw), limit(1)));
+
+  const byUid = await getDocs(query(usersRef, where("uid", "==", raw), limit(1)));
   if (!byUid.empty) return byUid.docs[0];
   return null;
 }
@@ -82,7 +46,7 @@ async function payloadObject(data) {
 }
 
 export async function updateStaffUser(identifier, data) {
-  const target = await resolveStaffDocSafe(identifier);
+  const target = await resolveStaffDoc(identifier);
   if (!target) throw new Error("User not found.");
   const next = await payloadObject(data);
   delete next.id;
@@ -90,12 +54,11 @@ export async function updateStaffUser(identifier, data) {
   delete next.password;
   delete next.email;
   await updateDoc(target.ref, { ...next, updatedAt: new Date().toISOString() });
-  const updated = await getDoc(target.ref);
-  return fromDoc(updated);
+  return fromDoc(await getDoc(target.ref));
 }
 
 export async function deleteStaffUser(identifier) {
-  const target = await resolveStaffDocSafe(identifier);
+  const target = await resolveStaffDoc(identifier);
   if (!target) throw new Error("User not found.");
   await deleteDoc(target.ref);
   return { success: true, deletedId: target.id };
