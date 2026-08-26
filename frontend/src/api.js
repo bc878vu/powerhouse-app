@@ -86,6 +86,7 @@ const taskReadCache = new Map();
 const taskReadPromises = new Map();
 const TASK_READ_TTL = 15000;
 const TASK_CACHE_TTL = 1000 * 60 * 15;
+const TASK_QUERY_TIMEOUT = 1800;
 const taskCacheKey = (userId) => `powerhouse_tasks_cache_v3_${String(userId)}`;
 
 const readPersistentTaskCache = (userId) => {
@@ -109,6 +110,18 @@ const getPrimaryIdentity = (suppliedId) => {
   return String(suppliedId ?? user?.id ?? user?.numericId ?? user?.uid ?? user?.firebaseUid ?? user?.user_id ?? "").trim();
 };
 
+const timedTaskQuery = async (field, identity) => {
+  try {
+    const snapshot = await Promise.race([
+      getDocs(query(collection(db, "tasks"), where(field, "array-contains", identity), limit(100))),
+      new Promise((resolve) => setTimeout(() => resolve(null), TASK_QUERY_TIMEOUT)),
+    ]);
+    return snapshot?.docs || [];
+  } catch {
+    return [];
+  }
+};
+
 const fastListMyTasks = async (userId) => {
   const identity = getPrimaryIdentity(userId);
   if (!identity) return [];
@@ -130,20 +143,27 @@ const fastListMyTasks = async (userId) => {
 const refreshMyTasksFromFirestore = async (identity) => {
   const found = new Map();
   const fields = ["assigned_user_ids", "user_ids", "assigned_staff_ids"];
-  await Promise.all(fields.map(async (field) => {
-    try {
-      const snapshot = await getDocs(query(collection(db, "tasks"), where(field, "array-contains", identity), limit(100)));
-      snapshot.docs.forEach((item) => found.set(item.id, { id: item.id, ...item.data() }));
-    } catch {}
-  }));
-  let result = [...found.values()];
-  if (!result.length) {
-    try { result = await listMyTasks(identity); } catch { result = []; }
+  const results = await Promise.all(fields.map((field) => timedTaskQuery(field, identity)));
+  results.flat().forEach((item) => found.set(item.id, { id: item.id, ...item.data() }));
+
+  if (found.size) {
+    const result = [...found.values()].map(normalizeTask);
+    taskReadCache.set(identity, { at: Date.now(), value: result });
+    writePersistentTaskCache(identity, result);
+    return result;
   }
-  result = Array.isArray(result) ? result.map(normalizeTask) : [];
-  taskReadCache.set(identity, { at: Date.now(), value: result });
-  writePersistentTaskCache(identity, result);
-  return result;
+
+  // Do not keep the page blocked by the expensive legacy fallback.
+  // It runs in the background and will be picked up by the next refresh.
+  void listMyTasks(identity).then((fallback) => {
+    const result = Array.isArray(fallback) ? fallback.map(normalizeTask) : [];
+    if (result.length) {
+      taskReadCache.set(identity, { at: Date.now(), value: result });
+      writePersistentTaskCache(identity, result);
+    }
+  }).catch(() => {});
+
+  return [];
 };
 
 const requestTaskApi = async (method, url, data) => {
