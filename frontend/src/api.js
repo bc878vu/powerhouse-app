@@ -1,4 +1,6 @@
+import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import { requestFirebase } from "./services/firebaseDataStore";
+import { db } from "./firebase";
 import { getUser } from "./utils/auth";
 import {
   activityStats as taskActivityStats,
@@ -27,10 +29,6 @@ const withTimeout = async (promise, ms, message) => {
   }
 };
 
-// Keeps the real IDs for all programmatic operations/JSON serialization while
-// giving the Dashboard a human-readable value when it calls .join(). This
-// removes Firebase UID/hash noise from the User column without breaking Edit,
-// Assign, Accept, Reject, or status-update payloads that still need the IDs.
 class DisplayIdArray extends Array {
   constructor(values = [], displayValues = []) {
     super(...values);
@@ -46,10 +44,17 @@ const makeDisplayIds = (values, assignedUsers = [], fallbackNames = []) => {
   if (!Array.isArray(values)) return values;
 
   const names = Array.isArray(assignedUsers)
-    ? assignedUsers.map((user) => String(user?.name || user?.full_name || user?.displayName || user?.email || "").trim()).filter(Boolean)
+    ? assignedUsers
+        .map((user) => String(user?.name || user?.full_name || user?.displayName || user?.email || "").trim())
+        .filter(Boolean)
     : [];
 
-  const displayNames = names.length ? names : (Array.isArray(fallbackNames) ? fallbackNames.map(String).filter(Boolean) : []);
+  const displayNames = names.length
+    ? names
+    : Array.isArray(fallbackNames)
+    ? fallbackNames.map(String).filter(Boolean)
+    : [];
+
   return new DisplayIdArray(values, displayNames);
 };
 
@@ -206,6 +211,76 @@ const normalizeTaskRequest = (method, url, data) => {
   return data;
 };
 
+const taskReadCache = new Map();
+const taskReadPromises = new Map();
+const TASK_READ_TTL = 2500;
+
+const getCurrentTaskIdentities = (suppliedId) => {
+  const user = getUser();
+  return [
+    suppliedId,
+    user?.id,
+    user?.numericId,
+    user?.uid,
+    user?.firebaseUid,
+    user?.user_id,
+  ]
+    .filter((value) => value !== undefined && value !== null && String(value).trim())
+    .map(String)
+    .filter((value, index, array) => array.indexOf(value) === index);
+};
+
+// Lightweight user-task read. The older taskService path also checks
+// notifications and several identity fields sequentially; this path queries
+// the assignment indexes in parallel and falls back to the complete service
+// when Firestore permissions/legacy data require it.
+const fastListMyTasks = async (userId) => {
+  const identities = getCurrentTaskIdentities(userId);
+  const cacheKey = identities.join("|");
+  const cached = taskReadCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < TASK_READ_TTL) return cached.value;
+  if (taskReadPromises.has(cacheKey)) return taskReadPromises.get(cacheKey);
+
+  const promise = (async () => {
+    const found = new Map();
+    const fields = ["assigned_user_ids", "user_ids", "assigned_staff_ids"];
+    const reads = [];
+
+    identities.forEach((identity) => {
+      fields.forEach((field) => {
+        reads.push(
+          getDocs(
+            query(
+              collection(db, "tasks"),
+              where(field, "array-contains", identity),
+              limit(100)
+            )
+          ).then((snapshot) => {
+            snapshot.docs.forEach((item) => {
+              const data = item.data() || {};
+              found.set(item.id, { id: item.id, ...data });
+            });
+          })
+        );
+      });
+    });
+
+    await Promise.allSettled(reads);
+
+    let result = [...found.values()];
+    if (!result.length) {
+      result = await listMyTasks(userId);
+    }
+
+    result = Array.isArray(result) ? result : [];
+    taskReadCache.set(cacheKey, { at: Date.now(), value: result });
+    return result;
+  })().finally(() => taskReadPromises.delete(cacheKey));
+
+  taskReadPromises.set(cacheKey, promise);
+  return promise;
+};
+
 const requestTaskApi = async (method, url, data) => {
   const path = taskPath(url);
   if (!isTaskPath(path)) return null;
@@ -217,7 +292,7 @@ const requestTaskApi = async (method, url, data) => {
   }
 
   if (path.startsWith("task/my-tasks/") && method === "GET") {
-    return listMyTasks(path.split("/").pop());
+    return fastListMyTasks(path.split("/").pop());
   }
 
   // taskService.findTask() already resolves public task numbers to the real
