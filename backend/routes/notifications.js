@@ -38,8 +38,8 @@ function normalizeIds(value) {
 
 async function getTokens(recipientIds = []) {
   const firestore = admin.firestore();
+  const tokenCollection = firestore.collection("powerhouse_fcm_tokens");
   const tokenSet = new Set();
-  const collection = firestore.collection("powerhouse_fcm_tokens");
 
   const addSnapshotTokens = (snapshot) => {
     snapshot.forEach((doc) => {
@@ -50,23 +50,18 @@ async function getTokens(recipientIds = []) {
   };
 
   if (recipientIds.length === 0) {
-    // Supports all registered devices, including legacy one-token-per-user records.
-    addSnapshotTokens(await collection.get());
+    addSnapshotTokens(await tokenCollection.get());
   } else {
-    // New records use one document per user/device so every active device receives the push.
-    // The legacy uid document is also checked for backwards compatibility.
-    const snapshots = await Promise.all(
-      recipientIds.map(async (uid) => {
-        const [byUser, legacy] = await Promise.all([
-          collection.where("userId", "==", String(uid)).get(),
-          collection.doc(String(uid)).get()
-        ]);
-        addSnapshotTokens(byUser);
-        if (legacy.exists) addSnapshotTokens({ forEach: (fn) => fn(legacy) });
-      })
-    );
-    void snapshots;
+    await Promise.all(recipientIds.map(async (uid) => {
+      const [byUser, legacy] = await Promise.all([
+        tokenCollection.where("userId", "==", String(uid)).get(),
+        tokenCollection.doc(String(uid)).get()
+      ]);
+      addSnapshotTokens(byUser);
+      if (legacy.exists) addSnapshotTokens({ forEach: (fn) => fn(legacy) });
+    }));
   }
+
   return [...tokenSet];
 }
 
@@ -118,8 +113,9 @@ router.post("/push", async (req, res) => {
     });
 
     if (invalidTokens.length) {
+      const tokenCollection = admin.firestore().collection("powerhouse_fcm_tokens");
       await Promise.all(invalidTokens.map(async (token) => {
-        const snapshot = await collection.where("token", "==", token).get();
+        const snapshot = await tokenCollection.where("token", "==", token).get();
         await Promise.all(snapshot.docs.map((item) => item.ref.delete()));
       }));
     }
