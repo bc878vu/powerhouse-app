@@ -110,12 +110,16 @@ service cloud.firestore {
       allow create, update, delete: if signedIn();
     }
 
+    // Fuel Management listens to this collection for engine service data.
+    // Reads are authenticated; writes remain authenticated.
+    match /engineServiceLogs/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if signedIn();
+    }
+
     // =========================================================
     // WAPDA METER READINGS
     // =========================================================
-    // WapdaManagement.jsx uses a realtime listener on this collection.
-    // Keep read access public to preserve the existing monitoring/report
-    // behavior; writes remain authenticated.
 
     match /wapdaReadings/{id} {
       allow read: if true;
@@ -125,7 +129,6 @@ service cloud.firestore {
     // =========================================================
     // FUEL REPORT DOWNLOAD AUDIT
     // =========================================================
-    // Used when generated/downloaded fuel reports are persisted.
 
     match /fuelReportDownloads/{id} {
       allow read: if signedIn();
