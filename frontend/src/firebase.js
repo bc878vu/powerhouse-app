@@ -63,7 +63,7 @@ const getMessagingServiceWorker = async (forceFresh = false) => {
     const regs = await navigator.serviceWorker.getRegistrations();
     await Promise.all(regs.filter((r) => [r.active?.scriptURL, r.installing?.scriptURL, r.waiting?.scriptURL].some((url) => url && (url.includes(CURRENT_MESSAGING_WORKER) || url.includes("firebase-messaging-sw")))).map(async (r) => { try { const s = await r.pushManager?.getSubscription?.(); if (s) await s.unsubscribe(); } catch {} try { await r.unregister(); } catch {} }));
   }
-  const registration = await navigator.serviceWorker.register(`${CURRENT_MESSAGING_WORKER}?v=12`, { scope: "/", updateViaCache: "none" });
+  const registration = await navigator.serviceWorker.register(`${CURRENT_MESSAGING_WORKER}?v=15`, { scope: "/", updateViaCache: "none" });
   await registration.update().catch(() => {});
   await navigator.serviceWorker.ready;
   if (!registration.active) throw new Error("PowerHouse notification service worker did not become active.");
