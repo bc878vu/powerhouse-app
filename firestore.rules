@@ -71,6 +71,13 @@ service cloud.firestore {
       allow create, update, delete: if signedIn();
     }
 
+    // WAPDA meter readings are report data, so they must be readable by the report listener.
+    // Writes remain authenticated to prevent anonymous data creation/deletion.
+    match /wapdaReadings/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+
     match /fuelReportDownloads/{id} {
       allow read: if signedIn();
       allow create, update: if signedIn();
