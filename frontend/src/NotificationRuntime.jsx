@@ -39,10 +39,14 @@ export default function NotificationRuntime() {
       unsubscribeMessage = () => {};
       if (!user || disposed) return;
 
-      // If the user has already granted permission on this browser, silently
-      // refresh/register the FCM token so background push keeps working.
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        getFCMToken().catch(() => {});
+      // Always refresh/register the FCM token for an authenticated user.
+      // getFCMToken() is idempotent from the browser's point of view: when
+      // permission was already granted it returns immediately without another
+      // prompt, and when it was not granted it requests it once.
+      try {
+        await getFCMToken();
+      } catch (error) {
+        console.warn("Push token registration skipped:", error?.message || error);
       }
 
       try {
@@ -54,12 +58,14 @@ export default function NotificationRuntime() {
           if (timerRef.current) clearTimeout(timerRef.current);
           timerRef.current = window.setTimeout(() => setAlert(null), 6500);
         });
-      } catch {
+      } catch (error) {
+        console.warn("Foreground notification listener skipped:", error?.message || error);
         unsubscribeMessage = () => {};
       }
     };
 
     unsubscribeAuth = onAuthStateChanged(auth, (user) => { void setup(user); });
+
     return () => {
       disposed = true;
       unsubscribeAuth();
