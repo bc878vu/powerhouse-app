@@ -60,8 +60,6 @@ void setPersistence(auth, browserLocalPersistence).catch((error) => {
 
 export const storage = getStorage(app);
 
-// IndexedDB persistent cache keeps Firestore data available immediately on repeat visits.
-// If persistence cannot be initialized (for example, an older browser), fall back safely.
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(app, {
@@ -78,6 +76,23 @@ export let messaging = null;
 
 const MESSAGING_WORKER_PREFIX = "/firebase-messaging-sw";
 const CURRENT_MESSAGING_WORKER = "/powerhouse-sw.js";
+const DEVICE_ID_KEY = "powerhouse_push_device_id_v1";
+
+const getPushDeviceId = () => {
+  if (typeof window === "undefined") return "server";
+  try {
+    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!deviceId) {
+      deviceId = typeof crypto?.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(DEVICE_ID_KEY, deviceId);
+    }
+    return deviceId;
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+};
 
 const cleanupOldMessagingWorkers = async () => {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
@@ -130,10 +145,19 @@ export const getFCMToken = async () => {
     const { getToken } = await import("firebase/messaging");
     const token = await getToken(messagingService, { vapidKey: import.meta.env.VITE_VAPID_KEY, serviceWorkerRegistration });
     if (!token) return null;
+
     const currentUser = auth.currentUser;
     if (currentUser?.uid) {
       const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
-      await setDoc(doc(db, "powerhouse_fcm_tokens", currentUser.uid), { token, userId: currentUser.uid, updatedAt: serverTimestamp() }, { merge: true });
+      const deviceId = getPushDeviceId();
+      const tokenId = `${currentUser.uid}_${deviceId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150);
+      await setDoc(doc(db, "powerhouse_fcm_tokens", tokenId), {
+        token,
+        userId: currentUser.uid,
+        deviceId,
+        platform: /Android/i.test(navigator.userAgent) ? "android" : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? "ios" : "desktop",
+        updatedAt: serverTimestamp()
+      }, { merge: true });
     }
     return token;
   } catch (err) {
