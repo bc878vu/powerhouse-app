@@ -11,14 +11,33 @@ const findUser = async (rawId) => {
   if (!value) return null;
   const numeric = Number(value);
   let rows = [];
-  if (Number.isInteger(numeric) && numeric > 0) {
-    [rows] = await q(`${publicSelect} WHERE id = ? LIMIT 1`, [numeric]);
-  }
-  if (!rows.length) {
-    [rows] = await q(`${publicSelect} WHERE employeeID = ? LIMIT 1`, [value]);
-  }
+  if (Number.isInteger(numeric) && numeric > 0) [rows] = await q(`${publicSelect} WHERE id = ? LIMIT 1`, [numeric]);
+  if (!rows.length) [rows] = await q(`${publicSelect} WHERE employeeID = ? LIMIT 1`, [value]);
   return rows[0] || null;
 };
+
+router.get("/all", async (_req, res, next) => {
+  try {
+    const [rows] = await q(`${publicSelect} ORDER BY id DESC`);
+    const seenEmails = new Set();
+    const users = [];
+    for (const row of rows) {
+      const email = normalizeId(row.email).toLowerCase();
+      if (email && seenEmails.has(email)) continue;
+      if (email) seenEmails.add(email);
+      let employeeID = normalizeId(row.employeeID);
+      if (!employeeID) {
+        employeeID = `PH-${String(row.id).padStart(5, "0")}`;
+        try { await q("UPDATE users SET employeeID = ? WHERE id = ? AND (employeeID IS NULL OR TRIM(employeeID) = '')", [employeeID, row.id]); } catch (error) { console.warn("USER ID BACKFILL:", error.message); }
+      }
+      users.push({ ...row, employeeID, id: Number(row.id), email });
+    }
+    return res.json(users);
+  } catch (error) {
+    console.error("USER COMPAT ALL ERROR:", error);
+    return next();
+  }
+});
 
 router.get("/full/:id", async (req, res) => {
   try {
@@ -30,36 +49,19 @@ router.get("/full/:id", async (req, res) => {
     try {
       const [rows] = await q(`SELECT DISTINCT t.* FROM tasks t INNER JOIN task_assignments ta ON ta.task_id = t.id WHERE ta.user_id = ? ORDER BY t.updated_at DESC, t.created_at DESC, t.id DESC`, [id]);
       tasks = rows;
-    } catch (error) {
-      console.warn("USER COMPAT TASK READ:", error.message);
-    }
+    } catch (error) { console.warn("USER COMPAT TASK READ:", error.message); }
     try {
       const [rows] = await q(`SELECT * FROM tools WHERE user_id = ? ORDER BY id DESC`, [id]);
       tools = rows;
-    } catch (error) {
-      console.warn("USER COMPAT TOOL READ:", error.message);
-    }
+    } catch (error) { console.warn("USER COMPAT TOOL READ:", error.message); }
     const lower = (value) => String(value || "").toLowerCase();
-    return res.json({
-      success: true,
-      user,
-      tasks,
-      tools,
-      summary: {
-        totalTasks: tasks.length,
-        pendingTasks: tasks.filter((x) => lower(x.status) === "pending").length,
-        inProgressTasks: tasks.filter((x) => lower(x.status) === "in progress").length,
-        completedTasks: tasks.filter((x) => lower(x.status) === "completed").length,
-        totalTools: tools.length,
-      },
-    });
+    return res.json({ success: true, user, tasks, tools, summary: { totalTasks: tasks.length, pendingTasks: tasks.filter((x) => lower(x.status) === "pending").length, inProgressTasks: tasks.filter((x) => lower(x.status) === "in progress").length, completedTasks: tasks.filter((x) => lower(x.status) === "completed").length, totalTools: tools.length } });
   } catch (error) {
     console.error("USER COMPAT FULL ERROR:", error);
     return res.status(500).json({ success: false, message: error.sqlMessage || error.message || "Failed to load user." });
   }
 });
 
-// JSON-only updates are handled here. Multipart profile/photo edits continue to the canonical user router.
 router.put("/:id", async (req, res, next) => {
   if (String(req.headers["content-type"] || "").toLowerCase().includes("multipart/form-data")) return next();
   try {
@@ -78,8 +80,7 @@ router.put("/:id", async (req, res, next) => {
     if (!["electrician", "cro", "admin", "superadmin"].includes(role)) return res.status(400).json({ success: false, message: "Invalid staff role." });
     if (!["active", "inactive", "blocked"].includes(status)) return res.status(400).json({ success: false, message: "Status must be active, inactive or blocked." });
     await q(`UPDATE users SET name = ?, role = ?, phone = ?, maritalStatus = ?, address = ?, backgroundInfo = ?, status = ? WHERE id = ?`, [name, role, phone, maritalStatus, address, backgroundInfo, status, id]);
-    const updated = await findUser(String(id));
-    return res.json({ success: true, message: "Staff member updated successfully.", user: updated });
+    return res.json({ success: true, message: "Staff member updated successfully.", user: await findUser(String(id)) });
   } catch (error) {
     console.error("USER COMPAT UPDATE ERROR:", error);
     return res.status(500).json({ success: false, message: error.sqlMessage || error.message || "Update failed." });
@@ -95,12 +96,7 @@ router.delete("/:id", async (req, res) => {
     const id = Number(user.id);
     connection = db.promise();
     await connection.beginTransaction();
-    const safeDelete = async (sql) => {
-      try { await connection.query(sql, [id]); }
-      catch (error) {
-        if (!["ER_NO_SUCH_TABLE", "ER_BAD_FIELD_ERROR"].includes(error.code)) throw error;
-      }
-    };
+    const safeDelete = async (sql) => { try { await connection.query(sql, [id]); } catch (error) { if (!["ER_NO_SUCH_TABLE", "ER_BAD_FIELD_ERROR"].includes(error.code)) throw error; } };
     await safeDelete("DELETE FROM task_completions WHERE user_id = ?");
     await safeDelete("DELETE FROM task_assignment_history WHERE user_id = ?");
     await safeDelete("DELETE FROM task_assignments WHERE user_id = ?");
