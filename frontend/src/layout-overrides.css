@@ -9,48 +9,198 @@ div[class*="z-[100]"] {
   z-index: 1990 !important;
 }
 
-/* Compact professional header: modules left, navigation centered,
-   PowerHouse branding right, notifications at the far right. */
+/* =========================================================
+   REQUESTED HEADER
+   Left: PowerHouse logo/name
+   Center: Dashboard -> Assign Tasks -> Fuel -> Machines -> Panels
+   Right: Module Pages hamburger -> Bell
+   ========================================================= */
+header[class*="z-[90]"] {
+  gap: 10px !important;
+  padding-left: clamp(12px, 2vw, 28px) !important;
+  padding-right: clamp(12px, 2vw, 28px) !important;
+  overflow: hidden !important;
+}
+
+/* PowerHouse branding stays at the top-left. */
+header[class*="z-[90]"] > div.hidden.md\\:block {
+  order: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Small app mark beside POWERHOUSE name. */
+header[class*="z-[90]"] > div.hidden.md\\:block::before {
+  content: "";
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  margin-right: 7px;
+  flex: 0 0 22px;
+  background: url('/favicon.svg') center / contain no-repeat;
+}
+
+/* Main navigation stays in the middle in the requested sequence. */
+header[class*="z-[90]"] > nav {
+  order: 2 !important;
+  display: flex !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  justify-content: center !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+header[class*="z-[90]"] > nav::-webkit-scrollbar {
+  display: none;
+}
+
+header[class*="z-[90]"] > nav > a {
+  flex: 0 0 auto !important;
+}
+
+/* Module Pages becomes a clean 3-line hamburger at top-right. */
+header[class*="z-[90]"] > button {
+  order: 3 !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+header[class*="z-[90]"] > button:hover {
+  background: rgba(255,255,255,.06) !important;
+  color: #fff !important;
+}
+
+header[class*="z-[90]"] > button > svg {
+  display: none !important;
+}
+
+header[class*="z-[90]"] > button::before {
+  content: "☰";
+  display: block;
+  font-size: 25px;
+  line-height: 1;
+  font-weight: 700;
+  font-family: Arial, sans-serif;
+}
+
+/* Bell stays immediately beside the hamburger. */
+header[class*="z-[90]"] > div.ml-auto {
+  order: 4 !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+header[class*="z-[90]"] > div.ml-auto a {
+  padding: 9px !important;
+}
+
+/* =========================================================
+   DESKTOP
+   ========================================================= */
 @media (min-width: 768px) {
-  header[class*="z-[90]"] > button {
-    order: 1;
+  header[class*="z-[90]"] > nav > a {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
   }
+}
 
-  header[class*="z-[90]"] > nav {
-    order: 2;
-    flex: 0 1 auto !important;
-    min-width: 0 !important;
-    max-width: min(62vw, 900px);
-    overflow-x: auto !important;
-    scrollbar-width: none;
-  }
-
-  header[class*="z-[90]"] > nav::-webkit-scrollbar {
-    display: none;
+/* =========================================================
+   MOBILE / SMALL SCREENS
+   Keep logo visible, keep navigation usable, keep hamburger+bell
+   fixed at the right without creating a second navbar.
+   ========================================================= */
+@media (max-width: 767px) {
+  header[class*="z-[90]"] {
+    height: 64px !important;
+    gap: 4px !important;
+    padding-left: 10px !important;
+    padding-right: 8px !important;
   }
 
   header[class*="z-[90]"] > div.hidden.md\\:block {
-    order: 3;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-    padding-left: 8px;
-    white-space: nowrap;
+    min-width: 126px !important;
   }
 
-  header[class*="z-[90]"] > div.ml-auto {
-    order: 4;
-    margin-left: 8px !important;
+  header[class*="z-[90]"] > div.hidden.md\\:block h1 {
+    font-size: 15px !important;
   }
 
-  /* Use the existing app icon as a small brand mark beside the logo. */
+  header[class*="z-[90]"] > div.hidden.md\\:block p {
+    font-size: 6px !important;
+    letter-spacing: .22em !important;
+  }
+
   header[class*="z-[90]"] > div.hidden.md\\:block::before {
-    content: "";
-    display: inline-block;
-    width: 22px;
-    height: 22px;
-    margin-right: 7px;
-    vertical-align: -6px;
-    background: url('/favicon.svg') center / contain no-repeat;
+    width: 18px;
+    height: 18px;
+    flex-basis: 18px;
+    margin-right: 5px;
+  }
+
+  header[class*="z-[90]"] > nav {
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+  }
+
+  header[class*="z-[90]"] > nav > a {
+    padding: 8px 9px !important;
+    font-size: 8px !important;
+  }
+
+  header[class*="z-[90]"] > nav > a svg {
+    width: 12px !important;
+    height: 12px !important;
+    margin-right: 4px !important;
+  }
+
+  header[class*="z-[90]"] > button {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+  }
+
+  header[class*="z-[90]"] > button::before {
+    font-size: 22px;
+  }
+
+  header[class*="z-[90]"] > div.ml-auto a {
+    padding: 8px !important;
+  }
+}
+
+/* Very narrow phones: logo remains intact and nav becomes a compact scroller. */
+@media (max-width: 430px) {
+  header[class*="z-[90]"] > div.hidden.md\\:block {
+    min-width: 105px !important;
+  }
+
+  header[class*="z-[90]"] > div.hidden.md\\:block h1 {
+    font-size: 13px !important;
+  }
+
+  header[class*="z-[90]"] > div.hidden.md\\:block p {
+    display: none !important;
+  }
+
+  header[class*="z-[90]"] > nav > a {
+    padding-left: 7px !important;
+    padding-right: 7px !important;
+    font-size: 7px !important;
   }
 }
 
