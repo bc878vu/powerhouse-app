@@ -27,6 +27,32 @@ const withTimeout = async (promise, ms, message) => {
   }
 };
 
+// Keeps the real IDs for all programmatic operations/JSON serialization while
+// giving the Dashboard a human-readable value when it calls .join(). This
+// removes Firebase UID/hash noise from the User column without breaking Edit,
+// Assign, Accept, Reject, or status-update payloads that still need the IDs.
+class DisplayIdArray extends Array {
+  constructor(values = [], displayValues = []) {
+    super(...values);
+    this._displayValues = Array.isArray(displayValues) ? displayValues : [];
+  }
+
+  join(separator = ",") {
+    return this._displayValues.join(separator);
+  }
+}
+
+const makeDisplayIds = (values, assignedUsers = [], fallbackNames = []) => {
+  if (!Array.isArray(values)) return values;
+
+  const names = Array.isArray(assignedUsers)
+    ? assignedUsers.map((user) => String(user?.name || user?.full_name || user?.displayName || user?.email || "").trim()).filter(Boolean)
+    : [];
+
+  const displayNames = names.length ? names : (Array.isArray(fallbackNames) ? fallbackNames.map(String).filter(Boolean) : []);
+  return new DisplayIdArray(values, displayNames);
+};
+
 const normalizeAssignedUsers = (task) => {
   if (!task || typeof task !== "object") return task;
 
@@ -60,28 +86,35 @@ const normalizeAssignedUsers = (task) => {
     ? task.assigned_staff_roles.filter(Boolean).map(String)
     : assignedUsers.map((user) => user.role).filter(Boolean);
 
+  const rawAssignedIds = Array.isArray(task.assigned_user_ids)
+    ? task.assigned_user_ids.map((value) => String(value))
+    : null;
+
   return {
     ...task,
     assigned_users: assignedUsers.length ? assignedUsers : task.assigned_users,
     assigned_staff_names: staffNames,
     assigned_staff_emails: staffEmails,
     assigned_staff_roles: staffRoles,
+    assigned_user_ids: rawAssignedIds
+      ? makeDisplayIds(rawAssignedIds, assignedUsers, staffNames)
+      : task.assigned_user_ids,
   };
 };
 
 const normalizeTask = (task) => {
   if (!task || typeof task !== "object") return task;
 
-  const publicId =
-    /^\d+$/.test(String(task.task_number ?? ""))
-      ? String(task.task_number)
-      : /^\d+$/.test(String(task.display_id ?? ""))
-      ? String(task.display_id)
-      : /^\d+$/.test(String(task.public_id ?? ""))
-      ? String(task.public_id)
-      : null;
-
   const normalized = normalizeAssignedUsers(task);
+
+  const publicId =
+    /^\d+$/.test(String(normalized.task_number ?? ""))
+      ? String(normalized.task_number)
+      : /^\d+$/.test(String(normalized.display_id ?? ""))
+      ? String(normalized.display_id)
+      : /^\d+$/.test(String(normalized.public_id ?? ""))
+      ? String(normalized.public_id)
+      : null;
 
   if (!publicId) return normalized;
 
@@ -139,6 +172,7 @@ const normalizeTaskRequest = (method, url, data) => {
     path.startsWith("task/update-status/") &&
     data &&
     typeof data === "object" &&
+    typeof FormData !== "undefined" &&
     !(data instanceof FormData)
   ) {
     const user = getUser();
@@ -186,10 +220,9 @@ const requestTaskApi = async (method, url, data) => {
     return listMyTasks(path.split("/").pop());
   }
 
-  // IMPORTANT: taskService.findTask() already resolves the public task number
-  // (task_number/display_id) to the real Firestore document. Do not perform a
-  // separate listTasks() scan here: it is slower and can trigger permissions
-  // warnings for users who are only allowed to read their own task.
+  // taskService.findTask() already resolves public task numbers to the real
+  // Firestore document. Avoid a separate listTasks() scan here because it is
+  // slower and can produce permission warnings for user-scoped accounts.
   if (path.startsWith("task/update-status/") && method === "PUT") {
     const id = path.split("/")[2];
     return updateTaskStatus(id, payload);
