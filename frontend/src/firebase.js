@@ -90,9 +90,14 @@ const getPushDeviceId = () => {
     }
     return deviceId;
   } catch {
-    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
   }
 };
+
+const getBackendUrl = () => String(env.VITE_SOCKET_URL || env.VITE_API_URL || "")
+  .trim()
+  .replace(/\/+$/, "")
+  .replace(/\/api$/, "");
 
 const cleanupOldMessagingWorkers = async () => {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
@@ -133,6 +138,34 @@ const getMessagingServiceWorker = async () => {
   return registration;
 };
 
+const registerTokenWithBackend = async (token, currentUser) => {
+  const backendUrl = getBackendUrl();
+  if (!backendUrl || !currentUser?.uid) return false;
+
+  const idToken = await currentUser.getIdToken();
+  const deviceId = getPushDeviceId();
+  const platform = /Android/i.test(navigator.userAgent)
+    ? "android"
+    : /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      ? "ios"
+      : "desktop";
+
+  const response = await fetch(`${backendUrl}/api/notifications/register-token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`
+    },
+    body: JSON.stringify({ token, deviceId, platform })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.success === false) {
+    throw new Error(data?.message || `Push token registration failed (${response.status})`);
+  }
+  return true;
+};
+
 export const getFCMToken = async () => {
   try {
     const messagingService = await getMessagingInstance();
@@ -148,16 +181,36 @@ export const getFCMToken = async () => {
 
     const currentUser = auth.currentUser;
     if (currentUser?.uid) {
-      const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
-      const deviceId = getPushDeviceId();
-      const tokenId = `${currentUser.uid}_${deviceId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150);
-      await setDoc(doc(db, "powerhouse_fcm_tokens", tokenId), {
-        token,
-        userId: currentUser.uid,
-        deviceId,
-        platform: /Android/i.test(navigator.userAgent) ? "android" : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? "ios" : "desktop",
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      // Register through the authenticated backend so FCM token registration
+      // does not depend on client-side Firestore write permissions.
+      try {
+        const registered = await registerTokenWithBackend(token, currentUser);
+        if (!registered) {
+          // Keep a Firestore fallback for environments without a backend URL.
+          const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+          const deviceId = getPushDeviceId();
+          const tokenId = `${currentUser.uid}_${deviceId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150);
+          await setDoc(doc(db, "powerhouse_fcm_tokens", tokenId), {
+            token,
+            userId: currentUser.uid,
+            deviceId,
+            platform: /Android/i.test(navigator.userAgent) ? "android" : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? "ios" : "desktop",
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      } catch (registrationError) {
+        console.warn("Backend FCM token registration failed; trying Firestore fallback:", registrationError?.message || registrationError);
+        const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
+        const deviceId = getPushDeviceId();
+        const tokenId = `${currentUser.uid}_${deviceId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150);
+        await setDoc(doc(db, "powerhouse_fcm_tokens", tokenId), {
+          token,
+          userId: currentUser.uid,
+          deviceId,
+          platform: /Android/i.test(navigator.userAgent) ? "android" : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? "ios" : "desktop",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
     }
     return token;
   } catch (err) {
