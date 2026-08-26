@@ -46,10 +46,6 @@ function normalizeDeviceId(value) {
   return String(value || "browser").trim().replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120) || "browser";
 }
 
-// Register a browser/device FCM token through the authenticated backend.
-// Firestore is the authoritative multi-device token store. The SQL fcm_token
-// column is maintained only for the legacy task route, which expects the
-// numeric SQL users.id rather than the Firebase Auth UID.
 router.post("/register-token", async (req, res) => {
   try {
     const decoded = await verifyUser(req);
@@ -68,9 +64,6 @@ router.post("/register-token", async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    // Legacy SQL compatibility: Firebase Auth UID must NEVER be compared to
-    // the numeric users.id column. Resolve the SQL user by authenticated email
-    // first, then write the token using the numeric primary key.
     let legacyTaskPushSynced = false;
     try {
       const authEmail = String(decoded.email || "").trim().toLowerCase();
@@ -96,7 +89,6 @@ router.post("/register-token", async (req, res) => {
       console.warn("Legacy SQL FCM token sync skipped:", sqlError?.message || sqlError);
     }
 
-    // Remove duplicate copies of the same token left by older registrations.
     try {
       const duplicates = await admin.firestore().collection("powerhouse_fcm_tokens").where("token", "==", token).get();
       const batch = admin.firestore().batch();
@@ -112,6 +104,7 @@ router.post("/register-token", async (req, res) => {
       console.warn("Duplicate FCM token cleanup skipped:", cleanupError?.message || cleanupError);
     }
 
+    console.log("FCM TOKEN REGISTERED:", JSON.stringify({ userId: decoded.uid, deviceId, platform, tokenId }));
     return res.json({ success: true, registered: true, deviceId, tokenId, legacyTaskPushSynced });
   } catch (error) {
     const status = error.status || (error.code === "auth/id-token-expired" || error.code === "auth/argument-error" ? 401 : 500);
@@ -160,41 +153,38 @@ router.post("/push", async (req, res) => {
     const tokens = await getTokens(recipientIds);
 
     if (!tokens.length) {
+      console.warn("FCM PUSH SKIPPED: no registered tokens", JSON.stringify({ recipientIds }));
       return res.json({ success: true, sent: 0, skipped: 0, reason: "No registered push tokens for the selected users." });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || "https://powerhouse-app-eight.vercel.app";
-    const link = new URL(route, frontendUrl).href;
+    // Use a DATA-ONLY web message so the PowerHouse service worker owns the
+    // background/closed-app notification lifecycle. This avoids the browser's
+    // automatic notification path competing with our badge, vibration, click
+    // routing and notification tag handling.
     const response = await admin.messaging().sendEachForMulticast({
-      tokens,
-      notification: { title, body: messageBody },
       data: {
         title,
         body: messageBody,
         route,
-        notificationId: String(body.notificationId || "")
+        notificationId: String(body.notificationId || `powerhouse-${Date.now()}`),
+        taskId: String(body.taskId || "")
       },
       webpush: {
-        headers: { Urgency: "high", TTL: "86400" },
-        fcmOptions: { link },
-        notification: {
-          title,
-          body: messageBody,
-          icon: "/icon-192.svg",
-          badge: "/icon-192.svg",
-          tag: String(body.notificationId || `powerhouse-alert-${Date.now()}`),
-          requireInteraction: true,
-          silent: false,
-          vibrate: [220, 100, 220, 100, 320]
-        }
+        headers: { Urgency: "high", TTL: "3600" }
       }
     });
 
     const invalidTokens = [];
+    const failures = [];
     response.responses.forEach((result, index) => {
-      const code = result.error?.code || "";
+      if (result.success) return;
+      const code = result.error?.code || "unknown";
+      const message = result.error?.message || "unknown error";
+      failures.push({ index, code, message });
       if (code.includes("registration-token-not-registered") || code.includes("invalid-registration-token")) invalidTokens.push(tokens[index]);
     });
+
+    console.log("FCM PUSH RESULT:", JSON.stringify({ sent: response.successCount, failed: response.failureCount, devices: tokens.length, invalid: invalidTokens.length, failures: failures.slice(0, 10) }));
 
     if (invalidTokens.length) {
       const tokenCollection = admin.firestore().collection("powerhouse_fcm_tokens");
@@ -204,7 +194,7 @@ router.post("/push", async (req, res) => {
       }));
     }
 
-    return res.json({ success: true, sent: response.successCount, failed: response.failureCount, cleaned: invalidTokens.length, recipients: recipientIds.length ? recipientIds.length : "all", devices: tokens.length });
+    return res.json({ success: true, sent: response.successCount, failed: response.failureCount, cleaned: invalidTokens.length, recipients: recipientIds.length ? recipientIds.length : "all", devices: tokens.length, failures: failures.slice(0, 10) });
   } catch (error) {
     const status = error.status || (error.code === "auth/id-token-expired" || error.code === "auth/argument-error" ? 401 : 500);
     console.error("FCM notification error:", error?.message || error);
