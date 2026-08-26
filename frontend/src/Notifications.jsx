@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Bell, CheckCheck, ExternalLink, RefreshCw, ShieldCheck, Send, Users } from "lucide-react";
+import { Bell, CheckCheck, ExternalLink, RefreshCw, ShieldCheck, Send } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getUser } from "./utils/auth";
 import { listUsers } from "./services/firebaseDataStore";
@@ -12,6 +12,27 @@ import {
   sendPushNotification,
   subscribeToNotifications
 } from "./services/notificationService";
+
+async function resetPushServiceWorkers() {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(registrations.map(async (registration) => {
+    try {
+      const subscription = await registration.pushManager?.getSubscription?.();
+      if (subscription) await subscription.unsubscribe();
+    } catch (error) {
+      console.warn("Push subscription cleanup skipped:", error?.message || error);
+    }
+    try {
+      await registration.update();
+    } catch {}
+  }));
+}
+
+function isRecoverablePushError(error) {
+  const text = String(error?.message || error || "").toLowerCase();
+  return text.includes("push service error") || text.includes("failed to subscribe") || text.includes("token-subscribe-failed");
+}
 
 export default function Notifications() {
   const user = getUser();
@@ -41,11 +62,29 @@ export default function Notifications() {
     setPushState("loading");
     try {
       const token = await enablePushNotifications();
-      if (!token) throw new Error("Push permission was not granted or token could not be created.");
+      if (!token) throw new Error("Push permission was not granted or Firebase did not return a registration token.");
       setPushState("enabled");
-    } catch (err) {
+      setError("");
+    } catch (firstError) {
+      // Chrome can retain a stale PushSubscription after a service-worker or
+      // Firebase SDK update. Reset the browser subscription once and retry.
+      if (isRecoverablePushError(firstError)) {
+        try {
+          await resetPushServiceWorkers();
+          const token = await enablePushNotifications();
+          if (token) {
+            setPushState("enabled");
+            setError("");
+            return;
+          }
+        } catch (retryError) {
+          console.error("FCM recovery retry failed:", retryError);
+          firstError = retryError;
+        }
+      }
       setPushState("idle");
-      setError(err?.message || "Unable to enable notifications.");
+      const message = firstError?.message || "Unable to enable notifications.";
+      setError(`${message} If this persists, clear this site's PowerHouse data once and press Enable Push again.`);
     }
   };
 
