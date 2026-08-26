@@ -13,14 +13,6 @@ if (serviceAccount && !admin.apps.length) {
 
 if (!admin.apps.length) console.warn("⚠️ Firebase Admin not initialized (set FIREBASE_SERVICE_ACCOUNT)");
 
-// ============================================================
-// PowerHouse Web-Push hardening
-// ============================================================
-// Existing task routes use sendEachForMulticast(). Enhance that call globally
-// so background/closed PWAs receive a persistent WebPush notification with a
-// secure click target, high delivery urgency, vibration and app badge data.
-// ============================================================
-
 if (!admin.__POWERHOUSE_MESSAGING_PATCHED__) {
   const originalMessaging = admin.messaging.bind(admin);
 
@@ -57,8 +49,51 @@ if (!admin.__POWERHOUSE_MESSAGING_PATCHED__) {
         (taskId ? `powerhouse-task-${taskId}` : `powerhouse-${Date.now()}`)
       ).slice(0, 200);
 
+      // Task routes historically send one SQL fcm_token per user. Augment that
+      // token list with every current Firestore device token for the same task
+      // recipients, so phones + desktops can receive the same task push.
+      let extraTokens = [];
+      if (taskId && admin.apps.length) {
+        try {
+          const db = require("./config/db");
+          const promiseDb = db.promiseDb ? db.promiseDb : db.promise();
+          const [rows] = await promiseDb.query(
+            `SELECT DISTINCT user_id FROM task_assignments WHERE task_id = ?`,
+            [Number(taskId)]
+          );
+          const recipientIds = (rows || [])
+            .map((row) => String(row.user_id || "").trim())
+            .filter(Boolean);
+
+          if (recipientIds.length) {
+            const tokenCollection = admin.firestore().collection("powerhouse_fcm_tokens");
+            const snapshots = await Promise.all(
+              recipientIds.map((uid) =>
+                tokenCollection.where("userId", "==", uid).get()
+              )
+            );
+            extraTokens = snapshots.flatMap((snapshot) =>
+              snapshot.docs.map((doc) => String(doc.data()?.token || "").trim()).filter(Boolean)
+            );
+          }
+        } catch (error) {
+          console.warn("PowerHouse multi-device task token lookup skipped:", error?.message || error);
+        }
+      }
+
+      const mergedTokens = [...new Set([
+        ...(Array.isArray(message?.tokens) ? message.tokens : []),
+        ...extraTokens
+      ].map(String).map((token) => token.trim()).filter(Boolean))];
+
+      if (!mergedTokens.length) {
+        console.warn("PowerHouse WebPush: no registered device tokens.");
+        return { responses: [], successCount: 0, failureCount: 0 };
+      }
+
       const enhancedMessage = {
         ...message,
+        tokens: mergedTokens,
         notification: {
           ...(message?.notification || {}),
           title,
@@ -99,7 +134,7 @@ if (!admin.__POWERHOUSE_MESSAGING_PATCHED__) {
 
       const response = await originalSendEachForMulticast(enhancedMessage);
       console.log(
-        `📲 WebPush multicast: success=${response.successCount}, failed=${response.failureCount}, devices=${message?.tokens?.length || 0}`
+        `📲 WebPush multicast: success=${response.successCount}, failed=${response.failureCount}, devices=${mergedTokens.length}`
       );
       return response;
     };
