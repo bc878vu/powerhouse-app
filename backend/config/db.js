@@ -16,18 +16,21 @@ const isRailwayProduction =
 if (isRailwayProduction) {
   console.log("🚂 DATABASE MODE: RAILWAY MYSQL");
 
-  // Railway server par pehle internal variables use karo
-  if (
-    process.env.MYSQLHOST &&
-    process.env.MYSQLUSER &&
-    process.env.MYSQLDATABASE
-  ) {
+  // Railway can expose MYSQLDATABASE or MYSQL_DATABASE depending on setup.
+  // Accept both names so an existing Railway MySQL connection is never broken.
+  const mysqlHost = process.env.MYSQLHOST || process.env.MYSQL_HOST;
+  const mysqlUser = process.env.MYSQLUSER || process.env.MYSQL_USER;
+  const mysqlPassword = process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || "";
+  const mysqlDatabase = process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE;
+  const mysqlPort = Number(process.env.MYSQLPORT || process.env.MYSQL_PORT) || 3306;
+
+  if (mysqlHost && mysqlUser && mysqlDatabase) {
     db = mysql.createPool({
-      host: process.env.MYSQLHOST,
-      user: process.env.MYSQLUSER,
-      password: process.env.MYSQLPASSWORD,
-      database: process.env.MYSQLDATABASE,
-      port: Number(process.env.MYSQLPORT) || 3306,
+      host: mysqlHost,
+      user: mysqlUser,
+      password: mysqlPassword,
+      database: mysqlDatabase,
+      port: mysqlPort,
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
@@ -46,7 +49,7 @@ if (isRailwayProduction) {
 
   else {
     throw new Error(
-      "❌ Railway MySQL environment variables not found."
+      "❌ Railway MySQL environment variables not found. Expected MYSQLHOST/MYSQLDATABASE or MYSQL_HOST/MYSQL_DATABASE."
     );
   }
 
@@ -78,22 +81,14 @@ db.getConnection((err, conn) => {
 
   console.log("✅ DB CONNECTED SUCCESSFULLY");
 
-  // Show exact database being used
   conn.query(
     "SELECT DATABASE() AS database_name",
     (queryErr, rows) => {
       if (queryErr) {
-        console.error(
-          "⚠️ Could not detect database:",
-          queryErr.message
-        );
+        console.error("⚠️ Could not detect database:", queryErr.message);
       } else {
-        console.log(
-          "📦 ACTIVE DATABASE:",
-          rows[0]?.database_name
-        );
+        console.log("📦 ACTIVE DATABASE:", rows[0]?.database_name);
       }
-
       conn.release();
     }
   );
