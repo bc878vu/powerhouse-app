@@ -3,7 +3,7 @@ const admin = require("../firebaseAdmin");
 
 const router = express.Router();
 
-async function verifyAdmin(req) {
+async function verifyUser(req) {
   if (!admin.apps.length) throw new Error("Firebase Admin is not initialized. Set FIREBASE_SERVICE_ACCOUNT on the backend.");
   const header = String(req.headers.authorization || "");
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -12,7 +12,11 @@ async function verifyAdmin(req) {
     error.status = 401;
     throw error;
   }
-  const decoded = await admin.auth().verifyIdToken(token);
+  return admin.auth().verifyIdToken(token);
+}
+
+async function verifyAdmin(req) {
+  const decoded = await verifyUser(req);
   const email = String(decoded.email || "").trim().toLowerCase();
   let profile = null;
   try {
@@ -35,6 +39,55 @@ function normalizeIds(value) {
   if (value == null || value === "") return [];
   return [String(value).trim()].filter(Boolean);
 }
+
+function normalizeDeviceId(value) {
+  return String(value || "browser").trim().replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120) || "browser";
+}
+
+// Register a browser/device FCM token through the authenticated backend.
+// This avoids exposing token writes to client Firestore rules and supports
+// multiple active devices for the same user.
+router.post("/register-token", async (req, res) => {
+  try {
+    const decoded = await verifyUser(req);
+    const token = String(req.body?.token || "").trim();
+    const deviceId = normalizeDeviceId(req.body?.deviceId);
+    const platform = String(req.body?.platform || "web").trim().slice(0, 30);
+
+    if (!token) return res.status(400).json({ success: false, message: "FCM token is required." });
+
+    const tokenId = `${decoded.uid}_${deviceId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150);
+    await admin.firestore().collection("powerhouse_fcm_tokens").doc(tokenId).set({
+      token,
+      userId: decoded.uid,
+      deviceId,
+      platform,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // Remove duplicate copies of the same token left by older registrations.
+    try {
+      const duplicates = await admin.firestore().collection("powerhouse_fcm_tokens").where("token", "==", token).get();
+      const batch = admin.firestore().batch();
+      let deletes = 0;
+      duplicates.docs.forEach((item) => {
+        if (item.id !== tokenId && item.data()?.userId === decoded.uid) {
+          batch.delete(item.ref);
+          deletes += 1;
+        }
+      });
+      if (deletes) await batch.commit();
+    } catch (cleanupError) {
+      console.warn("Duplicate FCM token cleanup skipped:", cleanupError?.message || cleanupError);
+    }
+
+    return res.json({ success: true, registered: true, deviceId, tokenId });
+  } catch (error) {
+    const status = error.status || (error.code === "auth/id-token-expired" || error.code === "auth/argument-error" ? 401 : 500);
+    console.error("FCM token registration error:", error?.message || error);
+    return res.status(status).json({ success: false, message: error?.message || "Unable to register push token." });
+  }
+});
 
 async function getTokens(recipientIds = []) {
   const firestore = admin.firestore();
