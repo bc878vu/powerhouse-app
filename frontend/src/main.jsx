@@ -87,12 +87,15 @@ if (typeof window !== "undefined") {
   setTimeout(() => observer.takeRecords(), 0);
 }
 
-// Register the app-shell service worker after the first render. It only caches
-// static same-origin assets; Firestore/Auth/FCM traffic remains network-first.
+// Register the same versioned service worker used by Firebase Messaging.
+// Versioning forces stale installed PWAs to pick up the notification worker.
 if (typeof window !== "undefined" && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/powerhouse-sw.js", { scope: "/" }).catch((error) => {
-      console.warn("PowerHouse app cache worker registration failed:", error?.message || error);
-    });
+    navigator.serviceWorker
+      .register("/powerhouse-sw.js?v=15", { scope: "/", updateViaCache: "none" })
+      .then((registration) => registration.update().catch(() => {}))
+      .catch((error) => {
+        console.warn("PowerHouse app cache worker registration failed:", error?.message || error);
+      });
   }, { once: true });
 }
