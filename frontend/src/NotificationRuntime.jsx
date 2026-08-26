@@ -40,6 +40,19 @@ function playNotificationTone() {
   }
 }
 
+function setAppBadge() {
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(1);
+  } catch {}
+}
+
+function clearAppBadge() {
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge();
+    else if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(0);
+  } catch {}
+}
+
 function taskEventText(event, data = {}) {
   const title = String(data.title || data.notificationTitle || "").trim();
   const body = String(data.body || data.message || data.notificationBody || "").trim();
@@ -83,14 +96,14 @@ export default function NotificationRuntime() {
     const showAlert = (title, body, route = "/notifications") => {
       if (disposed) return;
       playNotificationTone();
+      setAppBadge();
       setAlert({ title, body, route });
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => setAlert(null), 8000);
 
-      // Foreground OS notification is useful when the tab is not focused.
       try {
         if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.visibilityState !== "visible") {
-          new Notification(title, { body, icon: "/icon-192.svg", tag: `powerhouse-${Date.now() }`, requireInteraction: true });
+          new Notification(title, { body, icon: "/icon-192.svg", badge: "/icon-192.svg", tag: `powerhouse-${Date.now()}`, requireInteraction: true });
         }
       } catch {}
     };
@@ -101,7 +114,6 @@ export default function NotificationRuntime() {
       currentUidRef.current = user?.uid || null;
       if (!user || disposed) return;
 
-      // If permission was previously granted, refresh the token silently.
       try {
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           await getFCMToken({ requestPermission: false });
@@ -110,19 +122,16 @@ export default function NotificationRuntime() {
         console.warn("Silent push token refresh skipped:", error?.message || error);
       }
 
-      // Foreground Firebase messages.
       try {
         unsubscribeMessage = await onForegroundMessage((payload) => {
           const title = payload?.notification?.title || payload?.data?.title || "PowerHouse Alert";
           const body = payload?.notification?.body || payload?.data?.body || "You have a new PowerHouse notification.";
-          showAlert(title, body, payload?.data?.route || "/notifications");
+          showAlert(title, body, payload?.data?.route || (payload?.data?.taskId ? `/task-view/${payload.data.taskId}` : "/notifications"));
         });
       } catch (error) {
         console.warn("Foreground notification listener skipped:", error?.message || error);
       }
 
-      // Socket.IO is the realtime fallback for online users and also gives an
-      // immediate popup even if FCM delivery is delayed.
       if (socket) {
         const join = () => {
           socket.emit("joinUser", user.uid);
@@ -150,8 +159,6 @@ export default function NotificationRuntime() {
 
     unsubscribeAuth = onAuthStateChanged(auth, (user) => { void setup(user); });
 
-    // Request permission from a real user gesture rather than from page load.
-    // This makes push registration work on browsers that reject automatic prompts.
     const requestOnFirstGesture = async () => {
       if (permissionAttemptedRef.current || !auth.currentUser || typeof Notification === "undefined") return;
       permissionAttemptedRef.current = true;
@@ -176,7 +183,7 @@ export default function NotificationRuntime() {
   return (
     <button
       type="button"
-      onClick={() => { window.location.href = alert.route; }}
+      onClick={() => { clearAppBadge(); window.location.href = alert.route; }}
       className="fixed right-4 top-24 z-[200] w-[min(92vw,380px)] rounded-2xl border border-yellow-500/30 bg-[#020617]/95 p-4 text-left shadow-2xl backdrop-blur-xl"
       aria-label="Open notification"
     >
