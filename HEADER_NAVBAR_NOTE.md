@@ -1,0 +1,1 @@
+Requested UI direction: restore the compact header navbar (only the small set of primary pages visible, as before) and keep the complete ordered module list in the Modules/sidebar menu. Header must remain responsive on desktop/tablet/mobile. Do not remove any existing module or route.
