@@ -33,10 +33,15 @@ export default function Layout() {
   const canManageMachines = isAdmin;
   const profilePhoto = resolvePhotoUrl(user);
 
-  useEffect(() => setSidebarOpen(false), [location.pathname]);
+  // Close the module drawer whenever navigation happens.
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   useEffect(() => {
     if (location.pathname.startsWith("/machines")) setMachinesOpen(true);
   }, [location.pathname]);
+
   useEffect(() => {
     const uid = getCurrentNotificationUid() || user?.firebaseUid || user?.uid || user?.id;
     if (!uid) return;
@@ -45,6 +50,7 @@ export default function Layout() {
 
   const isActive = (path) => path === "/" ? location.pathname === "/" : location.pathname === path || location.pathname.startsWith(`${path}/`);
   const handleLogout = () => { logout(); window.location.href = "/"; };
+  const closeModules = () => setSidebarOpen(false);
 
   const menuItems = [
     ["Dashboard", LayoutDashboard, "/", ["admin", "superadmin", "electrician", "cro"]],
@@ -63,7 +69,14 @@ export default function Layout() {
   ];
 
   const visibleItems = menuItems.filter(item => item[3].includes(user?.role));
-  const headerItems = isAdmin ? visibleItems.filter(item => ["/", "/ai", "/assign-tasks"].includes(item[2])) : visibleItems.filter(item => ["/", "/ai", "/my-tasks"].includes(item[2]));
+
+  // Keep only the requested high-priority pages in the main header.
+  const headerItems = isAdmin
+    ? visibleItems.filter(item => ["/", "/assign-tasks", "/fuel-management"].includes(item[2]))
+    : visibleItems.filter(item => ["/", "/my-tasks"].includes(item[2]));
+
+  // Pages already exposed in the header are not repeated in Module Pages.
+  const moduleItems = visibleItems.filter(item => !["/", "/assign-tasks", "/fuel-management", "/panels"].includes(item[2]));
 
   const publicLinks = [["Main Dashboard", "/", LayoutDashboard], ["Fuel", "/fuel-management", Fuel], ["Machines", "/machines", Cpu], ["Panels", "/panels", PanelsTopLeft]];
 
@@ -85,23 +98,41 @@ export default function Layout() {
     <div className="min-h-screen w-full bg-[#0a0f1e] text-white font-sans overflow-x-hidden">
       <header className="fixed top-0 left-0 right-0 z-[90] h-16 md:h-20 flex items-center gap-2 px-2 sm:px-3 md:px-6 bg-[#020617]/95 backdrop-blur-xl border-b border-white/5">
         <button onClick={() => setSidebarOpen(true)} className="h-11 shrink-0 rounded-xl bg-yellow-500 text-black flex items-center justify-center gap-2 px-2.5 sm:px-3.5 md:px-4 shadow-lg shadow-yellow-500/10 hover:bg-yellow-400 transition-colors" title="Open Module Pages"><Home size={19} /><span className="hidden sm:inline text-[9px] md:text-[10px] font-black uppercase tracking-wide">Module Pages</span></button>
+
         <div className="hidden md:block shrink-0 mr-1"><h1 className="text-lg lg:text-xl font-black italic leading-none">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[7px] lg:text-[8px] text-slate-600 uppercase tracking-[0.28em] font-black mt-1">Management Portal</p></div>
+
         <nav className="hidden sm:flex flex-1 min-w-0 items-center justify-center gap-1 overflow-hidden">
           {headerItems.map(([name, Icon, path]) => <Link key={path} to={path} className={`shrink-0 px-3 md:px-4 py-2.5 rounded-xl text-[9px] md:text-[10px] lg:text-xs font-black uppercase tracking-wide whitespace-nowrap transition-colors ${isActive(path) ? "bg-yellow-500 text-black" : "text-slate-400 hover:text-white hover:bg-white/5"}`}><Icon size={14} className="inline mr-1.5" />{name}</Link>)}
+          {isAdmin && <Link to="/machines" className={`shrink-0 px-3 md:px-4 py-2.5 rounded-xl text-[9px] md:text-[10px] lg:text-xs font-black uppercase tracking-wide whitespace-nowrap transition-colors ${isActive("/machines") ? "bg-yellow-500 text-black" : "text-slate-400 hover:text-white hover:bg-white/5"}`}><Cpu size={14} className="inline mr-1.5" />Machines</Link>}
+          {isAdmin && <Link to="/panels" className={`shrink-0 px-3 md:px-4 py-2.5 rounded-xl text-[9px] md:text-[10px] lg:text-xs font-black uppercase tracking-wide whitespace-nowrap transition-colors ${isActive("/panels") ? "bg-yellow-500 text-black" : "text-slate-400 hover:text-white hover:bg-white/5"}`}><PanelsTopLeft size={14} className="inline mr-1.5" />Panels</Link>}
         </nav>
+
         <div className="ml-auto flex items-center gap-1 shrink-0"><Link to="/notifications" className="relative p-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition-colors" title="Notifications"><Bell size={19} />{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></div>
       </header>
 
-      {sidebarOpen && <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm" onClick={closeModules} />}
       <aside className={`fixed top-0 left-0 bottom-0 z-[110] w-80 max-w-[88vw] bg-[#020617] border-r border-white/5 flex flex-col p-5 sm:p-6 shadow-2xl transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="flex items-center justify-between mb-6 px-2"><div><h1 className="text-2xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[9px] text-slate-500 uppercase tracking-[0.3em] font-black mt-1">Module Pages</p></div><button onClick={() => setSidebarOpen(false)} className="p-2 text-slate-400 hover:text-white"><X size={22} /></button></div>
-        <div className="grid grid-cols-3 gap-2 mb-5"><Link to="/" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><LayoutDashboard size={15} className="mx-auto mb-1 text-yellow-500" />Home</Link>{isAdmin && <><Link to="/fuel-management" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Fuel size={15} className="mx-auto mb-1 text-yellow-500" />Fuel</Link><Link to="/machines" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Cpu size={15} className="mx-auto mb-1 text-yellow-500" />Machines</Link></>}</div>
+        <div className="flex items-center justify-between mb-6 px-2"><div><h1 className="text-2xl font-black italic">POWER<span className="text-yellow-500 not-italic">HOUSE</span></h1><p className="text-[9px] text-slate-500 uppercase tracking-[0.3em] font-black mt-1">Module Pages</p></div><button onClick={closeModules} className="p-2 text-slate-400 hover:text-white" title="Close"><X size={22} /></button></div>
+
+        <div className="grid grid-cols-3 gap-2 mb-5">
+          <Link onClick={closeModules} to="/" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><LayoutDashboard size={15} className="mx-auto mb-1 text-yellow-500" />Home</Link>
+          {isAdmin && <><Link onClick={closeModules} to="/fuel-management" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Fuel size={15} className="mx-auto mb-1 text-yellow-500" />Fuel</Link><Link onClick={closeModules} to="/machines" className="rounded-xl bg-white/[0.04] border border-white/5 p-2 text-center text-[8px] font-black uppercase text-slate-400"><Cpu size={15} className="mx-auto mb-1 text-yellow-500" />Machines</Link></>}
+        </div>
+
         <nav className="flex-1 space-y-1.5 overflow-y-auto pr-1">
-          {visibleItems.map(([name, Icon, path]) => <Link key={path} to={path} className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-colors ${isActive(path) ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Icon size={20} className={isActive(path) ? "text-black" : "text-yellow-500"} /><span className="text-sm tracking-wide">{name}</span></div>{isActive(path) && <ChevronRight size={14} className="opacity-50" />}</Link>)}
-          {canViewMachines && <div><button onClick={() => setMachinesOpen(v => !v)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl ${location.pathname.startsWith("/machines") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Cpu size={20} /><span className="text-sm">Machines</span></div>{machinesOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>{machinesOpen && <div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1"><Link to="/machines" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><SlidersHorizontal size={15} />Dashboard</Link>{canManageMachines && <Link to="/machines/add" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Plus size={15} />Add Machine</Link>}</div>}</div>}
+          {moduleItems.map(([name, Icon, path]) => <Link onClick={closeModules} key={path} to={path} className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-colors ${isActive(path) ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Icon size={20} className={isActive(path) ? "text-black" : "text-yellow-500"} /><span className="text-sm tracking-wide">{name}</span></div>{isActive(path) && <ChevronRight size={14} className="opacity-50" />}</Link>)}
+
+          {canViewMachines && <div><button onClick={() => setMachinesOpen(v => !v)} className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl ${location.pathname.startsWith("/machines") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Cpu size={20} /><span className="text-sm">Machine Management</span></div>{machinesOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</button>{machinesOpen && <div className="ml-4 pl-4 border-l border-yellow-500/20 space-y-1"><Link onClick={closeModules} to="/machines" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><SlidersHorizontal size={15} />Dashboard</Link>{canManageMachines && <Link onClick={closeModules} to="/machines/add" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-white"><Plus size={15} />Add Machine</Link>}</div>}</div>}
+
+          {isAdmin && <>
+            <Link onClick={closeModules} to="/add-panel" className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-colors ${isActive("/add-panel") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><CircuitBoard size={20} className={isActive("/add-panel") ? "text-black" : "text-yellow-500"} /><span className="text-sm tracking-wide">Add Panel</span></div>{isActive("/add-panel") && <ChevronRight size={14} className="opacity-50" />}</Link>
+            <Link onClick={closeModules} to="/interactive-panel-map" className={`flex items-center justify-between px-4 py-3.5 rounded-2xl transition-colors ${isActive("/interactive-panel-map") ? "bg-yellow-500 text-black font-bold" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}><div className="flex items-center gap-4"><Map size={20} className={isActive("/interactive-panel-map") ? "text-black" : "text-yellow-500"} /><span className="text-sm tracking-wide">Interactive Panel Map</span></div>{isActive("/interactive-panel-map") && <ChevronRight size={14} className="opacity-50" />}</Link>
+          </>}
         </nav>
-        <div className="mt-4 pt-5 border-t border-white/5 space-y-3"><Link to="/profile" className="flex items-center gap-3 px-3 py-3 bg-white/[0.03] rounded-2xl border border-white/5"><div className="w-10 h-10 rounded-2xl bg-yellow-500 text-black font-black shrink-0 overflow-hidden flex items-center justify-center">{profilePhoto ? <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" onError={event => { event.currentTarget.style.display = "none"; }} /> : initials(user?.name)}</div><div className="overflow-hidden"><p className="text-xs font-black truncate">{user?.name || "User"}</p><p className="text-[9px] uppercase tracking-tighter text-yellow-500 font-black mt-0.5">{user?.role || "user"}</p></div></Link><button onClick={handleLogout} className="flex items-center gap-4 px-6 py-4 w-full text-slate-500 hover:text-red-400 hover:bg-red-500/5 rounded-2xl font-bold text-xs uppercase tracking-widest"><LogOut size={18} />Logout</button></div>
+
+        <div className="mt-4 pt-5 border-t border-white/5 space-y-3"><Link onClick={closeModules} to="/profile" className="flex items-center gap-3 px-3 py-3 bg-white/[0.03] rounded-2xl border border-white/5"><div className="w-10 h-10 rounded-2xl bg-yellow-500 text-black font-black shrink-0 overflow-hidden flex items-center justify-center">{profilePhoto ? <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" onError={event => { event.currentTarget.style.display = "none"; }} /> : initials(user?.name)}</div><div className="overflow-hidden"><p className="text-xs font-black truncate">{user?.name || "User"}</p><p className="text-[9px] uppercase tracking-tighter text-yellow-500 font-black mt-0.5">{user?.role || "user"}</p></div></Link><button onClick={handleLogout} className="flex items-center gap-4 px-6 py-4 w-full text-slate-500 hover:text-red-400 hover:bg-red-500/5 rounded-2xl font-bold text-xs uppercase tracking-widest"><LogOut size={18} />Logout</button></div>
       </aside>
+
       <main className="pt-20 md:pt-24 px-2 sm:px-3 md:px-6 lg:px-8 pb-10"><div className="max-w-[1700px] mx-auto min-h-[calc(100vh-130px)]"><Outlet /></div></main>
     </div>
   );
