@@ -1,0 +1,17 @@
+export const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,Number(v)||0));
+export const mapPoint=(event,element)=>{const r=element.getBoundingClientRect();return{x:+clamp(((event.clientX-r.left)/r.width)*100).toFixed(3),y:+clamp(((event.clientY-r.top)/r.height)*100).toFixed(3)}};
+export const routeLengthFeet=(points,width,height)=>{const w=Number(width)||0,h=Number(height)||0;if(!w||!h||!Array.isArray(points)||points.length<2)return 0;let total=0;for(let i=1;i<points.length;i++){const dx=(Number(points[i].x)-Number(points[i-1].x))*w/100;const dy=(Number(points[i].y)-Number(points[i-1].y))*h/100;total+=Math.hypot(dx,dy)}return Number(total.toFixed(2))};
+export const routeLengthMeters=(points,width,height)=>Number((routeLengthFeet(points,width,height)*0.3048).toFixed(2));
+export const parseNumber=v=>{const n=parseFloat(String(v??"").replace(/,/g,""));return Number.isFinite(n)?n:null};
+export const loadToAmps=(load,voltage,pf=.9)=>{const kw=parseNumber(load),v=parseNumber(voltage);if(!kw||!v)return null;return Number((kw*1000/(Math.sqrt(3)*v*pf)).toFixed(1))};
+export const cableOptions=[{size:"1.5 mm²",amp:18},{size:"2.5 mm²",amp:25},{size:"4 mm²",amp:32},{size:"6 mm²",amp:40},{size:"10 mm²",amp:57},{size:"16 mm²",amp:76},{size:"25 mm²",amp:101},{size:"35 mm²",amp:125},{size:"50 mm²",amp:150},{size:"70 mm²",amp:195},{size:"95 mm²",amp:230},{size:"120 mm²",amp:260},{size:"150 mm²",amp:300},{size:"185 mm²",amp:340},{size:"240 mm²",amp:400}];
+export const suggestCable=(amps,distanceM)=>{if(!amps)return null;const distanceFactor=1+Math.min(.18,Math.max(0,(Number(distanceM)||0)-30)/250);const target=amps*1.25*distanceFactor;return cableOptions.find(x=>x.amp>=target)||cableOptions[cableOptions.length-1]};
+export const panelLoadAmps=p=>loadToAmps(p?.load_kw??p?.load??p?.connected_load_kw??p?.demand_kw,p?.voltage);
+export const distanceBetweenPanels=(a,b,w,h)=>{if(!a||!b)return 0;return Number(Math.hypot((Number(a.x_position??50)-Number(b.x_position??50))*Number(w||0)/100,(Number(a.y_position??50)-Number(b.y_position??50))*Number(h||0)/100).toFixed(2))};
+export const nearestPanel=(panels,target,scale,excludeId)=>{const candidates=(panels||[]).filter(p=>String(p.id)!==String(excludeId));if(!candidates.length)return null;const ranked=candidates.map(p=>({...p,_distance:distanceBetweenPanels(target,p,scale?.w,scale?.h)})).sort((a,b)=>a._distance-b._distance);return ranked[0]||null};
+export const lockKey=id=>`ph_panel_map_lock_${id}`;
+export const readLock=id=>{try{return localStorage.getItem(lockKey(id))==="1"}catch{return false}};
+export const writeLock=(id,value)=>{try{localStorage.setItem(lockKey(id),value?"1":"0")}catch{}};
+export const viewportKey="ph_panel_map_viewport_v2";
+export const readViewport=()=>{try{return JSON.parse(localStorage.getItem(viewportKey))||{scale:1,x:0,y:0}}catch{return{scale:1,x:0,y:0}}};
+export const writeViewport=v=>{try{localStorage.setItem(viewportKey,JSON.stringify(v))}catch{}};
