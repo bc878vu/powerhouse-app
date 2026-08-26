@@ -133,9 +133,42 @@ const getMessagingInstance = async () => {
 const getMessagingServiceWorker = async () => {
   if (!("serviceWorker" in navigator)) return null;
   if (!isFirebaseConfigured) throw new Error(`Firebase configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-  const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, { scope: "/" });
+  const registration = await navigator.serviceWorker.register(CURRENT_MESSAGING_WORKER, {
+    scope: "/",
+    updateViaCache: "none"
+  });
+  await registration.update().catch(() => {});
   await navigator.serviceWorker.ready;
+  if (!registration.active) throw new Error("PowerHouse notification service worker did not become active.");
   return registration;
+};
+
+const isPushSubscriptionError = (error) => {
+  const text = String(error?.message || error || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
+  return text.includes("push service error") || text.includes("failed to subscribe") || code.includes("token-subscribe-failed");
+};
+
+const clearBrowserPushSubscription = async (registration) => {
+  try {
+    const subscription = await registration?.pushManager?.getSubscription?.();
+    if (subscription) await subscription.unsubscribe();
+  } catch (error) {
+    console.warn("Browser push subscription cleanup skipped:", error?.message || error);
+  }
+};
+
+const getTokenWithRecovery = async (messagingService, serviceWorkerRegistration, vapidKey) => {
+  const { getToken } = await import("firebase/messaging");
+  try {
+    return await getToken(messagingService, { vapidKey, serviceWorkerRegistration });
+  } catch (error) {
+    if (!isPushSubscriptionError(error)) throw error;
+    console.warn("FCM push subscription failed. Resetting stale browser subscription and retrying once.", error?.message || error);
+    await clearBrowserPushSubscription(serviceWorkerRegistration);
+    await serviceWorkerRegistration.update().catch(() => {});
+    return getToken(messagingService, { vapidKey, serviceWorkerRegistration });
+  }
 };
 
 const registerTokenWithBackend = async (token, currentUser) => {
@@ -170,23 +203,26 @@ export const getFCMToken = async () => {
   try {
     const messagingService = await getMessagingInstance();
     if (!messagingService || typeof Notification === "undefined") return null;
+    if (!window.isSecureContext) throw new Error("Web Push requires HTTPS. Open PowerHouse using the HTTPS address.");
+
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") return null;
-    if (!import.meta.env.VITE_VAPID_KEY) throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
+    if (permission !== "granted") throw new Error(`Notification permission is ${permission}. Please allow notifications for this site.`);
+
+    const vapidKey = String(import.meta.env.VITE_VAPID_KEY || "").trim();
+    if (!vapidKey) throw new Error("VITE_VAPID_KEY is missing; configure the Firebase Web Push certificate first.");
+    if (vapidKey.length < 60) throw new Error("VITE_VAPID_KEY appears invalid. Use the public Web Push certificate key from the same Firebase project.");
+
     const serviceWorkerRegistration = await getMessagingServiceWorker();
     if (!serviceWorkerRegistration) return null;
-    const { getToken } = await import("firebase/messaging");
-    const token = await getToken(messagingService, { vapidKey: import.meta.env.VITE_VAPID_KEY, serviceWorkerRegistration });
-    if (!token) return null;
+
+    const token = await getTokenWithRecovery(messagingService, serviceWorkerRegistration, vapidKey);
+    if (!token) throw new Error("Firebase did not return a push registration token.");
 
     const currentUser = auth.currentUser;
     if (currentUser?.uid) {
-      // Register through the authenticated backend so FCM token registration
-      // does not depend on client-side Firestore write permissions.
       try {
         const registered = await registerTokenWithBackend(token, currentUser);
         if (!registered) {
-          // Keep a Firestore fallback for environments without a backend URL.
           const { doc, setDoc, serverTimestamp } = await import("firebase/firestore");
           const deviceId = getPushDeviceId();
           const tokenId = `${currentUser.uid}_${deviceId}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150);
@@ -214,7 +250,7 @@ export const getFCMToken = async () => {
     }
     return token;
   } catch (err) {
-    console.warn("FCM setup failed:", err?.message || err);
+    console.error("FCM setup failed:", err);
     throw err;
   }
 };
