@@ -19,32 +19,21 @@ const TASK_EVENTS = new Set([
 
 function setAppBadge() {
   try {
-    if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") {
-      void navigator.setAppBadge(1);
-    }
+    if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(1);
   } catch {}
 }
 
 function clearAppBadge() {
   try {
-    if (typeof navigator !== "undefined" && typeof navigator.clearAppBadge === "function") {
-      void navigator.clearAppBadge();
-    } else if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") {
-      void navigator.setAppBadge(0);
-    }
+    if (typeof navigator !== "undefined" && typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge();
+    else if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(0);
   } catch {}
 }
 
 function taskEventText(event, data = {}) {
   const title = String(data.title || data.notificationTitle || "").trim();
   const body = String(data.body || data.message || data.notificationBody || "").trim();
-  if (title || body) {
-    return {
-      title: title || "PowerHouse Task Alert",
-      body: body || "A task has been updated.",
-    };
-  }
-
+  if (title || body) return { title: title || "PowerHouse Task Alert", body: body || "A task has been updated." };
   const taskId = data.taskId ?? data.task_id ?? data.id ?? "";
   const labels = {
     taskAssigned: "New task assigned",
@@ -59,14 +48,7 @@ function taskEventText(event, data = {}) {
     taskCompleted: "Task completed",
     taskStatusChanged: "Task status changed",
   };
-
-  const label = labels[event] || "Task notification";
-  return {
-    title: label,
-    body: taskId
-      ? `Task #${taskId} has a new update.`
-      : "A PowerHouse task has a new update.",
-  };
+  return { title: labels[event] || "Task notification", body: taskId ? `Task #${taskId} has a new update.` : "A PowerHouse task has a new update." };
 }
 
 function eventRoute(data = {}) {
@@ -86,9 +68,7 @@ function getUserIds(user) {
 function getEventRecipientIds(data = {}) {
   const values = data.userIds ?? data.user_ids ?? data.userId ?? data.user_id;
   if (Array.isArray(values)) return values.map(String).filter(Boolean);
-  return values === undefined || values === null || String(values).trim() === ""
-    ? []
-    : [String(values)];
+  return values === undefined || values === null || String(values).trim() === "" ? [] : [String(values)];
 }
 
 export default function NotificationRuntime() {
@@ -119,15 +99,8 @@ export default function NotificationRuntime() {
         await unlockAudio();
         const context = audioContextRef.current;
         if (!context || context.state !== "running") return;
-
         const now = context.currentTime;
-        const notes = [
-          [880, 0.00, 0.22],
-          [660, 0.24, 0.22],
-          [880, 0.48, 0.22],
-          [660, 0.72, 0.28],
-        ];
-
+        const notes = [[880, 0.00, 0.22], [660, 0.24, 0.22], [880, 0.48, 0.22], [660, 0.72, 0.28]];
         notes.forEach(([frequency, offset, duration]) => {
           const oscillator = context.createOscillator();
           const gain = context.createGain();
@@ -141,11 +114,8 @@ export default function NotificationRuntime() {
           oscillator.start(now + offset);
           oscillator.stop(now + offset + duration + 0.02);
         });
-
         try {
-          if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-            navigator.vibrate([220, 100, 220, 100, 320]);
-          }
+          if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([220, 100, 220, 100, 320]);
         } catch {}
       } catch (error) {
         console.warn("Notification tone skipped:", error?.message || error);
@@ -176,29 +146,18 @@ export default function NotificationRuntime() {
 
     const showAlert = async (title, body, route = "/notifications", notificationId = "") => {
       if (disposed) return;
-
       const key = String(notificationId || `${title}|${body}|${route}`).slice(0, 300);
       const now = Date.now();
       const previous = recentEventsRef.current.get(key);
       if (previous && now - previous < 10000) return;
       recentEventsRef.current.set(key, now);
-
-      for (const [eventKey, timestamp] of recentEventsRef.current) {
-        if (now - timestamp > 15000) recentEventsRef.current.delete(eventKey);
-      }
-
+      for (const [eventKey, timestamp] of recentEventsRef.current) if (now - timestamp > 15000) recentEventsRef.current.delete(eventKey);
       setAppBadge();
       setAlert({ title, body, route });
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => setAlert(null), 12000);
-
       void playNotificationTone();
-      void showSystemNotification(
-        title,
-        body,
-        route,
-        key || `powerhouse-${Date.now()}`
-      );
+      void showSystemNotification(title, body, route, key || `powerhouse-${Date.now()}`);
     };
 
     const setup = async (user) => {
@@ -206,60 +165,42 @@ export default function NotificationRuntime() {
       unsubscribeMessage = () => {};
       if (!user || disposed) return;
 
-      // Keep the Firebase push token alive on every authenticated app start.
       try {
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          await getFCMToken({ requestPermission: false });
-        }
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") await getFCMToken({ requestPermission: false });
       } catch (error) {
         console.warn("Silent push token refresh skipped:", error?.message || error);
       }
 
-      // FCM foreground channel.
       try {
         unsubscribeMessage = await onForegroundMessage((payload) => {
           const title = payload?.notification?.title || payload?.data?.title || "PowerHouse Alert";
           const body = payload?.notification?.body || payload?.data?.body || "You have a new PowerHouse notification.";
           const route = eventRoute(payload?.data || {});
-          const notificationId = String(
-            payload?.data?.notificationId ||
-            payload?.messageId ||
-            `fcm-${payload?.data?.taskId || Date.now()}`
-          );
+          const notificationId = String(payload?.data?.notificationId || payload?.messageId || `fcm-${payload?.data?.taskId || Date.now()}`);
           void showAlert(title, body, route, notificationId);
         });
       } catch (error) {
         console.warn("Foreground notification listener skipped:", error?.message || error);
       }
 
-      // Socket.IO realtime channel. The backend task router uses SQL numeric
-      // user IDs while Firebase Auth uses a UID, so join BOTH identifiers.
       if (socket) {
         const userIds = getUserIds(user);
         const join = () => {
           userIds.forEach((id) => socket.emit("joinUser", id));
-          if (["admin", "superadmin"].includes(String(user.role || "").toLowerCase())) {
-            socket.emit("joinAdmin");
-          }
+          if (["admin", "superadmin"].includes(String(user.role || "").toLowerCase())) socket.emit("joinAdmin");
         };
-
         if (socket.connected) join();
         socket.on("connect", join);
 
         const onAny = (event, data = {}) => {
           if (!TASK_EVENTS.has(event)) return;
-
           const recipientIds = getEventRecipientIds(data);
           const isAdmin = ["admin", "superadmin"].includes(String(user.role || "").toLowerCase());
           const belongsToUser = recipientIds.length === 0 || recipientIds.some((id) => userIds.includes(id));
           if (!belongsToUser && !isAdmin) return;
-
           const text = taskEventText(event, data);
           const taskId = data.taskId ?? data.task_id ?? data.id ?? "";
-          const notificationId = String(
-            data.notificationId ||
-            `${event}-${taskId || "general"}-${data.assignment_cycle || ""}`
-          );
+          const notificationId = String(data.notificationId || `${event}-${taskId || "general"}-${data.assignment_cycle || ""}`);
           void showAlert(text.title, text.body, eventRoute(data), notificationId);
         };
 
@@ -276,27 +217,28 @@ export default function NotificationRuntime() {
       }
     };
 
-    unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      void setup(user);
-    });
+    unsubscribeAuth = onAuthStateChanged(auth, (user) => { void setup(user); });
 
-    // Browsers require notification permission to be requested from a real
-    // user gesture. Unlock audio in the same gesture so later task alerts can
-    // play a foreground ringtone without autoplay-policy failures.
+    // Keep listening until auth is ready and push permission/token registration
+    // actually succeeds. A one-shot listener could otherwise fire too early,
+    // before Firebase Auth had restored the session.
     const requestOnFirstGesture = async () => {
       void unlockAudio();
       if (permissionAttemptedRef.current || !auth.currentUser || typeof Notification === "undefined") return;
-      permissionAttemptedRef.current = true;
-      if (Notification.permission !== "default") return;
+      if (Notification.permission === "denied") {
+        permissionAttemptedRef.current = true;
+        return;
+      }
       try {
-        await getFCMToken({ requestPermission: true });
+        const token = await getFCMToken({ requestPermission: true });
+        if (token) permissionAttemptedRef.current = true;
       } catch (error) {
-        console.warn("Push permission gesture registration skipped:", error?.message || error);
+        console.warn("Push permission gesture registration skipped; will retry on the next user gesture:", error?.message || error);
       }
     };
 
-    window.addEventListener("pointerdown", requestOnFirstGesture, { once: true, passive: true });
-    window.addEventListener("keydown", requestOnFirstGesture, { once: true, passive: true });
+    window.addEventListener("pointerdown", requestOnFirstGesture, { passive: true });
+    window.addEventListener("keydown", requestOnFirstGesture, { passive: true });
 
     return () => {
       disposed = true;
