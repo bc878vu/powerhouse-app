@@ -1,13 +1,28 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Cpu, Loader2, MapPin, Save, Zap } from "lucide-react";
-import { addMachine, subscribeToMachines, updateMachine } from "../services/machineService";
+import { ArrowLeft, CheckCircle2, Cpu, Loader2, Save, Zap } from "lucide-react";
+import { addMachine, subscribeToMachine, updateMachine } from "../services/machineService";
 
 const CATEGORIES = ["General", "Generator", "Compressor", "Boiler", "Motor", "Pump", "HVAC", "Production", "Electrical", "Packaging", "Cooling", "Utility", "Other"];
 const TYPES = ["Generator", "Air Compressor", "Screw Compressor", "Motor", "Electric Motor", "Pump", "Water Pump", "Boiler", "Chiller", "Cooling Tower", "AHU", "HVAC Unit", "Transformer", "UPS", "Panel / MCC", "Production Machine", "Packaging Machine", "Lifter", "Fan", "Blower", "Other"];
 const EMPTY = { name: "", code: "", category: "General", type: "", manufacturer: "", model: "", serialNumber: "", location: "", department: "Power House", capacity: "", capacityUnit: "kW", status: "standby", currentRunningLoad: "", loadUnit: "kW", normalLoadFactor: "", installDate: "", lastMaintenance: "", nextMaintenance: "", maintenanceIntervalDays: "", notes: "" };
 const inputClass = "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:border-yellow-500/60 placeholder:text-slate-600";
 const labelClass = "mb-2 block text-[9px] font-black uppercase tracking-widest text-slate-500";
+const DRAFT_PREFIX = "powerhouse_machine_draft_v2";
+
+const draftKey = (id) => `${DRAFT_PREFIX}:${id || "new"}`;
+const readDraft = (id) => {
+  try {
+    const raw = localStorage.getItem(draftKey(id));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? { ...EMPTY, ...parsed } : null;
+  } catch { return null; }
+};
+const writeDraft = (id, form) => {
+  try { localStorage.setItem(draftKey(id), JSON.stringify(form)); } catch {}
+};
+const clearDraft = (id) => { try { localStorage.removeItem(draftKey(id)); } catch {} };
 
 export default function AddMachine() {
   const navigate = useNavigate();
@@ -15,18 +30,33 @@ export default function AddMachine() {
   const [form, setForm] = useState(EMPTY);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!id) return;
-    const unsubscribe = subscribeToMachines(items => {
-      const machine = items.find(item => item.id === id);
-      if (machine) setForm({ ...EMPTY, ...machine });
+    const draft = readDraft(id);
+    if (draft) { setForm(draft); setDraftRestored(true); }
+
+    if (!id) { setLoading(false); return undefined; }
+    const unsubscribe = subscribeToMachine(id, machine => {
+      if (machine && !draft) setForm({ ...EMPTY, ...machine });
       setLoading(false);
     }, err => { setError(err.message || "Unable to load machine."); setLoading(false); });
     return () => unsubscribe?.();
   }, [id]);
+
+  useEffect(() => {
+    if (loading || saving) return undefined;
+    const timer = window.setTimeout(() => writeDraft(id, form), 250);
+    return () => window.clearTimeout(timer);
+  }, [form, id, loading, saving]);
+
+  useEffect(() => {
+    const saveBeforeExit = () => { if (!saving) writeDraft(id, form); };
+    window.addEventListener("beforeunload", saveBeforeExit);
+    return () => window.removeEventListener("beforeunload", saveBeforeExit);
+  }, [form, id, saving]);
 
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const customCategory = form.category && !CATEGORIES.includes(form.category);
@@ -35,22 +65,47 @@ export default function AddMachine() {
 
   const submit = async event => {
     event.preventDefault(); setError(""); setMessage("");
-    if (!form.name.trim() || !form.code.trim()) return setError("Machine name and machine code are required.");
-    if (Number(form.capacity || 0) > 0 && Number(form.currentRunningLoad || 0) > Number(form.capacity || 0)) return setError("Actual running load cannot exceed rated load.");
+    const name = form.name.trim();
+    const code = form.code.trim().toUpperCase();
+    const capacity = Number(form.capacity || 0);
+    const runningLoad = Number(form.currentRunningLoad || 0);
+    const normalLoadFactor = Number(form.normalLoadFactor || 0);
+    const interval = Number(form.maintenanceIntervalDays || 0);
+    if (!name || !code) return setError("Machine name and machine code are required.");
+    if (capacity < 0 || runningLoad < 0 || normalLoadFactor < 0 || normalLoadFactor > 100 || interval < 0) return setError("Please enter valid positive values. Load factor must be between 0 and 100%.");
+    if (capacity > 0 && runningLoad > capacity) return setError("Actual running load cannot exceed rated load.");
+
     setSaving(true);
     try {
-      const data = { ...form, name: form.name.trim(), code: form.code.trim().toUpperCase(), category: form.category.trim() || "General", type: form.type.trim() || "General" };
-      if (id) { await updateMachine(id, data); setMessage("Machine updated successfully."); }
-      else { await addMachine(data); setMessage("Machine added successfully."); setForm(EMPTY); }
-      window.setTimeout(() => navigate("/machines"), 700);
-    } catch (err) { setError(err.message || "Could not save machine."); }
-    finally { setSaving(false); }
+      const data = { ...form, name, code, category: String(form.category || "General").trim(), type: String(form.type || "General").trim() };
+      if (id) {
+        await updateMachine(id, data);
+        setMessage("Machine updated successfully and saved to Firebase.");
+      } else {
+        await addMachine(data);
+        setMessage("Machine added successfully and saved to Firebase.");
+      }
+      clearDraft(id);
+      window.setTimeout(() => navigate("/machines"), 800);
+    } catch (err) {
+      setError(err.message || "Could not save machine. Your entered data is still kept as a local draft.");
+      writeDraft(id, form);
+    } finally { setSaving(false); }
+  };
+
+  const discardDraft = () => {
+    clearDraft(id);
+    setForm(EMPTY);
+    setDraftRestored(false);
+    setMessage("Saved draft cleared.");
   };
 
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 size={32} className="animate-spin text-yellow-500"/></div>;
 
   return <div className="space-y-6 animate-in fade-in duration-500">
-    <div className="flex items-center gap-4"><button onClick={() => navigate("/machines")} className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center"><ArrowLeft size={19}/></button><div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center"><Cpu size={24}/></div><div><h1 className="text-2xl md:text-3xl font-black">{id ? "Edit Machine" : "Add Machine"}</h1><p className="text-slate-500 text-sm mt-1">Register complete machine identity, area, rated load, actual running load and maintenance profile.</p></div></div>
+    <div className="flex flex-col sm:flex-row sm:items-center gap-4"><button type="button" onClick={() => navigate("/machines")} className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center"><ArrowLeft size={19}/></button><div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center"><Cpu size={24}/></div><div className="min-w-0"><h1 className="text-2xl md:text-3xl font-black">{id ? "Edit Machine" : "Add Machine"}</h1><p className="text-slate-500 text-sm mt-1">Register complete machine identity, area, rated load, actual running load and maintenance profile.</p></div></div>
+
+    {draftRestored && <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-200"><span>Your unfinished machine data was restored from this device.</span><button type="button" onClick={discardDraft} className="self-start sm:self-auto rounded-lg bg-white/10 px-3 py-2 text-xs font-black uppercase">Clear Draft</button></div>}
     {error && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300">{error}</div>}
     {message && <div className="flex items-center gap-2 rounded-2xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm font-bold text-green-300"><CheckCircle2 size={17}/>{message}</div>}
 
@@ -59,11 +114,11 @@ export default function AddMachine() {
         <div><label className={labelClass}>Machine Name *</label><input required className={inputClass} value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Air Compressor 01"/></div>
         <div><label className={labelClass}>Machine Code *</label><input required className={inputClass} value={form.code} onChange={e => set("code", e.target.value.toUpperCase())} placeholder="e.g. MC-001"/></div>
         <div><label className={labelClass}>Category</label><select className={inputClass} value={customCategory ? "__custom__" : form.category} onChange={e => set("category", e.target.value === "__custom__" ? "" : e.target.value)}>{CATEGORIES.map(x => <option key={x}>{x}</option>)}<option value="__custom__">+ Create Custom Category</option></select>{(customCategory || !form.category) && <input className={inputClass + " mt-2"} value={form.category} onChange={e => set("category", e.target.value)} placeholder="Type custom category"/>}</div>
-        <div><label className={labelClass}>Machine Type</label><select className={inputClass} value={customType ? "__custom__" : form.type} onChange={e => set("type", e.target.value === "__custom__" ? "" : e.target.value)}><option value="">Select type</option>{TYPES.map(x => <option key={x}>{x}</option>)}<option value="__custom__">+ Create Custom Type</option></select>{(customType || (!form.type && form.type !== undefined)) && <input className={inputClass + " mt-2"} value={form.type} onChange={e => set("type", e.target.value)} placeholder="Type custom machine type"/>}</div>
+        <div><label className={labelClass}>Machine Type</label><select className={inputClass} value={customType ? "__custom__" : form.type} onChange={e => set("type", e.target.value === "__custom__" ? "" : e.target.value)}><option value="">Select type</option>{TYPES.map(x => <option key={x}>{x}</option>)}<option value="__custom__">+ Create Custom Type</option></select>{(customType || !form.type) && <input className={inputClass + " mt-2"} value={form.type} onChange={e => set("type", e.target.value)} placeholder="Type custom machine type"/>}</div>
         <div><label className={labelClass}>Manufacturer</label><input className={inputClass} value={form.manufacturer} onChange={e => set("manufacturer", e.target.value)} placeholder="Manufacturer"/></div>
         <div><label className={labelClass}>Model</label><input className={inputClass} value={form.model} onChange={e => set("model", e.target.value)} placeholder="Model number"/></div>
         <div><label className={labelClass}>Serial Number</label><input className={inputClass} value={form.serialNumber} onChange={e => set("serialNumber", e.target.value)} placeholder="Serial number"/></div>
-        <div><label className={labelClass}>Area / Location</label><div className="relative"><MapPin size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600"/><input className={inputClass + " pl-10"} value={form.location} onChange={e => set("location", e.target.value)} placeholder="Power House / Floor / Area"/></div></div>
+        <div><label className={labelClass}>Area / Location</label><input className={inputClass} value={form.location} onChange={e => set("location", e.target.value)} placeholder="Power House / Floor / Area"/></div>
         <div><label className={labelClass}>Department</label><input className={inputClass} value={form.department} onChange={e => set("department", e.target.value)} placeholder="Department"/></div>
       </div></section>
 
@@ -80,7 +135,7 @@ export default function AddMachine() {
 
       <section className="rounded-[2rem] border border-white/5 bg-[#020617] p-5 md:p-7"><h2 className="font-black">Maintenance Information</h2><p className="text-xs text-slate-500 mt-1">Dates are used by the Machines Dashboard to calculate maintenance due.</p><div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-6"><div><label className={labelClass}>Last Maintenance</label><input type="date" className={inputClass} value={form.lastMaintenance || ""} onChange={e => set("lastMaintenance", e.target.value)}/></div><div><label className={labelClass}>Next Maintenance</label><input type="date" className={inputClass} value={form.nextMaintenance || ""} onChange={e => set("nextMaintenance", e.target.value)}/></div><div><label className={labelClass}>Maintenance Interval (Days)</label><input type="number" min="0" className={inputClass} value={form.maintenanceIntervalDays} onChange={e => set("maintenanceIntervalDays", e.target.value)} placeholder="e.g. 90"/></div></div><div className="mt-5"><label className={labelClass}>Notes</label><textarea rows="4" className={inputClass} value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Safety notes, machine details, remarks..."/></div></section>
 
-      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3"><button type="button" onClick={() => navigate("/machines")} className="px-6 py-3 rounded-xl border border-white/10 bg-white/5 text-slate-300 text-xs font-black uppercase">Cancel</button><button disabled={saving} className="flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black uppercase disabled:opacity-60"><Save size={17}/>{saving ? "Saving..." : id ? "Update Machine" : "Save Machine"}</button></div>
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3"><button type="button" onClick={() => navigate("/machines")} className="px-6 py-3 rounded-xl border border-white/10 bg-white/5 text-slate-300 text-xs font-black uppercase">Cancel</button><button disabled={saving} className="flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black uppercase disabled:opacity-60"><Save size={17}/>{saving ? "Saving to Firebase..." : id ? "Update Machine" : "Save Machine"}</button></div>
     </form>
   </div>;
 }
