@@ -1,0 +1,62 @@
+/* PowerHouse layout polish — additive only, no existing modules removed. */
+
+/* Keep the Module Pages drawer above every dashboard/page layer. */
+aside[class*="z-[110]"] {
+  z-index: 2000 !important;
+}
+
+div[class*="z-[100]"] {
+  z-index: 1990 !important;
+}
+
+/* Compact professional header: modules left, navigation centered,
+   PowerHouse branding right, notifications at the far right. */
+@media (min-width: 768px) {
+  header[class*="z-[90]"] > button {
+    order: 1;
+  }
+
+  header[class*="z-[90]"] > nav {
+    order: 2;
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    max-width: min(62vw, 900px);
+    overflow-x: auto !important;
+    scrollbar-width: none;
+  }
+
+  header[class*="z-[90]"] > nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  header[class*="z-[90]"] > div.hidden.md\\:block {
+    order: 3;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 8px;
+    white-space: nowrap;
+  }
+
+  header[class*="z-[90]"] > div.ml-auto {
+    order: 4;
+    margin-left: 8px !important;
+  }
+
+  /* Use the existing app icon as a small brand mark beside the logo. */
+  header[class*="z-[90]"] > div.hidden.md\\:block::before {
+    content: "";
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    margin-right: 7px;
+    vertical-align: -6px;
+    background: url('/favicon.svg') center / contain no-repeat;
+  }
+}
+
+/* Keep the drawer comfortably inside small screens. */
+@media (max-width: 767px) {
+  aside[class*="z-[110]"] {
+    width: min(340px, 90vw) !important;
+  }
+}
