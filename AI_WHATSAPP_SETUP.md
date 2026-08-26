@@ -1,37 +1,98 @@
-# PowerHouse AI + WhatsApp setup
+# PowerHouse AI + WhatsApp — Firebase setup
 
-## 1. Backend environment
-Set these Railway backend variables (never put the OpenAI or Twilio secrets in Vercel `VITE_*` variables):
+The AI and WhatsApp backend now runs through **Firebase Cloud Functions (2nd gen)**. No Railway environment variables are required for these features, and OpenAI/WhatsApp secrets are kept in Firebase Secret Manager. Firebase recommends 2nd gen Functions for new functions and supports binding secrets to individual functions. citeturn0search4turn0search0
 
-- `OPENAI_API_KEY` = OpenAI API key
-- `OPENAI_MODEL` = `gpt-5` (or another model enabled for the account)
-- `OPENAI_MAX_OUTPUT_TOKENS` = `1200`
-- `TWILIO_ACCOUNT_SID` = Twilio Account SID
-- `TWILIO_AUTH_TOKEN` = Twilio Auth Token
-- `TWILIO_WHATSAPP_FROM` = approved WhatsApp sender number, E.164 format
-- `ADMIN_WHATSAPP_NUMBERS` = comma-separated admin WhatsApp numbers, E.164 format
-- `PUBLIC_BACKEND_URL` = public Railway backend URL
-- `TWILIO_VALIDATE_SIGNATURE` = `true`
-- `AI_ADMIN_CONTEXT_USER_ID` = numeric admin user id used for admin WhatsApp context
+## 1. Firebase project
 
-## 2. Twilio webhook
-Configure the Twilio WhatsApp sender/Sandbox incoming-message webhook as:
+This repository is configured for Firebase project:
 
-`POST https://YOUR-RAILWAY-DOMAIN/api/whatsapp/webhook`
+`powerhouse-app-47c4a`
 
-The backend validates the `X-Twilio-Signature` when `TWILIO_VALIDATE_SIGNATURE=true`.
+Deploy Functions from the project root:
 
-## 3. Behaviour
-- Admin portal AI: full operational context.
-- Admin WhatsApp: full operational AI report and system summary.
-- Staff portal AI: own account/tasks/duties/tools plus safe general information.
-- Staff WhatsApp: short personal status/update only.
-- AI API key stays on the backend.
+```bash
+firebase login
+firebase use powerhouse-app-47c4a
+firebase deploy --only functions
+```
 
-## 4. Portal
-After deployment, authenticated users get **PowerHouse AI** in the Modules menu at `/ai`.
+Cloud Functions deployment requires the Firebase project to use the Blaze plan. citeturn0search5
 
-The page shows AI/WhatsApp configuration status and provides a WhatsApp report action.
+## 2. Create Firebase secrets
 
-## 5. Important
-WhatsApp delivery requires an active WhatsApp Business sender/Twilio configuration. Twilio Sandbox can be used for testing; production messaging should use an approved sender and appropriate WhatsApp templates/session rules.
+Run these commands from the project root. Firebase CLI will ask for each value securely:
+
+```bash
+firebase functions:secrets:set OPENAI_API_KEY
+firebase functions:secrets:set WHATSAPP_ACCESS_TOKEN
+firebase functions:secrets:set WHATSAPP_APP_SECRET
+firebase functions:secrets:set WHATSAPP_VERIFY_TOKEN
+firebase functions:secrets:set WHATSAPP_PHONE_NUMBER_ID
+firebase functions:secrets:set ADMIN_WHATSAPP_NUMBERS
+```
+
+The six secret names are intentionally kept separate so only the Functions that need them receive access. Firebase Secret Manager is the recommended place for sensitive API credentials. citeturn0search0
+
+Optional non-secret AI settings are configured as Firebase parameters during deployment:
+
+- `OPENAI_MODEL` — default `gpt-5`
+- `OPENAI_MAX_OUTPUT_TOKENS` — default `1200`
+
+## 3. WhatsApp Business Cloud API
+
+Use a Meta WhatsApp Business Cloud API sender. The Firebase Function calls Meta's Graph API; Firebase is the secure backend, while WhatsApp remains the messaging provider.
+
+Save:
+
+- `WHATSAPP_ACCESS_TOKEN` — Meta permanent/system-user access token
+- `WHATSAPP_APP_SECRET` — Meta app secret used to validate webhook signatures
+- `WHATSAPP_VERIFY_TOKEN` — a random value you choose for webhook verification
+- `WHATSAPP_PHONE_NUMBER_ID` — the WhatsApp Business phone-number ID
+- `ADMIN_WHATSAPP_NUMBERS` — comma-separated admin numbers, digits/E.164 format
+
+## 4. Webhook
+
+After Functions are deployed, configure the Meta WhatsApp webhook to the Firebase Function URL:
+
+`https://us-central1-powerhouse-app-47c4a.cloudfunctions.net/whatsappWebhook`
+
+Use the same `WHATSAPP_VERIFY_TOKEN` when Meta asks for the verification token.
+
+The webhook accepts incoming WhatsApp text messages, verifies Meta's signature, identifies the PowerHouse account by WhatsApp number, sends the message to PowerHouse AI, and returns the answer to the same WhatsApp number.
+
+## 5. Access rules
+
+### Admin WhatsApp
+Admin numbers receive:
+
+- Full operational AI context
+- Panels and cable routes
+- Tasks and staff/task summaries
+- Fuel entries and stock information
+- WAPDA readings
+- Engine service logs
+- Activities/system information
+- AI answers to operational questions
+
+### Normal user WhatsApp
+Normal users receive only their own permitted information:
+
+- Own account status
+- Own tasks/duties/tools
+- Own fuel entries
+- Short personal status reports
+- AI answers based on their limited context
+
+Other staff members' private data and admin-only datasets are not included in the user context.
+
+## 6. Automatic WhatsApp task alert
+
+When a new Firestore `tasks/{taskId}` document is created, Firebase Functions sends a WhatsApp task alert to the assigned users and configured admin numbers.
+
+## 7. Portal AI
+
+The frontend uses Firebase `httpsCallable()` and the deployed `aiChat`, `aiStatus`, and `sendWhatsAppReport` Functions. No OpenAI key is exposed to the browser.
+
+## 8. Important
+
+Do not commit API keys, WhatsApp access tokens, `.env` files, or Firebase service-account JSON into GitHub. Firebase Secret Manager is used for the sensitive credentials. Update/redeploy Functions after changing a secret so the new secret version is used. citeturn0search0
