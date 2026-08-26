@@ -93,6 +93,7 @@ io.on("connection", (socket) => {
   socket.on("disconnect", (reason) => console.log("❌ Client disconnected:", socket.id, "| Reason:", reason));
 });
 
+const userCompatRoutes = require("./routes/userCompat");
 const userRoutes = require("./routes/user");
 const authRoutes = require("./routes/auth");
 const taskRoutes = require("./routes/task");
@@ -108,11 +109,11 @@ const taskFirebaseFallback = require("./routes/taskFirebaseFallback");
 const notificationRoutes = require("./routes/notifications");
 
 app.use("/api", mcpRoutes);
+// Compatibility routes handle robust user view/status/delete lookups before the legacy router.
+app.use("/api/user", userCompatRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/auth", authRoutes);
 app.get("/api/task/:id", taskFirebaseFallback);
-// Fast read routes must be registered before the canonical task/activity routers.
-// They only replace the heavy read paths; writes and task detail routes remain unchanged.
 app.use("/api/task", taskFastRoutes);
 app.use("/api/task", taskRoutes);
 app.use("/api/task-compat", taskCompatRoutes);
