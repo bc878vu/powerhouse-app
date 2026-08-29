@@ -11,9 +11,7 @@ const normalizeUid = (value) => {
   }
   return null;
 };
-
 const notificationsRef = (uid) => collection(db, "powerhouse_notifications", normalizeUid(uid), "items");
-
 async function resolveNotificationUid(value) {
   const normalized = normalizeUid(value);
   if (!normalized) return null;
@@ -32,7 +30,6 @@ async function resolveNotificationUid(value) {
   }
   return normalized;
 }
-
 export function subscribeToNotifications(uid, callback) {
   const safeUid = normalizeUid(uid);
   if (!safeUid) return () => {};
@@ -46,7 +43,6 @@ export function subscribeToNotifications(uid, callback) {
     callback([]);
   });
 }
-
 export async function createNotification(uid, payload = {}) {
   const safeUid = await resolveNotificationUid(uid);
   if (!safeUid) throw new Error("Notification recipient is required");
@@ -57,18 +53,17 @@ export async function createNotification(uid, payload = {}) {
     route: String(payload.route || "/notifications"),
     taskId: payload.taskId ? String(payload.taskId) : null,
     sourceId: payload.sourceId ? String(payload.sourceId) : null,
+    priority: String(payload.priority || "normal"),
     read: false,
     createdAt: serverTimestamp()
   });
   return ref.id;
 }
-
 export async function markNotificationRead(uid, notificationId) {
   const safeUid = await resolveNotificationUid(uid);
   if (!safeUid || !notificationId) return;
   await updateDoc(doc(db, "powerhouse_notifications", safeUid, "items", String(notificationId)), { read: true, readAt: serverTimestamp() });
 }
-
 export async function markAllNotificationsRead(uid, notifications = []) {
   const safeUid = await resolveNotificationUid(uid);
   if (!safeUid) return;
@@ -78,17 +73,13 @@ export async function markAllNotificationsRead(uid, notifications = []) {
   unread.forEach((item) => batch.update(doc(db, "powerhouse_notifications", safeUid, "items", String(item.id)), { read: true, readAt: serverTimestamp() }));
   await batch.commit();
 }
-
 export async function enablePushNotifications(options = {}) {
   if (!auth.currentUser) throw new Error("Please login first");
   if (!("Notification" in window)) throw new Error("Browser notifications are not supported");
   if (!isFirebaseConfigured) throw new Error(`Firebase web configuration is incomplete. Missing: ${missingConfig.join(", ")}`);
-  // VITE_VAPID_KEY is optional. firebase.js uses it when supplied and
-  // performs a controlled Firebase-default VAPID fallback when absent.
   return getFCMToken(options);
 }
-
-export async function sendPushNotification({ title, body, route = "/notifications", userIds = [], notificationId = "" } = {}) {
+export async function sendPushNotification({ title, body, route = "/notifications", userIds = [], notificationId = "", priority = "high" } = {}) {
   if (!auth.currentUser) return { success: false, skipped: true, reason: "not-authenticated" };
   const backendUrl = String(import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || "").replace(/\/+$/, "").replace(/\/api$/, "");
   if (!backendUrl) return { success: false, skipped: true, reason: "backend-url-missing" };
@@ -98,7 +89,7 @@ export async function sendPushNotification({ title, body, route = "/notification
     const response = await fetch(`${backendUrl}/api/notifications/push`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title, body, route, userIds: resolvedUserIds.filter(Boolean), notificationId })
+      body: JSON.stringify({ title, body, route, userIds: resolvedUserIds.filter(Boolean), notificationId, priority })
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) console.warn("Push notification request failed:", data?.message || response.statusText);
@@ -108,7 +99,4 @@ export async function sendPushNotification({ title, body, route = "/notification
     return { success: false, skipped: true, reason: error?.message || "network-error" };
   }
 }
-
-export function getCurrentNotificationUid() {
-  return normalizeUid(auth.currentUser?.uid);
-}
+export function getCurrentNotificationUid() { return normalizeUid(auth.currentUser?.uid); }
