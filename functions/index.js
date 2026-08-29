@@ -48,32 +48,80 @@ function taskBelongsTo(task, uid) {
 async function buildContext(user, roleOverride) {
   const role = roleOverride || user?.role || "user";
   const adminUser = isAdminRole(role);
-  const [panels, routes, tasks, duties, tools, activities, entries, wapda, services] = await Promise.all([
-    readCollection("powerhouse_panels", 120), readCollection("powerhouse_panel_routes", 120), readCollection("tasks", 160), readCollection("duties", 100), readCollection("tools", 100), readCollection("activities", 120), readCollection("entries", 120), readCollection("wapdaReadings", 120), readCollection("engineServiceLogs", 100)
+  const [panels, routes, tasks, duties, tools, activities, entries, wapda, services, machines] = await Promise.all([
+    readCollection("powerhouse_panels", 120), readCollection("powerhouse_panel_routes", 120), readCollection("tasks", 160), readCollection("duties", 100), readCollection("tools", 100), readCollection("activities", 120), readCollection("entries", 120), readCollection("wapdaReadings", 120), readCollection("engineServiceLogs", 100), readCollection("powerhouse_machines", 100)
   ]);
   const scopedTasks = adminUser ? tasks : tasks.filter((item) => taskBelongsTo(item, user?.uid || user?.id));
   const scopedDuties = adminUser ? duties : duties.filter((item) => String(item.user_id || item.assigned_user_id || item.uid || "") === String(user?.uid || user?.id));
   const scopedTools = adminUser ? tools : tools.filter((item) => String(item.user_id || item.assigned_user_id || item.uid || "") === String(user?.uid || user?.id));
   const scopedEntries = adminUser ? entries : entries.filter((item) => String(item.userId || item.uid || "") === String(user?.uid || user?.id));
-  return clean({ generatedAt: new Date().toISOString(), access: adminUser ? "admin_full" : "user_limited", currentUser: { uid: user?.uid || user?.id || null, name: user?.name || user?.displayName || null, role, employeeID: user?.employeeID || null, status: user?.status || null, phone: user?.phone || null }, summary: { panelCount: panels.filter((p) => p.is_deleted !== true).length, routeCount: routes.length, taskCount: scopedTasks.length, dutyCount: scopedDuties.length, toolCount: scopedTools.length, fuelEntryCount: scopedEntries.length, wapdaReadingCount: adminUser ? wapda.length : 0, serviceLogCount: adminUser ? services.length : 0, activityCount: adminUser ? activities.length : 0 }, panels: panels.filter((p) => p.is_deleted !== true), routes, tasks: scopedTasks, duties: scopedDuties, tools: scopedTools, fuelEntries: scopedEntries, wapdaReadings: adminUser ? wapda : [], engineServiceLogs: adminUser ? services : [], activities: adminUser ? activities : [] });
+  return clean({ generatedAt: new Date().toISOString(), access: adminUser ? "admin_full" : "user_limited", currentUser: { uid: user?.uid || user?.id || null, name: user?.name || user?.displayName || null, role, employeeID: user?.employeeID || null, status: user?.status || null, phone: user?.phone || null }, summary: { panelCount: panels.filter((p) => p.is_deleted !== true).length, routeCount: routes.length, taskCount: scopedTasks.length, dutyCount: scopedDuties.length, toolCount: scopedTools.length, fuelEntryCount: scopedEntries.length, wapdaReadingCount: adminUser ? wapda.length : 0, serviceLogCount: adminUser ? services.length : 0, activityCount: adminUser ? activities.length : 0, machineCount: adminUser ? machines.length : 0 }, panels: panels.filter((p) => p.is_deleted !== true), routes, tasks: scopedTasks, duties: scopedDuties, tools: scopedTools, fuelEntries: scopedEntries, wapdaReadings: adminUser ? wapda : [], engineServiceLogs: adminUser ? services : [], activities: adminUser ? activities : [], machines: adminUser ? machines : [] });
 }
-function systemPrompt(adminUser) { return `You are PowerHouse AI, an operational assistant for an industrial power-house management system. Answer in the user's language (Roman Urdu/Urdu/English) and keep answers practical. Use only the supplied project context for project-specific facts. Never invent live readings, fuel stock, task status, electrical ratings, maintenance dates, or staff information. ${adminUser ? "The user is an admin and may receive the full operational context." : "The user is a staff account; never reveal other staff members' private information or admin-only operational datasets."} For electrical or maintenance advice, clearly distinguish observations from recommendations and advise verification against equipment nameplates, drawings, manufacturer instructions, and applicable safety procedures.`; }
-async function askOpenAI(question, context, adminUser) {
-  const key = OPENAI_API_KEY.value(); if (!key) throw new Error("OPENAI_API_KEY is not configured in Firebase Secret Manager.");
-  const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: OPENAI_MODEL.value(), input: [{ role: "system", content: [{ type: "input_text", text: systemPrompt(adminUser) }] }, { role: "user", content: [{ type: "input_text", text: `PROJECT CONTEXT:\n${JSON.stringify(context)}\n\nUSER QUESTION:\n${question}` }] }], max_output_tokens: Number(OPENAI_MAX_OUTPUT_TOKENS.value()) || 1200 }) });
-  const data = await response.json(); if (!response.ok) throw new Error(data?.error?.message || `OpenAI request failed (${response.status}).`);
-  return data.output_text || (data.output || []).flatMap((item) => item.content || []).map((item) => item.text || "").join("\n").trim() || "AI ne koi response generate nahi kiya.";
+function systemPrompt(adminUser) {
+  return `You are PowerHouse AI, an operational assistant for an industrial power-house management system. Answer in the user's language (Roman Urdu/Urdu/English) and keep answers practical and structured. Use only the supplied project context for project-specific facts. Never invent live readings, fuel stock, task status, electrical ratings, maintenance dates, machine states, panel states, or staff information. When the user asks about a specific task, machine, panel, fuel entry, maintenance/service record, duty, tool, reading, route, or operational item, identify the matching records from the supplied context and give the relevant details clearly. If multiple records match, say so and distinguish them. ${adminUser ? "The user is an admin and may receive the full operational context supplied to you." : "The user is a staff account; never reveal other staff members' private information or admin-only operational datasets."} For electrical or maintenance advice, clearly distinguish observations from recommendations and advise verification against equipment nameplates, drawings, manufacturer instructions, and applicable safety procedures.`;
 }
-exports.aiChat = onCall({ region: REGION, secrets: [OPENAI_API_KEY] }, async (request) => {
-  if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Firebase login required.");
-  const user = await getUserByUid(request.auth.uid); if (!user) throw new HttpsError("permission-denied", "PowerHouse user profile not found.");
-  const question = String(request.data?.message || "").trim(); if (!question) throw new HttpsError("invalid-argument", "Message is required.");
-  const adminUser = isAdminRole(user.role); const context = await buildContext({ ...user, uid: request.auth.uid }, user.role); const answer = await askOpenAI(question, context, adminUser);
-  return { answer, access: adminUser ? "admin_full" : "user_limited" };
+function normalizeModel(value) { const model = String(value || "").trim(); return model || "gpt-5"; }
+function errorForOpenAI(error, status) {
+  if (error instanceof HttpsError) return error;
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").trim();
+  if (code.includes("invalid") || status === 400) return new HttpsError("invalid-argument", "AI request was rejected. Please check the message or attached image.");
+  if (status === 401 || status === 403 || /api key|authentication|unauthorized|permission/i.test(message)) return new HttpsError("failed-precondition", "PowerHouse AI backend credentials are not configured correctly.");
+  if (status === 429 || /rate limit|quota|too many requests/i.test(message)) return new HttpsError("resource-exhausted", "PowerHouse AI is temporarily rate-limited. Please try again shortly.");
+  if (status >= 500 || /timeout|timed out|fetch failed|network/i.test(message)) return new HttpsError("unavailable", "PowerHouse AI service is temporarily unavailable. Please try again shortly.");
+  logger.error("PowerHouse AI OpenAI error", { code, status, message });
+  return new HttpsError("internal", "PowerHouse AI could not complete the request.");
+}
+async function askOpenAI(question, context, adminUser, imageData) {
+  let key;
+  try { key = String(OPENAI_API_KEY.value() || "").trim(); } catch (error) { throw new HttpsError("failed-precondition", "OPENAI_API_KEY is not available to the deployed AI function."); }
+  if (!key) throw new HttpsError("failed-precondition", "OPENAI_API_KEY is not configured for the deployed AI function.");
+  const model = normalizeModel(OPENAI_MODEL.value());
+  const text = `PROJECT CONTEXT:\n${JSON.stringify(context)}\n\nUSER QUESTION:\n${String(question || "").slice(0, 10000)}`;
+  const userContent = [{ type: "input_text", text }];
+  if (imageData) {
+    const value = String(imageData);
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) throw new HttpsError("invalid-argument", "The uploaded image format is not supported. Use PNG, JPG, WEBP or GIF.");
+    if (value.length > 7_000_000) throw new HttpsError("invalid-argument", "The uploaded image is too large. Please use a smaller image.");
+    userContent.push({ type: "input_image", image_url: value, detail: "auto" });
+  }
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model, input: [{ role: "system", content: [{ type: "input_text", text: systemPrompt(adminUser) }] }, { role: "user", content: userContent }], max_output_tokens: Number(OPENAI_MAX_OUTPUT_TOKENS.value()) || 1200, store: false })
+    });
+  } catch (error) { throw errorForOpenAI(error); }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw errorForOpenAI(data?.error || new Error(`OpenAI request failed (${response.status}).`), response.status);
+  const answer = String(data.output_text || (data.output || []).flatMap((item) => item.content || []).map((item) => item.text || "").join("\n")).trim();
+  if (!answer) throw new HttpsError("internal", "AI returned an empty response. Please try again.");
+  return answer;
+}
+exports.aiChat = onCall({ region: REGION, secrets: [OPENAI_API_KEY], timeoutSeconds: 60, memory: "512MiB" }, async (request) => {
+  try {
+    if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Firebase login required.");
+    const user = await getUserByUid(request.auth.uid);
+    if (!user) throw new HttpsError("permission-denied", "PowerHouse user profile not found.");
+    const question = String(request.data?.message || "").trim();
+    const imageData = request.data?.imageData ? String(request.data.imageData) : "";
+    if (!question && !imageData) throw new HttpsError("invalid-argument", "Message or image is required.");
+    const adminUser = isAdminRole(user.role);
+    const context = await buildContext({ ...user, uid: request.auth.uid }, user.role);
+    const answer = await askOpenAI(question || "Analyze the uploaded image and relate it to the supplied PowerHouse operational context.", context, adminUser, imageData);
+    return { answer, access: adminUser ? "admin_full" : "user_limited" };
+  } catch (error) {
+    logger.error("PowerHouse AI callable failed", { code: error?.code, message: error?.message, stack: error?.stack });
+    if (error instanceof HttpsError) throw error;
+    throw errorForOpenAI(error);
+  }
 });
 exports.aiStatus = onCall({ region: REGION, secrets: [OPENAI_API_KEY] }, async (request) => {
   if (!request.auth?.uid) throw new HttpsError("unauthenticated", "Firebase login required.");
-  return { aiConfigured: Boolean(OPENAI_API_KEY.value()), whatsappConfigured: false };
+  let configured = false;
+  try { configured = Boolean(String(OPENAI_API_KEY.value() || "").trim()); } catch { configured = false; }
+  return { aiConfigured: configured, whatsappConfigured: false, model: normalizeModel(OPENAI_MODEL.value()) };
 });
 
 async function getAlertSettings() {
