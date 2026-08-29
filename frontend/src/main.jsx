@@ -40,6 +40,28 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 );
 
 if (typeof window !== "undefined") {
+  /* Keep ordinary selects in single-line mode. A stale/accidental size value
+     can make Chrome device emulation render the huge white list seen in the screenshot. */
+  const normalizeSelect = (select) => {
+    if (!(select instanceof HTMLSelectElement) || select.multiple) return;
+    if (select.size > 1) select.size = 1;
+    select.style.maxWidth = "100%";
+    select.style.minWidth = "0";
+  };
+  const normalizeAllSelects = (root = document) => root.querySelectorAll?.("select:not([multiple])").forEach(normalizeSelect);
+  normalizeAllSelects();
+  const selectObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "attributes" && record.target instanceof HTMLSelectElement) normalizeSelect(record.target);
+      record.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+        if (node.matches?.("select:not([multiple])")) normalizeSelect(node);
+        normalizeAllSelects(node);
+      });
+    }
+  });
+  selectObserver.observe(document.documentElement, { childList:true, subtree:true, attributes:true, attributeFilter:["size","multiple"] });
+
   const observer = new MutationObserver(() => {
     if (window.location.pathname !== "/add-staff") return;
     const nodes = document.querySelectorAll("div, section");
@@ -54,14 +76,14 @@ if (typeof window !== "undefined") {
     }
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener("load", () => observer.takeRecords(), { once: true });
-  setTimeout(() => observer.takeRecords(), 0);
+  window.addEventListener("load", () => { normalizeAllSelects(); observer.takeRecords(); }, { once: true });
+  setTimeout(() => { normalizeAllSelects(); observer.takeRecords(); }, 0);
 }
 
-// v16 forces installed PWAs to replace any stale notification worker.
+// v17 forces installed PWAs to replace any stale notification worker.
 if (typeof window !== "undefined" && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/powerhouse-sw.js?v=16", { scope: "/", updateViaCache: "none" })
+    navigator.serviceWorker.register("/powerhouse-sw.js?v=17", { scope: "/", updateViaCache: "none" })
       .then((registration) => registration.update().catch(() => {}))
       .catch((error) => console.warn("PowerHouse app cache worker registration failed:", error?.message || error));
   }, { once: true });
