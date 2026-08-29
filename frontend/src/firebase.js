@@ -1,7 +1,7 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
-import { getFirestore, initializeFirestore, persistentLocalCache } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 
@@ -21,7 +21,16 @@ export const functions = getFunctions(app, "us-central1");
 void setPersistence(auth, browserLocalPersistence).catch((error) => console.warn("Firebase auth persistence setup failed:", error?.message || error));
 export const storage = getStorage(app);
 let firestoreDb;
-try { firestoreDb = initializeFirestore(app, { localCache: persistentLocalCache() }); } catch (error) { console.warn("Persistent Firestore cache unavailable; using default cache:", error?.message || error); firestoreDb = getFirestore(app); }
+try {
+  // Explicit multi-tab persistence prevents competing tabs from fighting over the
+  // local Firestore cache and lets active users share one synchronized cache.
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (error) {
+  console.warn("Persistent multi-tab Firestore cache unavailable; using default cache:", error?.message || error);
+  firestoreDb = getFirestore(app);
+}
 export const db = firestoreDb;
 
 let messagingInstance = null;
