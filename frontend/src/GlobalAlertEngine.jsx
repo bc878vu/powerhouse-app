@@ -5,7 +5,7 @@ import { db } from "./firebase";
 
 const SETTINGS_REF = doc(db, "powerhouse_settings", "alerts");
 const DEFAULTS = { lowDieselThreshold: 3000, repeatMinutes: 30, enabled: true, silent: false };
-const MAX_RING_MS = 2 * 60 * 1000;
+const MAX_RING_MS = 30 * 1000;
 const toNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
 function readSettings(data = {}) {
@@ -50,7 +50,6 @@ export default function GlobalAlertEngine() {
       const ctx = audioRef.current;
       if (ctx.state === "suspended") void ctx.resume();
       const now = ctx.currentTime + 0.01;
-      // High-contrast repeating emergency tone. Browser/device volume still controls the final loudness.
       [[1046, 0, .42], [784, .48, .42], [1046, .96, .42], [659, 1.44, .55]].forEach(([frequency, offset, duration]) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -114,7 +113,6 @@ export default function GlobalAlertEngine() {
       setSettings(next);
       if (next.silent) stopAlarm();
     }, (error) => {
-      // Defaults keep public monitoring alive if settings have not yet been published.
       console.warn("Low diesel settings listener failed:", error?.message || error);
       settingsRef.current = DEFAULTS;
       setSettings(DEFAULTS);
@@ -157,5 +155,5 @@ export default function GlobalAlertEngine() {
   if (!alert || !low) return null;
   const dismiss = () => { stopAlarm(); setAlert(null); };
   return <div className="fixed inset-x-3 top-20 z-[300] mx-auto w-auto max-w-xl animate-[pulse_2s_ease-in-out_infinite] rounded-2xl border border-red-500/50 bg-red-950/95 p-4 shadow-[0_0_50px_rgba(239,68,68,.3)] backdrop-blur-xl" role="alert">
-    <div className="flex gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500 text-white"><AlertTriangle size={23}/></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black tracking-wide text-red-100">{alert.title}</p><p className="mt-1 text-sm text-red-100/80">{alert.body}</p></div><button onClick={dismiss} className="rounded-lg p-1.5 text-red-100/70 hover:bg-white/10" aria-label="Dismiss and stop alert"><X size={17}/></button></div><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-wider"><span className="rounded-full bg-red-500/20 px-2.5 py-1 text-red-200">Critical operational alert</span><span className="rounded-full bg-white/10 px-2.5 py-1 text-red-100">Ring stops automatically after 2 min</span><span className="rounded-full bg-white/10 px-2.5 py-1 text-red-100">Repeats every {settings.repeatMinutes} min</span>{settings.silent ? <span className="inline-flex items-center gap-1 text-yellow-300"><VolumeX size={13}/>Silent</span> : <span className="inline-flex items-center gap-1 text-red-100"><Volume2 size={13}/>Sound on</span>}</div></div></div></div>;
+    <div className="flex gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500 text-white"><AlertTriangle size={23}/></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black tracking-wide text-red-100">{alert.title}</p><p className="mt-1 text-sm text-red-100/80">{alert.body}</p></div><button onClick={dismiss} className="rounded-lg p-1.5 text-red-100/70 hover:bg-white/10" aria-label="Dismiss and stop alert"><X size={17}/></button></div><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-wider"><span className="rounded-full bg-red-500/20 px-2.5 py-1 text-red-200">Critical operational alert</span><span className="rounded-full bg-white/10 px-2.5 py-1 text-red-100">Ring stops automatically after 30 sec</span><span className="rounded-full bg-white/10 px-2.5 py-1 text-red-100">Repeats every {settings.repeatMinutes} min</span>{settings.silent ? <span className="inline-flex items-center gap-1 text-yellow-300"><VolumeX size={13}/>Silent</span> : <span className="inline-flex items-center gap-1 text-red-100"><Volume2 size={13}/>Sound on</span>}</div></div></div></div>;
 }
