@@ -18,13 +18,7 @@ service cloud.firestore {
         : '';
     }
 
-    // ---------------------------------------------------------
-    // LEGACY / EMERGENCY ADMIN EMAIL ACCESS
-    //
-    // Existing system compatibility ke liye retain kiya gaya hai.
-    // Main recommended method powerhouse_users role based access hai.
-    // ---------------------------------------------------------
-
+    // Existing admin email compatibility
     function isAdminEmail() {
       return signedIn()
         && (
@@ -33,10 +27,7 @@ service cloud.firestore {
         );
     }
 
-    // ---------------------------------------------------------
-    // ROLE BASED ADMIN ACCESS
-    // ---------------------------------------------------------
-
+    // Role based admin / superadmin
     function isAdminProfile() {
       return signedIn()
         && exists(
@@ -44,10 +35,7 @@ service cloud.firestore {
         )
         && get(
           /databases/$(database)/documents/powerhouse_users/$(request.auth.uid)
-        ).data.role in [
-          'admin',
-          'superadmin'
-        ];
+        ).data.role in ['admin', 'superadmin'];
     }
 
     function isAdmin() {
@@ -69,13 +57,7 @@ service cloud.firestore {
         && request.auth.uid == uid;
     }
 
-    // ---------------------------------------------------------
-    // SAFE USER ROLE
-    //
-    // Self-registration user kabhi admin ya superadmin
-    // create nahi kar sakta.
-    // ---------------------------------------------------------
-
+    // Prevent self-registration as admin
     function safeUserRole() {
       return request.resource.data.role in [
         'electrician',
@@ -93,30 +75,17 @@ service cloud.firestore {
       ];
     }
 
+
     // =========================================================
-    // POWERHOUSE USERS
+    // USERS
     // =========================================================
 
     match /powerhouse_users/{uid} {
 
-      // User sirf apna profile read karega.
-      // Admin/superadmin sab profiles read kar sakta hai.
       allow read: if isOwner(uid) || isAdmin();
 
-
-      // -------------------------------------------------------
-      // CREATE
-      // -------------------------------------------------------
-
-      allow create: if
-
-        // Existing admin flow preserved
-        isAdmin()
-
-        ||
-
-        // Self-registration protected
-        (
+      allow create: if isAdmin()
+        || (
           isOwner(uid)
           && request.resource.data.uid == uid
           && safeUserRole()
@@ -124,219 +93,128 @@ service cloud.firestore {
           && request.resource.data.status == 'active'
         );
 
-
-      // -------------------------------------------------------
-      // UPDATE
-      //
-      // Normal user:
-      // - apna uid change nahi kar sakta
-      // - role change nahi kar sakta
-      // - status change nahi kar sakta
-      //
-      // Admin:
-      // existing management flow retained
-      // -------------------------------------------------------
-
-      allow update: if
-
-        isAdmin()
-
-        ||
-
-        (
+      allow update: if isAdmin()
+        || (
           isOwner(uid)
           && request.resource.data.uid == uid
           && request.resource.data.role == resource.data.role
           && request.resource.data.status == resource.data.status
         );
 
-
-      // -------------------------------------------------------
-      // DELETE
-      // -------------------------------------------------------
-
       allow delete: if isAdmin();
     }
 
 
     // =========================================================
-    // PUBLIC OPERATIONAL MONITOR DATA
-    //
-    // Public Dashboard + logged-out users can READ.
-    // Only Admin can change operational data.
+    // PUBLIC OPERATIONAL DATA
+    // Public can view, only admin can modify
     // =========================================================
-
-
-    // ---------------------------------------------------------
-    // ELECTRICAL PANELS
-    // ---------------------------------------------------------
 
     match /powerhouse_panels/{id} {
       allow read: if true;
-
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
-
-
-    // ---------------------------------------------------------
-    // PANEL ROUTES
-    // ---------------------------------------------------------
 
     match /powerhouse_panel_routes/{id} {
       allow read: if true;
-
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
-
-
-    // ---------------------------------------------------------
-    // PANEL HISTORY
-    // ---------------------------------------------------------
 
     match /powerhouse_panel_history/{id} {
       allow read: if true;
-
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
-
-
-    // ---------------------------------------------------------
-    // MACHINES / GENERATORS
-    // ---------------------------------------------------------
 
     match /powerhouse_machines/{id} {
       allow read: if true;
-
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
-
-
-    // ---------------------------------------------------------
-    // MACHINE LOAD LOGS
-    // ---------------------------------------------------------
 
     match /powerhouse_machine_load_logs/{id} {
       allow read: if true;
-
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
-
-
-    // ---------------------------------------------------------
-    // MACHINE CATEGORIES
-    // ---------------------------------------------------------
 
     match /powerhouse_machine_categories/{id} {
       allow read: if true;
-
-      allow create: if isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
 
     // =========================================================
     // GLOBAL POWERHOUSE SETTINGS
     //
-    // Examples:
+    // IMPORTANT:
+    // Public can read operational settings because Public Dashboard
+    // needs diesel threshold / alert status.
     //
-    // powerhouse_settings/alerts
-    // powerhouse_settings/general
-    // powerhouse_settings/dashboard
-    //
-    // PUBLIC READ:
-    // Public Dashboard ko operational settings read karne ki
-    // permission milti hai.
-    //
-    // WRITE:
-    // Only admin / superadmin.
+    // Only admin can change settings.
     // =========================================================
 
     match /powerhouse_settings/{settingId} {
-
-      // Required for:
-      // - Low diesel alert threshold
-      // - Repeat interval
-      // - Silent mode
-      // - Alert enabled state
-      // - Public dashboard synchronization
-
       allow read: if true;
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin();
-
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
 
     // =========================================================
-    // FUEL MANAGEMENT / ENTRIES
+    // PUBLIC ALERT STATE
+    //
+    // Example:
+    // powerhouse_alert_state/current
+    //
+    // Public dashboard can read current diesel alert.
+    // Only admin writes directly.
+    // For automatic alert events, Cloud Functions/Admin SDK bypass
+    // Firestore client rules securely.
+    // =========================================================
+
+    match /powerhouse_alert_state/{alertId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+
+    // =========================================================
+    // PUBLIC OPERATIONAL STATUS
+    // =========================================================
+
+    match /powerhouse_public_status/{statusId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+
+    // =========================================================
+    // FUEL / ENTRIES
     //
     // Existing behavior preserved:
-    // Public read remains available because dashboard / alert
-    // engine currently depends on diesel stock data.
-    //
-    // Write requires authenticated user.
+    // Public read + authenticated CRUD.
     // =========================================================
 
     match /entries/{id} {
-
       allow read: if true;
-
-      allow create: if signedIn();
-
-      allow update: if signedIn();
-
-      allow delete: if signedIn();
+      allow create, update, delete: if signedIn();
     }
 
 
     // =========================================================
     // ENGINE SERVICE LOGS
-    //
-    // Existing authenticated-only behavior preserved.
     // =========================================================
 
     match /engineServiceLogs/{id} {
-
       allow read: if signedIn();
-
-      allow create: if signedIn();
-
-      allow update: if signedIn();
-
-      allow delete: if signedIn();
+      allow create, update, delete: if signedIn();
     }
 
 
     // =========================================================
     // WAPDA METER READINGS
-    //
-    // Public dashboard read preserved.
-    // Authenticated users can manage readings.
     // =========================================================
 
     match /wapdaReadings/{id} {
-
       allow read: if true;
-
-      allow create: if signedIn();
-
-      allow update: if signedIn();
-
-      allow delete: if signedIn();
+      allow create, update, delete: if signedIn();
     }
 
 
@@ -345,80 +223,44 @@ service cloud.firestore {
     // =========================================================
 
     match /fuelReportDownloads/{id} {
-
       allow read: if signedIn();
-
-      allow create: if signedIn();
-
-      allow update: if signedIn();
-
+      allow create, update: if signedIn();
       allow delete: if isAdmin();
     }
 
 
     // =========================================================
-    // FCM PUSH NOTIFICATION TOKENS
+    // FCM PUSH TOKENS
     //
-    // Security:
-    // User sirf apna token create/update/delete kar sakta hai.
-    // User kisi doosre user ka token access nahi kar sakta.
-    // Admin all tokens access/manage kar sakta hai.
+    // User can only manage own token.
+    // Admin can manage all tokens.
+    // Token owner cannot be changed during update.
     // =========================================================
 
     match /powerhouse_fcm_tokens/{tokenId} {
 
-      allow read: if
-
-        isAdmin()
-
-        ||
-
-        (
+      allow read: if isAdmin()
+        || (
           signedIn()
           && resource.data.userId == request.auth.uid
         );
 
-
-      allow create: if
-
-        isAdmin()
-
-        ||
-
-        (
+      allow create: if isAdmin()
+        || (
           signedIn()
           && request.resource.data.userId == request.auth.uid
         );
 
-
-      allow update: if
-
-        isAdmin()
-
-        ||
-
-        (
+      allow update: if isAdmin()
+        || (
           signedIn()
-
           && resource.data.userId == request.auth.uid
-
-          // Important:
-          // Existing token owner cannot be changed.
-          && request.resource.data.userId
-             == resource.data.userId
-
-          && request.resource.data.userId
-             == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.userId == request.auth.uid
         );
 
-
-      allow delete: if
-
-        isAdmin()
-
-        ||
-
-        (
+      allow delete: if isAdmin()
+        || (
           signedIn()
           && resource.data.userId == request.auth.uid
         );
@@ -426,29 +268,61 @@ service cloud.firestore {
 
 
     // =========================================================
+    // OPTIONAL PUBLIC / ANONYMOUS FCM TOKENS
+    //
+    // IMPORTANT:
+    // This collection is ONLY for device tokens.
+    // Do NOT store passwords, CNIC, emails or sensitive data here.
+    //
+    // Recommended document structure:
+    // powerhouse_public_fcm_tokens/{tokenHash}
+    //
+    // Public devices can create their own token record.
+    // They cannot list/read all tokens.
+    // Updates/deletes require the same installationId.
+    //
+    // For strongest protection, use a Cloud Function/API instead
+    // of direct client writes.
+    // =========================================================
+
+    match /powerhouse_public_fcm_tokens/{tokenId} {
+
+      // No public listing of all device tokens
+      allow read: if isAdmin();
+
+      // Allows public device registration only when an installation ID
+      // and token are present.
+      allow create: if
+        request.resource.data.keys().hasAll([
+          'token',
+          'installationId'
+        ])
+        && request.resource.data.token is string
+        && request.resource.data.installationId is string;
+
+      // Anonymous client cannot change token ownership identity.
+      allow update: if
+        resource.data.installationId == request.resource.data.installationId
+        && request.resource.data.installationId is string
+        && request.resource.data.token is string;
+
+      // Public deletion is intentionally disabled.
+      // Admin or backend cleanup handles expired tokens.
+      allow delete: if isAdmin();
+    }
+
+
+    // =========================================================
     // USER NOTIFICATIONS
-    //
-    // Structure:
-    //
-    // powerhouse_notifications/{uid}/items/{notificationId}
-    //
-    // User can only access their own notifications.
-    // Admin can manage all notifications.
     // =========================================================
 
     match /powerhouse_notifications/{uid}/items/{notificationId} {
 
-      allow read: if
-        isOwner(uid)
-        || isAdmin();
+      allow read: if isOwner(uid) || isAdmin();
 
-      allow create: if
-        isOwner(uid)
-        || isAdmin();
+      allow create: if isOwner(uid) || isAdmin();
 
-      allow update: if
-        isOwner(uid)
-        || isAdmin();
+      allow update: if isOwner(uid) || isAdmin();
 
       allow delete: if isAdmin();
     }
@@ -457,207 +331,104 @@ service cloud.firestore {
     // =========================================================
     // GLOBAL ALERT EVENTS
     //
-    // Sensitive operational event history.
-    // Admin / superadmin only.
+    // Sensitive alert audit/history.
+    // Admin only from client.
+    // Cloud Functions/Admin SDK can securely write automatically.
     // =========================================================
 
     match /powerhouse_alert_events/{eventId} {
+      allow read, create, update, delete: if isAdmin();
+    }
 
-      allow read: if isAdmin();
 
-      allow create: if isAdmin();
+    // =========================================================
+    // ALERT DELIVERY / PUSH JOB STATE
+    //
+    // Internal backend-controlled state.
+    // No client access.
+    //
+    // Cloud Functions / Firebase Admin SDK bypass these rules.
+    // =========================================================
 
-      allow update: if isAdmin();
+    match /powerhouse_alert_delivery/{id} {
+      allow read, write: if false;
+    }
 
-      allow delete: if isAdmin();
+    match /powerhouse_alert_jobs/{id} {
+      allow read, write: if false;
     }
 
 
     // =========================================================
     // SYSTEM COUNTERS
-    //
-    // Existing behavior preserved.
-    // Authenticated users can access counters.
-    //
-    // IMPORTANT:
-    // If later complaint number generation becomes sensitive,
-    // move counter increments to Cloud Functions.
+    // Existing behavior preserved
     // =========================================================
 
     match /system_counters/{id} {
-
-      allow read: if signedIn();
-
-      allow write: if signedIn();
+      allow read, write: if signedIn();
     }
 
 
     // =========================================================
     // TASKS / COMPLAINTS
     //
-    // PUBLIC:
-    // - Read/list/view allowed
+    // Public Dashboard:
+    // Read/list/view only.
     //
-    // LOGGED-IN:
-    // - Create
-    // - Update
-    // - Delete
-    //
-    // Existing behavior intentionally preserved.
+    // Logged-in users:
+    // Existing CRUD preserved.
     // =========================================================
 
     match /tasks/{id} {
-
-      // Public Dashboard complaint monitor
       allow read: if true;
-
-      // Existing authenticated CRUD flow
       allow create: if signedIn();
-
       allow update: if signedIn();
-
       allow delete: if signedIn();
     }
 
 
     // =========================================================
     // ACTIVITIES
-    //
-    // Existing authenticated behavior preserved.
     // =========================================================
 
     match /activities/{id} {
-
-      allow read: if signedIn();
-
-      allow create: if signedIn();
-
-      allow update: if signedIn();
-
-      allow delete: if signedIn();
+      allow read, write: if signedIn();
     }
 
 
     // =========================================================
     // DUTIES
-    //
-    // Existing authenticated behavior preserved.
     // =========================================================
 
     match /duties/{id} {
-
-      allow read: if signedIn();
-
-      allow create: if signedIn();
-
-      allow update: if signedIn();
-
-      allow delete: if signedIn();
+      allow read, write: if signedIn();
     }
 
 
     // =========================================================
     // TOOLS
-    //
-    // Logged-in users can read.
-    // Only admin can modify.
     // =========================================================
 
     match /tools/{id} {
-
       allow read: if signedIn();
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin();
-
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
 
     // =========================================================
     // CATEGORIES
-    //
-    // Logged-in users can read.
-    // Only admin can modify.
     // =========================================================
 
     match /categories/{id} {
-
       allow read: if signedIn();
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin();
-
-      allow delete: if isAdmin();
-    }
-
-
-    // =========================================================
-    // FUTURE LOW DIESEL ALERT STATE
-    //
-    // Optional collection for storing the current alert state.
-    //
-    // Example:
-    //
-    // powerhouse_alert_state/current
-    //
-    // Public can read current operational alert.
-    // Only admin can change it.
-    //
-    // This supports:
-    // - Red dashboard alert
-    // - Public dashboard
-    // - Alert popup synchronization
-    // - Future service worker integration
-    // =========================================================
-
-    match /powerhouse_alert_state/{id} {
-
-      allow read: if true;
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin();
-
-      allow delete: if isAdmin();
-    }
-
-
-    // =========================================================
-    // OPTIONAL PUBLIC OPERATIONAL STATUS
-    //
-    // Future compatible collection.
-    //
-    // Examples:
-    //
-    // powerhouse_public_status/diesel
-    // powerhouse_public_status/system
-    //
-    // Public read
-    // Admin write
-    // =========================================================
-
-    match /powerhouse_public_status/{id} {
-
-      allow read: if true;
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin();
-
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
 
     // =========================================================
     // DEFAULT DENY
     //
-    // Any collection/document not explicitly defined above
-    // will have NO ACCESS.
-    //
-    // This is the final security layer.
+    // Any unknown collection is blocked.
     // =========================================================
 
     match /{document=**} {
