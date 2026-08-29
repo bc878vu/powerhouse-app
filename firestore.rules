@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function userEmail() { return signedIn() ? request.auth.token.email : ''; }
+    function userEmail() { return signedIn() && request.auth.token.email != null ? request.auth.token.email : ''; }
     function isAdminEmail() { return signedIn() && (userEmail() == 'admin@powerhouse.com' || userEmail() == 'Admin@powerhouse.com'); }
     function isAdminProfile() { return signedIn() && exists(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)) && get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.role in ['admin', 'superadmin']; }
     function isAdmin() { return isAdminEmail() || isAdminProfile(); }
@@ -44,10 +44,15 @@ service cloud.firestore {
     match /powerhouse_alert_events/{eventId} { allow read: if isAdmin(); allow create: if isAdmin(); allow update: if isAdmin(); allow delete: if isAdmin(); }
     match /system_counters/{id} { allow read, write: if signedIn(); }
 
-    // Global alert configuration. Public screens only read; only admins can change threshold, interval, enable or silent mode.
+    // Global diesel-alert configuration. Anyone may read so public monitoring can receive alerts.
+    // Only an authenticated admin/superadmin may create or change configuration.
     match /powerhouse_settings/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
+      match /{document=**} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
     }
 
     match /tasks/{id} { allow read: if true; allow create, update, delete: if signedIn(); }
