@@ -1,324 +1,99 @@
 /* PowerHouse responsive header polish — additive only, no existing modules removed. */
 
 /* Keep the Module Pages drawer above every dashboard/page layer. */
-aside[class*="z-[110]"] {
-  z-index: 2000 !important;
-}
-
-div[class*="z-[100]"] {
-  z-index: 1990 !important;
-}
+aside[class*="z-[110]"] { z-index: 2000 !important; }
+div[class*="z-[100]"] { z-index: 1990 !important; }
 
 /* =========================================================
    ADMIN HEADER
-   Desktop: PowerHouse -> Dashboard -> Assign Tasks -> Fuel -> Machines -> Panels -> Menu -> Bell
-   Mobile:  PowerHouse -> Dashboard -> Assign Tasks -> Fuel -> Menu -> Bell
-   Machines/Panels remain available through the Module Pages drawer.
    ========================================================= */
-header[class*="z-[90]"] {
-  gap: 10px !important;
-  padding-left: clamp(12px, 2vw, 28px) !important;
-  padding-right: clamp(12px, 2vw, 28px) !important;
-  overflow: hidden !important;
-  box-sizing: border-box !important;
-}
-
-/* PowerHouse branding: never hide it on admin mobile. */
-header[class*="z-[90]"] > div:nth-child(2) {
-  order: 1 !important;
-  display: flex !important;
-  align-items: center !important;
-  flex: 0 0 auto !important;
-  min-width: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  white-space: nowrap !important;
-}
-
-/* Small PowerHouse mark beside the name. */
-header[class*="z-[90]"] > div:nth-child(2)::before {
-  content: "";
-  display: inline-block;
-  width: 22px;
-  height: 22px;
-  margin-right: 7px;
-  flex: 0 0 22px;
-  background: url('/favicon.svg') center / contain no-repeat;
-}
-
-header[class*="z-[90]"] > div:nth-child(2) h1 {
-  white-space: nowrap !important;
-}
-
-header[class*="z-[90]"] > div:nth-child(2) p {
-  white-space: nowrap !important;
-}
-
-/* Main navigation occupies the flexible middle area. */
-header[class*="z-[90]"] > nav {
-  order: 2 !important;
-  display: flex !important;
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  justify-content: center !important;
-  align-items: center !important;
-  overflow-x: auto !important;
-  overflow-y: hidden !important;
-  scrollbar-width: none !important;
-  overscroll-behavior-x: contain !important;
-  white-space: nowrap !important;
-}
-
-header[class*="z-[90]"] > nav::-webkit-scrollbar {
-  display: none !important;
-}
-
-header[class*="z-[90]"] > nav > a {
-  flex: 0 0 auto !important;
-}
-
-/* Desktop-only extra navigation stays available. */
-@media (min-width: 768px) {
-  header[class*="z-[90]"] > nav > a {
-    padding-left: 12px !important;
-    padding-right: 12px !important;
-  }
-}
-
-/* Module Pages button becomes the clean hamburger at the right. */
-header[class*="z-[90]"] > button {
-  order: 3 !important;
-  width: 42px !important;
-  min-width: 42px !important;
-  height: 42px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border-radius: 12px !important;
-  background: transparent !important;
-  color: #cbd5e1 !important;
-  box-shadow: none !important;
-  flex: 0 0 42px !important;
-}
-
-header[class*="z-[90]"] > button:hover {
-  background: rgba(255,255,255,.06) !important;
-  color: #fff !important;
-}
-
-header[class*="z-[90]"] > button > svg {
-  display: none !important;
-}
-
-header[class*="z-[90]"] > button > span {
-  display: none !important;
-}
-
-header[class*="z-[90]"] > button::before {
-  content: "☰";
-  display: block;
-  font-size: 25px;
-  line-height: 1;
-  font-weight: 700;
-  font-family: Arial, sans-serif;
-}
-
-/* Bell stays directly beside the hamburger — no auto-margin gap. */
-header[class*="z-[90]"] > div:nth-child(4) {
-  order: 4 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex: 0 0 auto !important;
-  margin-left: 2px !important;
-}
-
-header[class*="z-[90]"] > div:nth-child(4) a {
-  padding: 9px !important;
-}
+header[class*="z-[90]"] { gap:10px!important; padding-left:clamp(12px,2vw,28px)!important; padding-right:clamp(12px,2vw,28px)!important; overflow:hidden!important; box-sizing:border-box!important; }
+header[class*="z-[90]"] > div:nth-child(2) { order:1!important; display:flex!important; align-items:center!important; flex:0 0 auto!important; min-width:0!important; margin:0!important; padding:0!important; white-space:nowrap!important; }
+header[class*="z-[90]"] > div:nth-child(2)::before { content:""; display:inline-block; width:22px; height:22px; margin-right:7px; flex:0 0 22px; background:url('/favicon.svg') center/contain no-repeat; }
+header[class*="z-[90]"] > div:nth-child(2) h1 { white-space:nowrap!important; }
+header[class*="z-[90]"] > nav { order:2!important; display:flex!important; flex:1 1 auto!important; min-width:0!important; max-width:none!important; justify-content:center!important; align-items:center!important; overflow-x:auto!important; overflow-y:hidden!important; scrollbar-width:none!important; overscroll-behavior-x:contain!important; white-space:nowrap!important; }
+header[class*="z-[90]"] > nav::-webkit-scrollbar { display:none!important; }
+header[class*="z-[90]"] > nav > a { flex:0 0 auto!important; }
+header[class*="z-[90]"] > button { order:3!important; width:42px!important; min-width:42px!important; height:42px!important; padding:0!important; margin:0!important; border-radius:12px!important; background:transparent!important; color:#cbd5e1!important; box-shadow:none!important; flex:0 0 42px!important; }
+header[class*="z-[90]"] > button:hover { background:rgba(255,255,255,.06)!important; color:#fff!important; }
+header[class*="z-[90]"] > button > svg,header[class*="z-[90]"] > button > span { display:none!important; }
+header[class*="z-[90]"] > button::before { content:"☰"; display:block; font-size:25px; line-height:1; font-weight:700; font-family:Arial,sans-serif; }
+header[class*="z-[90]"] > div:nth-child(4) { order:4!important; display:flex!important; align-items:center!important; justify-content:center!important; flex:0 0 auto!important; margin-left:2px!important; }
+header[class*="z-[90]"] > div:nth-child(4) a { padding:9px!important; }
+header[class*="z-[90]"] > div:nth-child(2) p { display:none!important; }
 
 /* =========================================================
-   MOBILE / TABLET
+   GLOBAL PAGE / FORM / LIST RESPONSIVE FIX
+   Additive: applies across every route without changing data.
    ========================================================= */
-@media (max-width: 767px) {
-  header[class*="z-[90]"] {
-    height: 64px !important;
-    gap: 8px !important;
-    padding-left: 10px !important;
-    padding-right: 10px !important;
-  }
+:root { --ph-page-pad:clamp(10px,2.4vw,28px); --ph-gap:clamp(8px,1.5vw,16px); }
+main,section,article,[class*="page"],[class*="Page"],[class*="content"],[class*="Content"] { min-width:0; }
+[class*="grid"],[class*="flex"] { min-width:0; }
 
-  /* Keep the full PowerHouse brand visible, including subtitle. */
-  header[class*="z-[90]"] > div:nth-child(2) {
-    min-width: 124px !important;
-    max-width: 124px !important;
-  }
+/* Forms never become wider than the viewport. */
+form { width:100%; max-width:100%; min-width:0; }
+label { min-width:0; }
+input:not([type="checkbox"]):not([type="radio"]),select,textarea { width:100%; max-width:100%; min-width:0!important; box-sizing:border-box; }
+textarea { resize:vertical; }
+select:not([multiple]) { height:44px!important; min-height:44px!important; max-height:44px!important; padding-top:0!important; padding-bottom:0!important; }
+select[multiple] { max-height:12rem!important; overflow-y:auto!important; }
+select option { min-height:28px!important; height:auto!important; padding:4px 10px!important; }
 
-  header[class*="z-[90]"] > div:nth-child(2)::before {
-    width: 18px !important;
-    height: 18px !important;
-    flex-basis: 18px !important;
-    margin-right: 5px !important;
-  }
+/* Prevent empty/stretching flex children from creating giant list/form areas. */
+form > *,[class*="form"] > *,[class*="Form"] > * { min-width:0; }
+[class*="space-y"] > :not([hidden]) ~ :not([hidden]) { margin-top:clamp(6px,1vw,12px); }
+[class*="gap-"] { min-width:0; }
 
-  header[class*="z-[90]"] > div:nth-child(2) h1 {
-    font-size: 15px !important;
-    line-height: 1 !important;
-  }
+/* Lists and result areas: compact but scrollable when genuinely long. */
+ul,ol { max-width:100%; }
+[class*="list"],[class*="List"],[class*="table"],[class*="Table"] { min-width:0; max-width:100%; }
+[class*="overflow-y-auto"] { min-height:0!important; }
 
-  header[class*="z-[90]"] > div:nth-child(2) p {
-    display: block !important;
-    font-size: 6px !important;
-    line-height: 1 !important;
-    letter-spacing: .20em !important;
-    margin-top: 4px !important;
-  }
+/* Tables retain all data: horizontal scroll instead of clipping. */
+.table-responsive,[data-responsive-table] { width:100%; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.table-responsive table,[data-responsive-table] table { width:max-content; min-width:100%; }
 
-  /* Only Dashboard, Assign Tasks and Fuel remain in the main mobile header. */
-  header[class*="z-[90]"] > nav > a:nth-child(n+4) {
-    display: none !important;
-  }
-
-  header[class*="z-[90]"] > nav {
-    justify-content: flex-start !important;
-    gap: 2px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-    touch-action: pan-x !important;
-  }
-
-  header[class*="z-[90]"] > nav > a {
-    padding: 8px 9px !important;
-    font-size: 8px !important;
-    line-height: 1 !important;
-  }
-
-  header[class*="z-[90]"] > nav > a svg {
-    width: 12px !important;
-    height: 12px !important;
-    margin-right: 4px !important;
-  }
-
-  /* Hamburger and bell remain fixed at the far right. */
-  header[class*="z-[90]"] > button {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    flex-basis: 38px !important;
-  }
-
-  header[class*="z-[90]"] > button::before {
-    font-size: 22px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(4) {
-    margin-left: 2px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(4) a {
-    padding: 8px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(4) a svg {
-    width: 19px !important;
-    height: 19px !important;
-  }
+/* Compact common Tailwind spacing on narrow layouts without hiding content. */
+@media (max-width:900px) {
+  [class*="p-8"] { padding:1.25rem!important; }
+  [class*="p-7"] { padding:1.125rem!important; }
+  [class*="p-6"] { padding:1rem!important; }
+  [class*="gap-8"] { gap:1rem!important; }
+  [class*="gap-7"] { gap:.875rem!important; }
+  [class*="gap-6"] { gap:.75rem!important; }
 }
 
-/* =========================================================
-   NARROW PHONES
-   ========================================================= */
-@media (max-width: 480px) {
-  header[class*="z-[90]"] {
-    gap: 6px !important;
-    padding-left: 8px !important;
-    padding-right: 8px !important;
-  }
+@media (max-width:767px) {
+  header[class*="z-[90]"] { height:64px!important; gap:8px!important; padding-left:10px!important; padding-right:10px!important; }
+  header[class*="z-[90]"] > div:nth-child(2) { min-width:124px!important; max-width:124px!important; }
+  header[class*="z-[90]"] > div:nth-child(2)::before { width:18px!important; height:18px!important; flex-basis:18px!important; margin-right:5px!important; }
+  header[class*="z-[90]"] > div:nth-child(2) h1 { font-size:15px!important; line-height:1!important; }
+  header[class*="z-[90]"] > nav > a:nth-child(n+4) { display:none!important; }
+  header[class*="z-[90]"] > nav { justify-content:flex-start!important; gap:2px!important; -webkit-overflow-scrolling:touch!important; touch-action:pan-x!important; }
+  header[class*="z-[90]"] > nav > a { padding:8px 9px!important; font-size:8px!important; line-height:1!important; }
+  header[class*="z-[90]"] > nav > a svg { width:12px!important; height:12px!important; margin-right:4px!important; }
+  header[class*="z-[90]"] > button { width:38px!important; min-width:38px!important; height:38px!important; flex-basis:38px!important; }
+  header[class*="z-[90]"] > button::before { font-size:22px!important; }
+  header[class*="z-[90]"] > div:nth-child(4) a { padding:8px!important; }
+  header[class*="z-[90]"] > div:nth-child(4) a svg { width:19px!important; height:19px!important; }
+  aside[class*="z-[110]"] { width:min(340px,90vw)!important; max-width:90vw!important; }
 
-  header[class*="z-[90]"] > div:nth-child(2) {
-    min-width: 112px !important;
-    max-width: 112px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(2)::before {
-    width: 17px !important;
-    height: 17px !important;
-    flex-basis: 17px !important;
-    margin-right: 4px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(2) h1 {
-    font-size: 13px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(2) p {
-    font-size: 5px !important;
-    letter-spacing: .16em !important;
-  }
-
-  header[class*="z-[90]"] > nav > a {
-    padding: 7px 8px !important;
-    font-size: 7px !important;
-  }
-
-  header[class*="z-[90]"] > nav > a svg {
-    width: 11px !important;
-    height: 11px !important;
-    margin-right: 3px !important;
-  }
-
-  header[class*="z-[90]"] > button {
-    width: 36px !important;
-    min-width: 36px !important;
-    height: 36px !important;
-    flex-basis: 36px !important;
-  }
-
-  header[class*="z-[90]"] > button::before {
-    font-size: 21px !important;
-  }
+  /* Every page keeps useful content inside the screen. */
+  main { width:100%!important; max-width:100%!important; min-width:0!important; }
+  form { gap:10px!important; }
+  input,select,textarea,button { min-height:40px; }
+  select:not([multiple]) { height:42px!important; min-height:42px!important; max-height:42px!important; }
+  textarea { min-height:84px; }
+  [class*="rounded-2xl"],[class*="rounded-xl"] { max-width:100%; }
+  [class*="grid-cols-"] { min-width:0!important; }
 }
 
-/* =========================================================
-   VERY NARROW PHONES
-   ========================================================= */
-@media (max-width: 360px) {
-  header[class*="z-[90]"] {
-    gap: 5px !important;
-    padding-left: 6px !important;
-    padding-right: 6px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(2) {
-    min-width: 102px !important;
-    max-width: 102px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(2) h1 {
-    font-size: 12px !important;
-  }
-
-  header[class*="z-[90]"] > div:nth-child(2) p {
-    font-size: 4.5px !important;
-    letter-spacing: .12em !important;
-  }
-
-  header[class*="z-[90]"] > nav > a {
-    padding-left: 7px !important;
-    padding-right: 7px !important;
-  }
-}
-
-/* Keep the drawer comfortably inside small screens. */
-@media (max-width: 767px) {
-  aside[class*="z-[110]"] {
-    width: min(340px, 90vw) !important;
-    max-width: 90vw !important;
-  }
-}
-
-/* Requested final header cleanup: remove only the Management Portal subtitle. */
-header[class*="z-[90]"] > div:nth-child(2) p {
-  display: none !important;
+@media (max-width:480px) {
+  header[class*="z-[90]"] { gap:6px!important; padding-left:8px!important; padding-right:8px!important; }
+  header[class*="z-[90]"] > div:nth-child(2) { min-width:112px!important; max-width:112px!important; }
+  header[class*="z-[90]"] > div:nth-child(2) h1 { font-size:13px!important; }
+  header[class*="z-[90]"] > nav > a { padding:7px 8px!important; font-size:7px!important; }
+  header[class*="z-[90]"] > button { width:36px!important; min-width:36px!important; height:36px!important; flex-basis:36px!important; }
+  [class*="p-5"],[class*="p-6"],[class*="p-7"],[class*="p-8"] { padding:10px!important; }
+  [class*="gap-5"],[class*="gap-6"],[class*="gap-7"],[class*="gap-8"] { gap:8px!important; }
 }
