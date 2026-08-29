@@ -60,7 +60,7 @@ export default async function handler(req, res) {
     if (imageData && (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(imageData) || imageData.length > 7_000_000)) return res.status(400).json({ error: "Unsupported or oversized image." });
     const key = String(process.env.GEMINI_API_KEY || "").trim();
     if (!key) return res.status(500).json({ error: "GEMINI_API_KEY is not configured." });
-    const model = String(process.env.GEMINI_MODEL || "gemini-2.5-flash").trim();
+    const model = String(process.env.GEMINI_MODEL || "gemini-3.6-flash").trim();
     const context = await buildContext({ ...user, uid: decoded.uid });
     const parts = [{ text: `PROJECT CONTEXT:\n${JSON.stringify(context)}\n\nUSER QUESTION:\n${question || "Analyze the uploaded image and relate it to the supplied PowerHouse operational context."}` }];
     const image = parseImage(imageData);
