@@ -32,7 +32,7 @@ jobs:
           node-version: "20"
 
       - name: Install function dependencies
-        run: npm --prefix functions ci
+        run: npm --prefix functions install --no-audit --no-fund
 
       - name: Write Firebase service account
         run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
