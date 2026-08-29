@@ -7,6 +7,8 @@ const tasksRef=collection(db,"tasks"),usersRef=collection(db,"powerhouse_users")
 let cache=null,cacheAt=0,pending=null; const now=()=>new Date().toISOString();
 const clean=v=>v&&typeof v.toDate==="function"?v.toDate().toISOString():Array.isArray(v)?v.map(clean):v&&typeof v==="object"?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,clean(x)])):v;
 const strip=t=>{const x={...(t||{})};["attachments","files","media","file","upload","uploads","evidence","images","photos","documents"].forEach(k=>delete x[k]);return x};
+// API compatibility helper: keep task routing detection exported for existing callers.
+export const isTaskPath=(path="")=>{const p=String(path||"").toLowerCase();return /(^|\/)(tasks?|my-tasks?|task-view|task-completion|task-report)(\/|$)|task/.test(p)};
 const raw=s=>strip({id:s.id,...clean(s.data()||{})}); const n=t=>{const x=Number(t?.task_number??t?.display_id??t?.public_id);return Number.isInteger(x)&&x>0?x:null};
 const view=t=>{const x=strip(t),num=n(x);return {...x,id:num??x.id,firestore_id:x.id,task_number:num!=null?String(num):x.task_number,display_id:num!=null?String(num):x.display_id,public_id:num??x.public_id}};
 export const invalidateTaskCache=()=>{cache=null;cacheAt=0}; export const invalidateStaffCache=()=>{};
