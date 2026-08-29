@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
 import "./layout-overrides.css";
+import "./select-visibility.css";
 import { panelRequest } from "./services/firebasePanelStore";
 
 if (typeof window !== "undefined" && !window.__POWERHOUSE_SAFE_FETCH__) {
