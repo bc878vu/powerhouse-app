@@ -1,145 +1,110 @@
-import { useEffect, useRef, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, onSnapshot, runTransaction, query, orderBy, limit } from "firebase/firestore";
-import { auth, db } from "./firebase";
-import { getUser } from "./utils/auth";
-import { createNotification, sendPushNotification } from "./services/notificationService";
-import { listUsers } from "./services/firebaseDataStore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { collection, doc, getDoc, onSnapshot, orderBy, query, limit } from "firebase/firestore";
+import { AlertTriangle, BellRing, Volume2, VolumeX, X } from "lucide-react";
+import { db } from "./firebase";
 
-const LOW_DIESEL_STOCK = 3000;
-const OFF_STATUSES = new Set(["off", "offline", "shutdown", "out_of_service", "out-of-service"]);
+const SETTINGS_REF = doc(db, "powerhouse_settings", "alerts");
+const DEFAULTS = { lowDieselThreshold: 3000, repeatMinutes: 30, enabled: true, silent: false };
+const toNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-async function claimEvent(eventId, meta) {
-  const eventRef = doc(db, "powerhouse_alert_events", eventId);
-  return runTransaction(db, async (transaction) => {
-    const existing = await transaction.get(eventRef);
-    if (existing.exists()) return false;
-    transaction.set(eventRef, { ...meta, createdAt: new Date().toISOString() });
-    return true;
-  });
-}
-
-async function notifyUsers(userIds, payload) {
-  const ids = [...new Set(userIds.map(String).filter(Boolean))];
-  if (!ids.length) return;
-  let claimed = false;
-  try {
-    claimed = await claimEvent(String(payload.eventId), { type: payload.type, sourceId: payload.sourceId || null, recipients: ids });
-  } catch (error) {
-    console.warn("Alert event claim failed:", error?.message || error);
-    return;
-  }
-  if (!claimed) return;
-  await Promise.all(ids.map((uid) => createNotification(uid, {
-    title: payload.title,
-    body: payload.body,
-    type: payload.type,
-    route: payload.route || "/notifications",
-    sourceId: payload.sourceId
-  }).catch((error) => console.warn("In-app notification failed:", error?.message || error))));
-  try {
-    await sendPushNotification({
-      title: payload.title,
-      body: payload.body,
-      route: payload.route || "/notifications",
-      userIds: ids,
-      notificationId: payload.eventId
-    });
-  } catch (error) {
-    console.warn("Push delivery failed; in-app notification was still saved:", error?.message || error);
-  }
-}
-
-async function getAllUserIds() {
-  try {
-    const users = await listUsers();
-    return users
-      .filter((user) => String(user.status || "active").toLowerCase() !== "inactive")
-      .map((user) => String(user.uid || user.id || ""))
-      .filter(Boolean);
-  } catch (error) {
-    console.warn("Unable to load notification recipients:", error?.message || error);
-    return [];
-  }
+function readSettings(data = {}) {
+  return {
+    lowDieselThreshold: Math.max(0, toNumber(data.lowDieselThreshold, DEFAULTS.lowDieselThreshold)),
+    repeatMinutes: Math.max(1, toNumber(data.repeatMinutes, DEFAULTS.repeatMinutes)),
+    enabled: data.enabled !== false,
+    silent: data.silent === true,
+  };
 }
 
 export default function GlobalAlertEngine() {
-  const [enabled, setEnabled] = useState(false);
-  const panelStatuses = useRef(new Map());
-
-  useEffect(() => onAuthStateChanged(auth, () => {
-    const role = String(getUser()?.role || "").toLowerCase();
-    setEnabled(["admin", "superadmin"].includes(role));
-  }), []);
+  const [settings, setSettings] = useState(DEFAULTS);
+  const [stock, setStock] = useState(null);
+  const [alert, setAlert] = useState(null);
+  const audioRef = useRef(null);
+  const timerRef = useRef(null);
+  const lastAlertRef = useRef(0);
+  const settingsRef = useRef(DEFAULTS);
 
   useEffect(() => {
-    if (!enabled) return undefined;
-    let cancelled = false;
-    let panelReady = false;
-    let fuelReady = false;
-    const cleanups = [];
+    const stop = onSnapshot(SETTINGS_REF, (snap) => {
+      const next = readSettings(snap.exists() ? snap.data() : {});
+      settingsRef.current = next;
+      setSettings(next);
+    }, () => {
+      settingsRef.current = DEFAULTS;
+      setSettings(DEFAULTS);
+    });
+    return stop;
+  }, []);
 
-    const start = async () => {
-      const allUserIds = await getAllUserIds();
-      if (cancelled || !allUserIds.length) return;
+  useEffect(() => {
+    const q = query(collection(db, "entries"), orderBy("createdAt", "desc"), limit(50));
+    const stop = onSnapshot(q, (snap) => {
+      const rows = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+      if (!rows.length) { setStock(0); return; }
+      const latest = rows[0];
+      setStock(toNumber(latest.currentStock ?? latest.stock, 0));
+    }, (error) => console.warn("Low diesel alert listener failed:", error?.message || error));
+    return stop;
+  }, []);
 
-      const panelUnsub = onSnapshot(collection(db, "powerhouse_panels"), async (snapshot) => {
-        if (!panelReady) {
-          snapshot.docs.forEach((item) => panelStatuses.current.set(item.id, String(item.data()?.status || item.data()?.effective_status || "").toLowerCase()));
-          panelReady = true;
-          return;
-        }
-        for (const change of snapshot.docChanges()) {
-          if (change.type !== "modified") continue;
-          const data = change.doc.data() || {};
-          const previous = panelStatuses.current.get(change.doc.id) || "";
-          const next = String(data.status || data.effective_status || "").toLowerCase();
-          panelStatuses.current.set(change.doc.id, next);
-          if (!OFF_STATUSES.has(next) || OFF_STATUSES.has(previous)) continue;
-          const panelName = data.panel_name || data.panel_code || "Electrical Panel";
-          await notifyUsers(allUserIds, {
-            eventId: `panel-off-${change.doc.id}-${String(data.updated_at || Date.now())}`,
-            sourceId: change.doc.id,
-            type: "panel_off",
-            title: "⚠️ Panel Turned OFF",
-            body: `${panelName} has been turned OFF. Check the panel status and power supply.`,
-            route: "/panels"
-          });
-        }
-      }, (error) => console.warn("Panel alert listener failed:", error?.message || error));
-      cleanups.push(panelUnsub);
+  const low = useMemo(() => stock !== null && settings.enabled && stock < settings.lowDieselThreshold, [stock, settings]);
 
-      const entriesQuery = query(collection(db, "entries"), orderBy("createdAt", "desc"), limit(50));
-      const fuelUnsub = onSnapshot(entriesQuery, async (snapshot) => {
-        if (!fuelReady) {
-          fuelReady = true;
-          return;
-        }
-        for (const change of snapshot.docChanges()) {
-          if (change.type !== "added") continue;
-          const data = change.doc.data() || {};
-          const current = Number(data.currentStock ?? data.stock ?? 0);
-          const previous = Number(data.previousStock ?? 0);
-          if (!(current > 0 && current < LOW_DIESEL_STOCK && previous >= LOW_DIESEL_STOCK)) continue;
-          await notifyUsers(allUserIds, {
-            eventId: `diesel-low-${change.doc.id}`,
-            sourceId: change.doc.id,
-            type: "low_diesel",
-            title: "⛽ Low Diesel Stock",
-            body: `Diesel stock is now ${current.toFixed(0)} L, below the ${LOW_DIESEL_STOCK.toLocaleString()} L safety level.`,
-            route: "/fuel-management"
-          });
-        }
-      }, (error) => console.warn("Fuel alert listener failed:", error?.message || error));
-      cleanups.push(fuelUnsub);
-    };
+  const playTone = () => {
+    if (settingsRef.current.silent) return;
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!audioRef.current) audioRef.current = new AudioContextClass();
+      const ctx = audioRef.current;
+      const now = ctx.currentTime;
+      [[880,0,.22],[660,.27,.22],[880,.54,.22],[660,.81,.22],[990,1.08,.32]].forEach(([frequency, offset, duration]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.setValueAtTime(frequency, now + offset);
+        gain.gain.setValueAtTime(.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(.6, now + offset + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, now + offset + duration);
+        osc.connect(gain); gain.connect(ctx.destination); osc.start(now + offset); osc.stop(now + offset + duration + .03);
+      });
+      if (navigator.vibrate) navigator.vibrate([300,100,300,100,500]);
+    } catch (error) { console.warn("Low diesel alert tone blocked:", error?.message || error); }
+  };
 
-    void start();
-    return () => {
-      cancelled = true;
-      cleanups.forEach((unsubscribe) => unsubscribe?.());
-    };
-  }, [enabled]);
+  const showSystem = async (title, body) => {
+    try {
+      if (typeof Notification === "undefined" || Notification.permission !== "granted" || !("serviceWorker" in navigator)) return;
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification(title, {
+        body, icon: "/icon-192.svg", badge: "/icon-192.svg", tag: "powerhouse-low-diesel", renotify: true,
+        requireInteraction: true, silent: settingsRef.current.silent, vibrate: [300,100,300,100,500], data: { route: "/fuel-management", type: "low_diesel" }
+      });
+    } catch (error) { console.warn("Low diesel browser notification skipped:", error?.message || error); }
+  };
 
-  return null;
+  const fireAlert = () => {
+    if (!low) return;
+    const current = Number(stock || 0);
+    const threshold = settingsRef.current.lowDieselThreshold;
+    const title = "🚨 LOW DIESEL STOCK";
+    const body = `Diesel stock is ${current.toFixed(0)} L. Alert level is ${threshold.toFixed(0)} L.`;
+    setAlert({ title, body });
+    lastAlertRef.current = Date.now();
+    playTone();
+    void showSystem(title, body);
+  };
+
+  useEffect(() => {
+    if (!low) { lastAlertRef.current = 0; setAlert(null); return undefined; }
+    fireAlert();
+    const intervalMs = Math.max(1, Number(settings.repeatMinutes || 30)) * 60 * 1000;
+    timerRef.current = window.setInterval(() => fireAlert(), intervalMs);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [low, settings.repeatMinutes, settings.silent, stock]);
+
+  useEffect(() => () => { try { void audioRef.current?.close?.(); } catch {} }, []);
+
+  if (!alert || !low) return null;
+  return <div className="fixed inset-x-3 top-20 z-[300] mx-auto w-auto max-w-xl animate-[pulse_2s_ease-in-out_infinite] rounded-2xl border border-red-500/50 bg-red-950/95 p-4 shadow-[0_0_50px_rgba(239,68,68,.3)] backdrop-blur-xl" role="alert">
+    <div className="flex gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-500 text-white"><AlertTriangle size={23}/></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black tracking-wide text-red-100">{alert.title}</p><p className="mt-1 text-sm text-red-100/80">{alert.body}</p></div><button onClick={()=>setAlert(null)} className="rounded-lg p-1.5 text-red-100/70 hover:bg-white/10" aria-label="Dismiss alert"><X size={17}/></button></div><div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-wider"><span className="rounded-full bg-red-500/20 px-2.5 py-1 text-red-200">Critical operational alert</span><span className="rounded-full bg-white/10 px-2.5 py-1 text-red-100">Repeats every {settings.repeatMinutes} min</span>{settings.silent ? <span className="inline-flex items-center gap-1 text-yellow-300"><VolumeX size={13}/>Silent</span> : <span className="inline-flex items-center gap-1 text-red-100"><Volume2 size={13}/>Sound on</span>}</div></div></div></div>;
 }
