@@ -1,0 +1,64 @@
+name: Deploy Firebase Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "firebase.json"
+      - ".firebaserc"
+      - ".github/workflows/firebase-functions.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-functions-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FIREBASE_PROJECT_ID: powerhouse-app-47c4a
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-service-account.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install function dependencies
+        run: npm --prefix functions ci
+
+      - name: Write Firebase service account
+        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Validate required secrets
+        run: |
+          test -s "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -n "$OPENAI_API_KEY"
+
+      - name: Set OpenAI secret in Firebase Secret Manager
+        run: |
+          printf '%s' "$OPENAI_API_KEY" > /tmp/openai_api_key
+          npx firebase-tools@latest functions:secrets:set OPENAI_API_KEY \
+            --data-file=/tmp/openai_api_key \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+          rm -f /tmp/openai_api_key
+
+      - name: Deploy Cloud Functions
+        run: npx firebase-tools@latest deploy --only functions --project "$FIREBASE_PROJECT_ID" --non-interactive
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f "$GOOGLE_APPLICATION_CREDENTIALS" /tmp/openai_api_key
