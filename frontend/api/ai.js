@@ -1,9 +1,7 @@
 import admin from "firebase-admin";
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}");
-if (!admin.apps.length) {
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-}
+if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
 const isAdminRole = (role) => ["admin", "superadmin"].includes(String(role || "").toLowerCase());
 const cleanText = (value, max = 500) => String(value || "").trim().slice(0, max);
@@ -42,6 +40,11 @@ async function buildContext(user) {
 function systemPrompt(adminUser) {
   return `You are PowerHouse AI, an operational assistant for an industrial power-house management system. Answer in the user's language (Roman Urdu/Urdu/English) and keep answers practical and structured. Use only the supplied project context for project-specific facts. Never invent live readings, fuel stock, task status, electrical ratings, maintenance dates, machine states, panel states, or staff information. ${adminUser ? "The user is an admin and may receive the full operational context supplied to you." : "The user is a staff account; never reveal other staff members' private information or admin-only operational datasets."} For electrical or maintenance advice, distinguish observations from recommendations and advise verification against equipment nameplates, drawings, manufacturer instructions, and applicable safety procedures.`;
 }
+function parseImage(imageData) {
+  const match = String(imageData || "").match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,(.+)$/i);
+  if (!match) return null;
+  return { mimeType: match[1], data: match[2] };
+}
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   try {
@@ -55,17 +58,22 @@ export default async function handler(req, res) {
     const imageData = req.body?.imageData ? String(req.body.imageData) : "";
     if (!question && !imageData) return res.status(400).json({ error: "Message or image is required." });
     if (imageData && (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(imageData) || imageData.length > 7_000_000)) return res.status(400).json({ error: "Unsupported or oversized image." });
-    const key = String(process.env.OPENAI_API_KEY || "").trim();
-    if (!key) return res.status(500).json({ error: "OPENAI_API_KEY is not configured." });
-    const model = String(process.env.OPENAI_MODEL || "gpt-5").trim();
+    const key = String(process.env.GEMINI_API_KEY || "").trim();
+    if (!key) return res.status(500).json({ error: "GEMINI_API_KEY is not configured." });
+    const model = String(process.env.GEMINI_MODEL || "gemini-2.5-flash").trim();
     const context = await buildContext({ ...user, uid: decoded.uid });
-    const userContent = [{ type: "input_text", text: `PROJECT CONTEXT:\n${JSON.stringify(context)}\n\nUSER QUESTION:\n${question || "Analyze the uploaded image and relate it to the supplied PowerHouse operational context."}` }];
-    if (imageData) userContent.push({ type: "input_image", image_url: imageData, detail: "auto" });
-    const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model, input: [{ role: "system", content: [{ type: "input_text", text: systemPrompt(isAdminRole(user.role)) }] }, { role: "user", content: userContent }], max_output_tokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 1200), store: false }) });
+    const parts = [{ text: `PROJECT CONTEXT:\n${JSON.stringify(context)}\n\nUSER QUESTION:\n${question || "Analyze the uploaded image and relate it to the supplied PowerHouse operational context."}` }];
+    const image = parseImage(imageData);
+    if (image) parts.push({ inlineData: image });
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt(isAdminRole(user.role)) }] }, contents: [{ role: "user", parts }], generationConfig: { maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 1200) } })
+    });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || "OpenAI request failed." });
-    const answer = String(data.output_text || (data.output || []).flatMap((x) => x.content || []).map((x) => x.text || "").join("\n")).trim();
-    if (!answer) return res.status(502).json({ error: "AI returned an empty response." });
+    if (!response.ok) return res.status(response.status).json({ error: data?.error?.message || "Gemini request failed." });
+    const answer = String((data?.candidates || []).flatMap((candidate) => candidate?.content?.parts || []).map((part) => part?.text || "").join("\n")).trim();
+    if (!answer) return res.status(502).json({ error: "Gemini returned an empty response." });
     return res.status(200).json({ answer, access: isAdminRole(user.role) ? "admin_full" : "user_limited" });
   } catch (error) {
     console.error("PowerHouse AI API error", error?.message);
