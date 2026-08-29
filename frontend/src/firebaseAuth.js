@@ -1,5 +1,5 @@
 import { getAuth, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { app, db } from "./firebase";
 
 export const auth = getAuth(app);
@@ -7,6 +7,7 @@ const ADMIN_EMAIL = "admin@powerhouse.com";
 const isAdminEmail = (email) => String(email || "").trim().toLowerCase() === ADMIN_EMAIL;
 const apiBase = () => String(import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "").replace(/\/api$/i, "");
 const resolveProfilePhoto = (profile, firebaseUser) => profile?.profile_pic || profile?.profilePic || profile?.photoURL || firebaseUser?.photoURL || "";
+const stableFallbackId = (uid) => 1000000000 + Array.from(String(uid || "")).reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 7);
 
 async function provisionStaffRecord(firebaseUser) {
   const base = apiBase();
@@ -17,31 +18,24 @@ async function provisionStaffRecord(firebaseUser) {
     if (!response.ok && response.status !== 409) return null;
     const payload = await response.json().catch(() => ({}));
     if (payload?.user?.id) return payload.user;
-  } catch (error) { console.warn("Could not provision Firebase user in staff records:", error?.message || error); }
-  return null;
+    return await resolveStaffRecord(firebaseUser, false);
+  } catch (error) { console.warn("Could not provision Firebase user in staff records:", error?.message || error); return null; }
 }
 
-async function resolveStaffRecord(firebaseUser) {
+async function resolveStaffRecord(firebaseUser, allowProvision = true) {
   const base = apiBase();
   if (!base || !firebaseUser?.email) return null;
   try {
-    const response = await fetch(`${base}/api/user/all`, { headers: { Accept: "application/json" } });
-    if (!response.ok) return null;
-    const payload = await response.json();
-    const users = Array.isArray(payload) ? payload : Array.isArray(payload?.users) ? payload.users : Array.isArray(payload?.data) ? payload.data : [];
-    const email = String(firebaseUser.email).trim().toLowerCase();
-    const matches = users.filter((item) => String(item?.email || "").trim().toLowerCase() === email);
-    // Prefer the real staff record with an employee ID. Legacy Firebase-style numeric IDs
-    // must never become the task-assignment ID when a canonical MySQL staff record exists.
-    const existing = matches.sort((a, b) => {
-      const aEmployee = Boolean(String(a?.employeeID || "").trim());
-      const bEmployee = Boolean(String(b?.employeeID || "").trim());
-      if (aEmployee !== bEmployee) return aEmployee ? -1 : 1;
-      return Number(a?.id || 0) - Number(b?.id || 0);
-    })[0] || null;
-    if (existing) return existing;
-    return await provisionStaffRecord(firebaseUser);
-  } catch (error) { console.warn("Could not resolve numeric staff ID:", error?.message || error); return null; }
+    const email = encodeURIComponent(String(firebaseUser.email).trim().toLowerCase());
+    const response = await fetch(`${base}/api/user/by-email?email=${email}`, { headers: { Accept: "application/json" } });
+    if (response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const user = payload?.user || (Array.isArray(payload) ? payload[0] : null);
+      if (user) return user;
+    }
+    if (allowProvision) return await provisionStaffRecord(firebaseUser);
+  } catch (error) { console.warn("Could not resolve canonical staff record:", error?.message || error); }
+  return null;
 }
 
 async function syncStaffPhoto(staffRecord, photoURL) {
@@ -55,32 +49,16 @@ async function syncStaffPhoto(staffRecord, photoURL) {
     if (!blob.size) throw new Error("Profile avatar is empty");
     const extension = (blob.type || "image/jpeg").split("/")[1]?.replace("jpeg", "jpg") || "jpg";
     const form = new FormData();
-    form.append("name", staffRecord.name || "User");
-    form.append("email", staffRecord.email || "");
-    form.append("role", staffRecord.role || "electrician");
-    form.append("status", staffRecord.status || "active");
-    form.append("profile_pic", blob, `profile.${extension}`);
+    form.append("name", staffRecord.name || "User"); form.append("email", staffRecord.email || ""); form.append("role", staffRecord.role || "electrician"); form.append("status", staffRecord.status || "active"); form.append("profile_pic", blob, `profile.${extension}`);
     const response = await fetch(`${base}/api/user/${staffRecord.id}`, { method: "PUT", headers: { Accept: "application/json" }, body: form });
     if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.message || `Profile photo sync failed (${response.status})`); }
   } catch (error) { console.warn("Could not persist profile photo to staff record:", error?.message || error); }
 }
 
-async function allocateNumericId() {
-  try {
-    const snapshot = await getDocs(collection(db, "powerhouse_users"));
-    const ids = snapshot.docs.map((item) => Number(item.data()?.id)).filter((value) => Number.isInteger(value) && value >= 10000);
-    return Math.max(10000, ...ids) + 1;
-  } catch (error) { console.warn("Could not inspect numeric user IDs; using timestamp fallback.", error?.message || error); return 10000 + (Date.now() % 1000000); }
-}
-
 async function ensureNumericProfileId(profile, firebaseUser, staffRecord) {
-  // The MySQL staff ID is the single canonical ID for tasks, staff records and reports.
-  // Never reuse an old Firebase-generated numeric ID when a staff record exists.
   const staffId = Number(staffRecord?.id);
   const existingId = Number(profile?.id);
-  const numericId = Number.isInteger(staffId) && staffId > 0
-    ? staffId
-    : (Number.isInteger(existingId) && existingId > 0 ? existingId : await allocateNumericId());
+  const numericId = Number.isInteger(staffId) && staffId > 0 ? staffId : (Number.isInteger(existingId) && existingId > 0 ? existingId : stableFallbackId(firebaseUser.uid));
   const nextProfile = { ...profile, id: numericId, numericId, uid: firebaseUser.uid, firebaseUid: firebaseUser.uid, updatedAt: serverTimestamp() };
   try { await setDoc(doc(db, "powerhouse_users", firebaseUser.uid), nextProfile, { merge: true }); } catch (error) { if (error?.code !== "permission-denied") throw error; console.warn("Could not persist canonical numeric profile ID because Firestore denied the write."); }
   return { profile: nextProfile, numericId };
