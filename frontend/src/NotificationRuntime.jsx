@@ -3,240 +3,29 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, getFCMToken, onForegroundMessage } from "./firebase";
 import { socket } from "./utils/socket";
 
-const TASK_EVENTS = new Set([
-  "taskAssigned", "taskReassigned", "taskUpdate", "taskUpdated", "taskEdited",
-  "taskDeleted", "taskDelete", "taskAccepted", "taskRejected", "taskCompleted", "taskStatusChanged",
-]);
-
-function setAppBadge() {
-  try { if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(1); } catch {}
-}
-
-function clearAppBadge() {
-  try {
-    if (typeof navigator !== "undefined" && typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge();
-    else if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(0);
-  } catch {}
-}
-
-function taskEventText(event, data = {}) {
-  const title = String(data.title || data.notificationTitle || "").trim();
-  const body = String(data.body || data.message || data.notificationBody || "").trim();
-  if (title || body) return { title: title || "PowerHouse Task Alert", body: body || "A task has been updated." };
-  const taskId = data.taskId ?? data.task_id ?? data.id ?? "";
-  const labels = {
-    taskAssigned: "New task assigned", taskReassigned: "Task reassigned", taskUpdate: "Task updated", taskUpdated: "Task updated",
-    taskEdited: "Task edited", taskDeleted: "Task deleted", taskDelete: "Task deleted", taskAccepted: "Task accepted",
-    taskRejected: "Task rejected", taskCompleted: "Task completed", taskStatusChanged: "Task status changed",
-  };
-  return { title: labels[event] || "Task notification", body: taskId ? `Task #${taskId} has a new update.` : "A PowerHouse task has a new update." };
-}
-
-function eventRoute(data = {}) {
-  const route = String(data.route || "").trim();
-  if (route) return route;
-  const taskId = data.taskId ?? data.task_id ?? data.id;
-  return taskId ? `/task-view/${taskId}` : "/notifications";
-}
-
-function getUserIds(user) {
-  return [user?.uid, user?.numericId, user?.id].filter((value) => value !== undefined && value !== null && String(value).trim()).map(String).filter((value, index, list) => list.indexOf(value) === index);
-}
-
-function getEventRecipientIds(data = {}) {
-  const values = data.userIds ?? data.user_ids ?? data.userId ?? data.user_id;
-  if (Array.isArray(values)) return values.map(String).filter(Boolean);
-  return values === undefined || values === null || String(values).trim() === "" ? [] : [String(values)];
-}
+const TASK_EVENTS = new Set(["taskAssigned", "taskReassigned", "taskUpdate", "taskUpdated", "taskEdited", "taskDeleted", "taskDelete", "taskAccepted", "taskRejected", "taskCompleted", "taskStatusChanged"]);
+function setAppBadge() { try { if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(1); } catch {} }
+function clearAppBadge() { try { if (typeof navigator !== "undefined" && typeof navigator.clearAppBadge === "function") void navigator.clearAppBadge(); else if (typeof navigator !== "undefined" && typeof navigator.setAppBadge === "function") void navigator.setAppBadge(0); } catch {} }
+function taskEventText(event, data = {}) { const title = String(data.title || data.notificationTitle || "").trim(); const body = String(data.body || data.message || data.notificationBody || "").trim(); if (title || body) return { title: title || "PowerHouse Task Alert", body: body || "A task has been updated." }; const taskId = data.taskId ?? data.task_id ?? data.id ?? ""; const labels = { taskAssigned: "New task assigned", taskReassigned: "Task reassigned", taskUpdate: "Task updated", taskUpdated: "Task updated", taskEdited: "Task edited", taskDeleted: "Task deleted", taskDelete: "Task deleted", taskAccepted: "Task accepted", taskRejected: "Task rejected", taskCompleted: "Task completed", taskStatusChanged: "Task status changed" }; return { title: labels[event] || "Task notification", body: taskId ? `Task #${taskId} has a new update.` : "A PowerHouse task has a new update." }; }
+function eventRoute(data = {}) { const route = String(data.route || "").trim(); if (route) return route; const taskId = data.taskId ?? data.task_id ?? data.id; return taskId ? `/task-view/${taskId}` : "/notifications"; }
+function getUserIds(user) { return [user?.uid, user?.numericId, user?.id].filter((value) => value !== undefined && value !== null && String(value).trim()).map(String).filter((value, index, list) => list.indexOf(value) === index); }
+function getEventRecipientIds(data = {}) { const values = data.userIds ?? data.user_ids ?? data.userId ?? data.user_id; if (Array.isArray(values)) return values.map(String).filter(Boolean); return values === undefined || values === null || String(values).trim() === "" ? [] : [String(values)]; }
 
 export default function NotificationRuntime() {
-  const [alert, setAlert] = useState(null);
-  const timerRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const recentEventsRef = useRef(new Map());
-  const pushRefreshTimerRef = useRef(null);
-
+  const [alert, setAlert] = useState(null); const timerRef = useRef(null); const audioContextRef = useRef(null); const recentEventsRef = useRef(new Map()); const pushRefreshTimerRef = useRef(null);
   useEffect(() => {
-    let unsubscribeAuth = () => {};
-    let unsubscribeMessage = () => {};
-    let disposed = false;
-
-    const unlockAudio = async () => {
-      try {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return;
-        if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
-        if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume();
-      } catch (error) { console.warn("Notification audio unlock skipped:", error?.message || error); }
-    };
-
-    const playNotificationTone = async () => {
-      try {
-        await unlockAudio();
-        const context = audioContextRef.current;
-        if (!context || context.state !== "running") return;
-        const now = context.currentTime;
-        // Strong foreground tone. Browser/Android still controls the master volume.
-        const notes = [
-          [988, 0.00, 0.26], [740, 0.28, 0.26], [988, 0.56, 0.26],
-          [740, 0.84, 0.26], [988, 1.12, 0.34], [740, 1.50, 0.34],
-        ];
-        notes.forEach(([frequency, offset, duration]) => {
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.type = "sine";
-          oscillator.frequency.setValueAtTime(frequency, now + offset);
-          gain.gain.setValueAtTime(0.0001, now + offset);
-          gain.gain.exponentialRampToValueAtTime(0.72, now + offset + 0.025);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + duration);
-          oscillator.connect(gain);
-          gain.connect(context.destination);
-          oscillator.start(now + offset);
-          oscillator.stop(now + offset + duration + 0.03);
-        });
-        try { if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([350, 120, 350, 120, 500, 120, 700]); } catch {}
-      } catch (error) { console.warn("Notification tone skipped:", error?.message || error); }
-    };
-
-    const showSystemNotification = async (title, body, route, notificationId) => {
-      try {
-        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-        if (!("serviceWorker" in navigator)) return;
-        const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification(title, {
-          body,
-          icon: "/icon-192.svg",
-          badge: "/icon-192.svg",
-          tag: notificationId,
-          renotify: true,
-          requireInteraction: true,
-          silent: false,
-          vibrate: [350, 120, 350, 120, 500, 120, 700],
-          timestamp: Date.now(),
-          data: { route, notificationId },
-        });
-      } catch (error) { console.warn("Persistent foreground notification skipped:", error?.message || error); }
-    };
-
-    const showAlert = async (title, body, route = "/notifications", notificationId = "") => {
-      if (disposed) return;
-      const key = String(notificationId || `${title}|${body}|${route}|${Date.now()}`).slice(0, 300);
-      const now = Date.now();
-      const previous = recentEventsRef.current.get(key);
-      if (previous && now - previous < 5000) return;
-      recentEventsRef.current.set(key, now);
-      for (const [eventKey, timestamp] of recentEventsRef.current) if (now - timestamp > 15000) recentEventsRef.current.delete(eventKey);
-      setAppBadge();
-      setAlert({ title, body, route });
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => setAlert(null), 15000);
-      void playNotificationTone();
-      void showSystemNotification(title, body, route, key || `powerhouse-${Date.now()}`);
-    };
-
-    const refreshPushRegistration = async (forceFresh = false) => {
-      if (disposed || !auth.currentUser || typeof Notification === "undefined" || Notification.permission !== "granted") return;
-      try {
-        const token = await getFCMToken({ requestPermission: false, forceFresh });
-        if (token) console.log("PowerHouse push registration refreshed");
-      } catch (error) {
-        console.warn("PowerHouse push registration refresh failed; will retry:", error?.message || error);
-      }
-    };
-
-    const setup = async (user) => {
-      unsubscribeMessage();
-      unsubscribeMessage = () => {};
-      if (pushRefreshTimerRef.current) { clearInterval(pushRefreshTimerRef.current); pushRefreshTimerRef.current = null; }
-      if (!user || disposed) return;
-
-      // Always refresh/register the current browser token after auth restoration.
-      // This fixes intermittent delivery after service-worker/token rotation.
-      await refreshPushRegistration(false);
-      pushRefreshTimerRef.current = window.setInterval(() => void refreshPushRegistration(false), 5 * 60 * 1000);
-
-      try {
-        unsubscribeMessage = await onForegroundMessage((payload) => {
-          const title = payload?.notification?.title || payload?.data?.title || "PowerHouse Alert";
-          const body = payload?.notification?.body || payload?.data?.body || "You have a new PowerHouse notification.";
-          const route = eventRoute(payload?.data || {});
-          const notificationId = String(payload?.data?.notificationId || payload?.messageId || `fcm-${payload?.data?.taskId || Date.now()}`);
-          void showAlert(title, body, route, notificationId);
-        });
-      } catch (error) { console.warn("Foreground notification listener skipped:", error?.message || error); }
-
-      if (socket) {
-        const userIds = getUserIds(user);
-        const join = () => {
-          userIds.forEach((id) => socket.emit("joinUser", id));
-          if (["admin", "superadmin"].includes(String(user.role || "").toLowerCase())) socket.emit("joinAdmin");
-        };
-        if (socket.connected) join();
-        socket.on("connect", join);
-
-        const onAny = (event, data = {}) => {
-          if (!TASK_EVENTS.has(event)) return;
-          const recipientIds = getEventRecipientIds(data);
-          const isAdmin = ["admin", "superadmin"].includes(String(user.role || "").toLowerCase());
-          const belongsToUser = recipientIds.length === 0 || recipientIds.some((id) => userIds.includes(id));
-          if (!belongsToUser && !isAdmin) return;
-          const text = taskEventText(event, data);
-          const taskId = data.taskId ?? data.task_id ?? data.id ?? "";
-          const notificationId = String(data.notificationId || `${event}-${taskId || "general"}-${data.assignment_cycle || Date.now()}`);
-          void showAlert(text.title, text.body, eventRoute(data), notificationId);
-        };
-
-        socket.onAny(onAny);
-        const cleanupSocket = () => { socket.off("connect", join); socket.offAny(onAny); };
-        const previousCleanup = unsubscribeMessage;
-        unsubscribeMessage = () => { previousCleanup(); cleanupSocket(); };
-      }
-    };
-
+    let unsubscribeAuth = () => {}; let unsubscribeMessage = () => {}; let disposed = false;
+    const unlockAudio = async () => { try { const AudioContextClass = window.AudioContext || window.webkitAudioContext; if (!AudioContextClass) return; if (!audioContextRef.current) audioContextRef.current = new AudioContextClass(); if (audioContextRef.current.state === "suspended") await audioContextRef.current.resume(); } catch {} };
+    const playNotificationTone = async () => { try { await unlockAudio(); const context = audioContextRef.current; if (!context || context.state !== "running") return; const now = context.currentTime; [[988,0,.26],[740,.28,.26],[988,.56,.26],[740,.84,.26],[988,1.12,.34],[740,1.5,.34]].forEach(([frequency, offset, duration]) => { const oscillator = context.createOscillator(); const gain = context.createGain(); oscillator.type = "sine"; oscillator.frequency.setValueAtTime(frequency, now + offset); gain.gain.setValueAtTime(.0001, now + offset); gain.gain.exponentialRampToValueAtTime(.72, now + offset + .025); gain.gain.exponentialRampToValueAtTime(.0001, now + offset + duration); oscillator.connect(gain); gain.connect(context.destination); oscillator.start(now + offset); oscillator.stop(now + offset + duration + .03); }); try { if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([350,120,350,120,500,120,700]); } catch {} } catch {} };
+    const showSystemNotification = async (title, body, route, notificationId) => { try { if (typeof Notification === "undefined" || Notification.permission !== "granted" || !("serviceWorker" in navigator)) return; const registration = await navigator.serviceWorker.ready; await registration.showNotification(title, { body, icon: "/icon-192.svg", badge: "/icon-192.svg", tag: notificationId, renotify: true, requireInteraction: true, silent: false, vibrate: [350,120,350,120,500,120,700], timestamp: Date.now(), data: { route, notificationId } }); } catch {} };
+    const showAlert = async (title, body, route = "/notifications", notificationId = "") => { if (disposed) return; const key = String(notificationId || `${title}|${body}|${route}|${Date.now()}`).slice(0,300); const now = Date.now(); const previous = recentEventsRef.current.get(key); if (previous && now - previous < 5000) return; recentEventsRef.current.set(key, now); for (const [eventKey, timestamp] of recentEventsRef.current) if (now - timestamp > 15000) recentEventsRef.current.delete(eventKey); setAppBadge(); setAlert({ title, body, route }); if (timerRef.current) clearTimeout(timerRef.current); timerRef.current = window.setTimeout(() => setAlert(null), 15000); void playNotificationTone(); void showSystemNotification(title, body, route, key || `powerhouse-${Date.now()}`); };
+    const refreshPushRegistration = async () => { if (disposed || !auth.currentUser || typeof Notification === "undefined" || Notification.permission !== "granted") return; await getFCMToken({ requestPermission: false, forceFresh: false }); };
+    const setup = async (user) => { unsubscribeMessage(); unsubscribeMessage = () => {}; if (pushRefreshTimerRef.current) { clearInterval(pushRefreshTimerRef.current); pushRefreshTimerRef.current = null; } if (!user || disposed) return; await refreshPushRegistration(); pushRefreshTimerRef.current = window.setInterval(() => void refreshPushRegistration(), 15 * 60 * 1000); try { unsubscribeMessage = await onForegroundMessage((payload) => { const title = payload?.notification?.title || payload?.data?.title || "PowerHouse Alert"; const body = payload?.notification?.body || payload?.data?.body || "You have a new PowerHouse notification."; const route = eventRoute(payload?.data || {}); const notificationId = String(payload?.data?.notificationId || payload?.messageId || `fcm-${payload?.data?.taskId || Date.now()}`); void showAlert(title, body, route, notificationId); }); } catch {} if (socket) { const userIds = getUserIds(user); const join = () => { userIds.forEach((id) => socket.emit("joinUser", id)); if (["admin","superadmin"].includes(String(user.role || "").toLowerCase())) socket.emit("joinAdmin"); }; if (socket.connected) join(); socket.on("connect", join); const onAny = (event, data = {}) => { if (!TASK_EVENTS.has(event)) return; const recipientIds = getEventRecipientIds(data); const isAdmin = ["admin","superadmin"].includes(String(user.role || "").toLowerCase()); const belongsToUser = recipientIds.length === 0 || recipientIds.some((id) => userIds.includes(id)); if (!belongsToUser && !isAdmin) return; const text = taskEventText(event, data); const taskId = data.taskId ?? data.task_id ?? data.id ?? ""; const notificationId = String(data.notificationId || `${event}-${taskId || "general"}-${data.assignment_cycle || Date.now()}`); void showAlert(text.title, text.body, eventRoute(data), notificationId); }; socket.onAny(onAny); const cleanupSocket = () => { socket.off("connect", join); socket.offAny(onAny); }; const previousCleanup = unsubscribeMessage; unsubscribeMessage = () => { previousCleanup(); cleanupSocket(); }; } };
     unsubscribeAuth = onAuthStateChanged(auth, (user) => { void setup(user); });
-
-    const handleUserGesture = () => { void unlockAudio(); };
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") void refreshPushRegistration(true);
-    };
-    const handlePageShow = () => void refreshPushRegistration(true);
-
-    window.addEventListener("pointerdown", handleUserGesture, { passive: true });
-    window.addEventListener("keydown", handleUserGesture, { passive: true });
-    document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("pageshow", handlePageShow);
-
-    return () => {
-      disposed = true;
-      unsubscribeAuth();
-      unsubscribeMessage();
-      if (pushRefreshTimerRef.current) clearInterval(pushRefreshTimerRef.current);
-      window.removeEventListener("pointerdown", handleUserGesture);
-      window.removeEventListener("keydown", handleUserGesture);
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("pageshow", handlePageShow);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      try { void audioContextRef.current?.close?.(); } catch {}
-    };
+    const handleUserGesture = () => { void unlockAudio(); }; const handleVisibility = () => { if (document.visibilityState === "visible") void refreshPushRegistration(); }; const handlePageShow = () => void refreshPushRegistration();
+    window.addEventListener("pointerdown", handleUserGesture, { passive: true }); window.addEventListener("keydown", handleUserGesture, { passive: true }); document.addEventListener("visibilitychange", handleVisibility); window.addEventListener("pageshow", handlePageShow);
+    return () => { disposed = true; unsubscribeAuth(); unsubscribeMessage(); if (pushRefreshTimerRef.current) clearInterval(pushRefreshTimerRef.current); window.removeEventListener("pointerdown", handleUserGesture); window.removeEventListener("keydown", handleUserGesture); document.removeEventListener("visibilitychange", handleVisibility); window.removeEventListener("pageshow", handlePageShow); if (timerRef.current) clearTimeout(timerRef.current); try { void audioContextRef.current?.close?.(); } catch {} };
   }, []);
-
   if (!alert) return null;
-
-  return (
-    <button
-      type="button"
-      onClick={() => { clearAppBadge(); window.location.href = alert.route; }}
-      className="fixed right-4 top-24 z-[200] w-[min(92vw,420px)] rounded-2xl border border-yellow-500/30 bg-[#020617]/95 p-4 text-left shadow-2xl backdrop-blur-xl"
-      aria-label="Open notification"
-    >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-yellow-500 text-black">🔔</div>
-        <div className="min-w-0">
-          <p className="text-sm font-black text-white">{alert.title}</p>
-          <p className="mt-1 text-sm leading-5 text-slate-300">{alert.body}</p>
-          <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-yellow-500">Open task</p>
-        </div>
-      </div>
-    </button>
-  );
+  return <button type="button" onClick={() => { clearAppBadge(); window.location.href = alert.route; }} className="fixed right-4 top-24 z-[200] w-[min(92vw,420px)] rounded-2xl border border-yellow-500/30 bg-[#020617]/95 p-4 text-left shadow-2xl backdrop-blur-xl" aria-label="Open notification"><div className="flex items-start gap-3"><div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-yellow-500 text-black">🔔</div><div className="min-w-0"><p className="text-sm font-black text-white">{alert.title}</p><p className="mt-1 text-sm leading-5 text-slate-300">{alert.body}</p><p className="mt-2 text-[10px] font-black uppercase tracking-widest text-yellow-500">Open task</p></div></div></button>;
 }
