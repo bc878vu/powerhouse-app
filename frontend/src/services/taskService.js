@@ -7,7 +7,6 @@ const tasksRef=collection(db,"tasks"),usersRef=collection(db,"powerhouse_users")
 let cache=null,cacheAt=0,pending=null; const now=()=>new Date().toISOString();
 const clean=v=>v&&typeof v.toDate==="function"?v.toDate().toISOString():Array.isArray(v)?v.map(clean):v&&typeof v==="object"?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,clean(x)])):v;
 const strip=t=>{const x={...(t||{})};["attachments","files","media","file","upload","uploads","evidence","images","photos","documents"].forEach(k=>delete x[k]);return x};
-// API compatibility helper: keep task routing detection exported for existing callers.
 export const isTaskPath=(path="")=>{const p=String(path||"").toLowerCase();return /(^|\/)(tasks?|my-tasks?|task-view|task-completion|task-report)(\/|$)|task/.test(p)};
 const raw=s=>strip({id:s.id,...clean(s.data()||{})}); const n=t=>{const x=Number(t?.task_number??t?.display_id??t?.public_id);return Number.isInteger(x)&&x>0?x:null};
 const view=t=>{const x=strip(t),num=n(x);return {...x,id:num??x.id,firestore_id:x.id,task_number:num!=null?String(num):x.task_number,display_id:num!=null?String(num):x.display_id,public_id:num??x.public_id}};
@@ -31,3 +30,4 @@ export async function deleteTask(id){const d=await find(id);if(!d)throw new Erro
 export function subscribeTasks(callback,{userId}={}){const ids=[...new Set([...identities(),userId].filter(Boolean).map(String))];return onSnapshot(tasksRef,s=>{const rows=s.docs.map(raw);cache=rows;cacheAt=Date.now();const filtered=ids.length?rows.filter(t=>mine(t,ids)):rows;callback(filtered.map(view).sort((a,b)=>(n(b)||0)-(n(a)||0)))},e=>console.warn("Task realtime listener failed",e))}
 export const subscribeMyTasks=(callback,userId)=>subscribeTasks(callback,{userId});
 export async function createCompletionReport(data){const p=await payload(data);return addDoc(collection(db,"task_completion_reports"),strip({...p,created_at:serverTimestamp(),completed_at:now()}))}
+export async function activityStats(){const rows=await all();const total=rows.length,pendingCount=rows.filter(t=>status(t.status)==="Pending").length,inProgress=rows.filter(t=>status(t.status)==="In Progress").length,completed=rows.filter(t=>status(t.status)==="Completed").length,rejected=rows.filter(t=>status(t.status)==="Rejected").length;return {total,pending:pendingCount,in_progress:inProgress,inProgress,completed,rejected,open:total-completed-rejected,total_tasks:total,pending_tasks:pendingCount,in_progress_tasks:inProgress,completed_tasks:completed,rejected_tasks:rejected};}
