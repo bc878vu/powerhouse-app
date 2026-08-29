@@ -1,0 +1,37 @@
+/* Native select popup visibility + responsive safeguards.
+   The app uses a dark UI while Chromium may render the native option list
+   on a light surface. Explicit option colors prevent inherited white text
+   from becoming invisible in the opened list. */
+select:not([multiple]) {
+  color-scheme: dark;
+}
+
+select:not([multiple]) option,
+select:not([multiple]) optgroup {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  text-shadow: none !important;
+}
+
+select:not([multiple]) option:checked,
+select:not([multiple]) option:active {
+  color: #ffffff !important;
+  background-color: #1d4ed8 !important;
+}
+
+/* Firefox exposes an additional checked state for native options. */
+@supports (-moz-appearance: none) {
+  select:not([multiple]) option:checked {
+    color: #ffffff !important;
+    background-color: #1d4ed8 !important;
+  }
+}
+
+/* Prevent control rows in the Machines module from forcing horizontal
+   overflow on phones while keeping the desktop layout unchanged. */
+@media (max-width: 640px) {
+  select,
+  input[type="date"] {
+    min-width: 0;
+  }
+}
