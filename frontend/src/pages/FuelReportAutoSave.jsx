@@ -1,62 +1,23 @@
 import React,{useEffect,useRef,useState}from"react";
-import{collection,getDocs,orderBy,query,serverTimestamp,setDoc,doc}from"firebase/firestore";
-import{CheckCircle2,Loader2}from"lucide-react";
+import{collection,getDocs,getDoc,orderBy,query,serverTimestamp,setDoc,doc}from"firebase/firestore";
+import{CheckCircle2,Loader2,Settings,Save,BellRing,Volume2,VolumeX,X}from"lucide-react";
 import FuelManagementV2 from"./FuelManagementV2";
 import{db}from"../firebase";
 
 const KEY="fuel-report-download-v1";
+const SETTINGS_REF=doc(db,"powerhouse_settings","alerts");
+const DEFAULTS={lowDieselThreshold:3000,repeatMinutes:30,enabled:true,silent:false};
+
+function AlertSettings({open,onClose}){
+ const[form,setForm]=useState(DEFAULTS),[loading,setLoading]=useState(false),[saving,setSaving]=useState(false),[message,setMessage]=useState("");
+ useEffect(()=>{if(!open)return;let alive=true;setLoading(true);getDoc(SETTINGS_REF).then(s=>{if(alive)setForm({...DEFAULTS,...(s.exists()?s.data():{})})}).catch(e=>alive&&setMessage(e?.message||"Unable to load alert settings.")).finally(()=>alive&&setLoading(false));return()=>{alive=false}},[open]);
+ if(!open)return null;
+ const save=async()=>{setSaving(true);setMessage("");try{const lowDieselThreshold=Math.max(0,Number(form.lowDieselThreshold)||0),repeatMinutes=Math.max(1,Math.round(Number(form.repeatMinutes)||1));await setDoc(SETTINGS_REF,{lowDieselThreshold,repeatMinutes,enabled:form.enabled!==false,silent:form.silent===true,updatedAt:serverTimestamp(),updatedBy:"admin"},{merge:true});setForm(f=>({...f,lowDieselThreshold,repeatMinutes}));setMessage("Alert settings saved. All open PowerHouse devices update live.")}catch(e){setMessage(e?.message||"Unable to save alert settings.")}finally{setSaving(false)}};
+ return <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onMouseDown={onClose}><div className="w-full max-w-xl rounded-[2rem] border border-white/10 bg-[#08111f] shadow-2xl" onMouseDown={e=>e.stopPropagation()}><div className="flex items-start justify-between border-b border-white/5 p-6"><div><div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-red-300"><BellRing size={14}/>Global diesel protection</div><h2 className="mt-3 text-xl font-black">Low Diesel Alert Settings</h2><p className="mt-1 text-xs leading-5 text-slate-400">These settings control the red popup, notification and repeat interval across public and logged-in PowerHouse screens.</p></div><button onClick={onClose} className="rounded-xl border border-white/10 p-2 text-slate-400 hover:bg-white/5"><X size={18}/></button></div><div className="space-y-5 p-6">{loading?<div className="py-8 text-center text-yellow-400"><Loader2 className="mx-auto mb-2 animate-spin"/>Loading settings…</div>:<><label className="block"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Low stock alert level (Litres)</span><input type="number" min="0" step="1" value={form.lowDieselThreshold} onChange={e=>setForm(f=>({...f,lowDieselThreshold:e.target.value}))} className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 font-bold outline-none focus:border-yellow-500/50"/></label><label className="block"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Alert repeat interval (minutes)</span><input type="number" min="1" step="1" value={form.repeatMinutes} onChange={e=>setForm(f=>({...f,repeatMinutes:e.target.value}))} className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 font-bold outline-none focus:border-yellow-500/50"/></label><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><button type="button" onClick={()=>setForm(f=>({...f,enabled:!f.enabled}))} className={`rounded-2xl border p-4 text-left ${form.enabled?"border-red-500/30 bg-red-500/10":"border-white/10 bg-white/[.03]"}`}><BellRing size={18} className={form.enabled?"text-red-400":"text-slate-500"}/><p className="mt-2 text-sm font-black">{form.enabled?"Alerts enabled":"Alerts disabled"}</p><p className="mt-1 text-xs text-slate-500">Turn the diesel alert system on or off.</p></button><button type="button" onClick={()=>setForm(f=>({...f,silent:!f.silent}))} className={`rounded-2xl border p-4 text-left ${form.silent?"border-yellow-500/30 bg-yellow-500/10":"border-white/10 bg-white/[.03]"}`}>{form.silent?<VolumeX size={18} className="text-yellow-400"/>:<Volume2 size={18} className="text-green-400"/>}<p className="mt-2 text-sm font-black">{form.silent?"Silent mode ON":"Sound ON"}</p><p className="mt-1 text-xs text-slate-500">Silent keeps red popup/notification but mutes app alert sound.</p></button></div>{message&&<div className="rounded-xl border border-white/10 bg-white/[.03] px-4 py-3 text-xs text-slate-300">{message}</div>}<button onClick={save} disabled={saving} className="flex w-full items-center justify-center gap-2 rounded-xl bg-yellow-500 px-4 py-3 text-sm font-black text-black disabled:opacity-60">{saving?<Loader2 size={17} className="animate-spin"/>:<Save size={17}/>}Save Global Alert Settings</button></>}</div></div></div>;
+}
 
 export default function FuelReportAutoSave(){
- const saving=useRef(false);
- const skip=useRef(false);
- const[status,setStatus]=useState("");
- useEffect(()=>{
-  const handler=async e=>{
-   const button=e.target?.closest?.("button");
-   if(!button||!/^EXCEL$/i.test((button.textContent||"").trim()))return;
-   if(skip.current){skip.current=false;return;}
-   if(saving.current){e.preventDefault();e.stopImmediatePropagation?.();return;}
-   e.preventDefault();e.stopImmediatePropagation?.();
-   saving.current=true;setStatus("Saving report data…");
-   try{
-    const snap=await getDocs(query(collection(db,"entries"),orderBy("createdAt","asc")));
-    const rows=snap.docs.map(x=>({id:x.id,...x.data()}));
-    const dates=rows.map(x=>String(x.date||"")).filter(Boolean).sort();
-    const today=new Date().toISOString().slice(0,10);
-    const start=dates[0]||today;
-    const end=dates[dates.length-1]||today;
-    const reportId=`download_${start}_${end}`.replace(/[^a-zA-Z0-9_-]/g,"_");
-    await setDoc(doc(db,"fuelReportDownloads",reportId),{
-      reportId,
-      template:"Daily Diesel Consuption & Generator Running  Report",
-      company:"Future fashion (pvt.) ltd LHR",
-      source:"Daily Diesel Report November(7).xlsx",
-      downloadedAt:serverTimestamp(),
-      rangeStart:start,
-      rangeEnd:end,
-      entryCount:rows.length,
-      entries:rows
-    },{merge:true});
-    setStatus("Report data saved ✓");
-    skip.current=true;
-    setTimeout(()=>button.click(),50);
-   }catch(err){
-    console.error("Fuel report auto-save failed",err);
-    setStatus("Save failed — downloading report anyway");
-    skip.current=true;
-    setTimeout(()=>button.click(),50);
-   }finally{
-    saving.current=false;
-    setTimeout(()=>setStatus(""),3000);
-   }
-  };
-  document.addEventListener("click",handler,true);
-  return()=>document.removeEventListener("click",handler,true);
- },[]);
- return <div className="relative">
-  {status&&<div className="no-print fixed right-4 top-20 z-[9999] flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs font-bold text-white shadow-2xl">
-   {status.includes("saved")?<CheckCircle2 size={16} className="text-green-400"/>:<Loader2 size={16} className="animate-spin text-yellow-400"/>}{status}
-  </div>}
-  <FuelManagementV2/>
- </div>;
+ const saving=useRef(false);const skip=useRef(false);const[status,setStatus]=useState("");const[showSettings,setShowSettings]=useState(false);
+ useEffect(()=>{const handler=async e=>{const button=e.target?.closest?.("button");if(!button||!/^EXCEL$/i.test((button.textContent||"").trim()))return;if(skip.current){skip.current=false;return;}if(saving.current){e.preventDefault();e.stopImmediatePropagation?.();return;}e.preventDefault();e.stopImmediatePropagation?.();saving.current=true;setStatus("Saving report data…");try{const snap=await getDocs(query(collection(db,"entries"),orderBy("createdAt","asc")));const rows=snap.docs.map(x=>({id:x.id,...x.data()}));const dates=rows.map(x=>String(x.date||"")).filter(Boolean).sort();const today=new Date().toISOString().slice(0,10);const start=dates[0]||today;const end=dates[dates.length-1]||today;const reportId=`download_${start}_${end}`.replace(/[^a-zA-Z0-9_-]/g,"_");await setDoc(doc(db,"fuelReportDownloads",reportId),{reportId,template:"Daily Diesel Consuption & Generator Running  Report",company:"Future fashion (pvt.) ltd LHR",source:"Daily Diesel Report November(7).xlsx",downloadedAt:serverTimestamp(),rangeStart:start,rangeEnd:end,entryCount:rows.length,entries:rows},{merge:true});setStatus("Report data saved ✓");skip.current=true;setTimeout(()=>button.click(),50)}catch(err){console.error("Fuel report auto-save failed",err);setStatus("Save failed — downloading report anyway");skip.current=true;setTimeout(()=>button.click(),50)}finally{saving.current=false;setTimeout(()=>setStatus(""),3000)}};document.addEventListener("click",handler,true);return()=>document.removeEventListener("click",handler,true)},[]);
+ return <div className="relative">{status&&<div className="no-print fixed right-4 top-20 z-[9999] flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs font-bold text-white shadow-2xl">{status.includes("saved")?<CheckCircle2 size={16} className="text-green-400"/>:<Loader2 size={16} className="animate-spin text-yellow-400"/>}{status}</div>}<button onClick={()=>setShowSettings(true)} className="fixed bottom-5 right-5 z-[120] inline-flex items-center gap-2 rounded-2xl border border-yellow-500/30 bg-[#08111f]/95 px-4 py-3 text-xs font-black text-yellow-400 shadow-2xl backdrop-blur hover:bg-yellow-500 hover:text-black"><Settings size={16}/>Diesel Alert Settings</button><AlertSettings open={showSettings} onClose={()=>setShowSettings(false)}/><FuelManagementV2/></div>;
 }
