@@ -1,31 +1,18 @@
-import { io } from "socket.io-client";
-
-// Realtime is optional. The dashboard already has API polling, so a missing or
-// unreachable socket endpoint must never create browser console noise or break UI.
-const SOCKET_URL = String(import.meta.env.VITE_SOCKET_URL || "").trim();
-const SOCKET_ENABLED = String(import.meta.env.VITE_SOCKET_ENABLED || "").toLowerCase() === "true";
-const VALID_SOCKET_URL = /^https?:\/\//i.test(SOCKET_URL);
-
+// Realtime transport is optional in this frontend. The dashboard and notifications
+// already have their own API refresh/fallback paths, so expose a stable no-op socket
+// instead of importing a browser socket client that can throw during startup when no
+// realtime endpoint is configured on the production deployment.
 const createNoopSocket = () => ({
   id: undefined,
   connected: false,
   on: () => undefined,
+  once: () => undefined,
   off: () => undefined,
   emit: () => undefined,
+  connect: () => undefined,
+  disconnect: () => undefined,
+  removeAllListeners: () => undefined,
 });
 
-export const socket = SOCKET_ENABLED && VALID_SOCKET_URL
-  ? io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-      reconnection: true,
-      reconnectionAttempts: 2,
-      reconnectionDelay: 2500,
-      reconnectionDelayMax: 6000,
-      timeout: 8000,
-    })
-  : createNoopSocket();
-
-// Socket errors are intentionally silent because realtime is an enhancement;
-// the dashboard remains live through its existing API refresh cycle.
-socket.on("connect_error", () => undefined);
+export const socket = createNoopSocket();
+export default socket;
