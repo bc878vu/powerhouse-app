@@ -8,6 +8,7 @@ let mounted = false;
 let compatRouter = null;
 let myTasksOverrideRouter = null;
 let legacyAssigneeRepairRouter = null;
+let completionReportCompatRouter = null;
 
 function getCompatRouter() {
   if (!compatRouter) {
@@ -30,11 +31,22 @@ function getLegacyAssigneeRepairRouter() {
   return legacyAssigneeRepairRouter;
 }
 
+function getCompletionReportCompatRouter() {
+  if (!completionReportCompatRouter) {
+    completionReportCompatRouter = require("./routes/taskCompletionReportCompat");
+  }
+  return completionReportCompatRouter;
+}
+
 express.application.use = function patchedUse(...args) {
   const first = args[0];
 
   if (!mounted && first === "/api/task") {
     mounted = true;
+
+    // The report reader is mounted first so GET /task/:id always includes the
+    // original task plus every separate user completion submission.
+    originalUse.call(this, "/api/task", getCompletionReportCompatRouter());
 
     // Repair only legacy external-ID assignments before the canonical reader.
     // All normal task APIs and UI structure remain untouched.
@@ -48,7 +60,7 @@ express.application.use = function patchedUse(...args) {
     originalUse.call(this, "/api/task", getCompatRouter());
 
     console.log(
-      "[TASK-BRIDGE] Legacy assignee repair + My Tasks override + compatibility routes mounted"
+      "[TASK-BRIDGE] Completion report reader + legacy assignee repair + My Tasks override + compatibility routes mounted"
     );
   }
 
