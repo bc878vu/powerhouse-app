@@ -7,6 +7,7 @@ const originalUse = express.application.use;
 let mounted = false;
 let compatRouter = null;
 let myTasksOverrideRouter = null;
+let legacyAssigneeRepairRouter = null;
 
 function getCompatRouter() {
   if (!compatRouter) {
@@ -22,11 +23,22 @@ function getMyTasksOverrideRouter() {
   return myTasksOverrideRouter;
 }
 
+function getLegacyAssigneeRepairRouter() {
+  if (!legacyAssigneeRepairRouter) {
+    legacyAssigneeRepairRouter = require("./routes/taskLegacyAssigneeRepair");
+  }
+  return legacyAssigneeRepairRouter;
+}
+
 express.application.use = function patchedUse(...args) {
   const first = args[0];
 
   if (!mounted && first === "/api/task") {
     mounted = true;
+
+    // Repair only legacy external-ID assignments before the canonical reader.
+    // All normal task APIs and UI structure remain untouched.
+    originalUse.call(this, "/api/task", getLegacyAssigneeRepairRouter());
 
     // The override router must be first so My Tasks gets deterministic
     // current-user status/order and repeated Accept cannot regress state.
@@ -36,7 +48,7 @@ express.application.use = function patchedUse(...args) {
     originalUse.call(this, "/api/task", getCompatRouter());
 
     console.log(
-      "[TASK-BRIDGE] My Tasks override + compatibility routes mounted"
+      "[TASK-BRIDGE] Legacy assignee repair + My Tasks override + compatibility routes mounted"
     );
   }
 
