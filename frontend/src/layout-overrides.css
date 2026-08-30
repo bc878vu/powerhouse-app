@@ -46,74 +46,59 @@ ul,ol { max-width:100%; }
 .table-responsive table,[data-responsive-table] table { width:max-content; min-width:100%; }
 
 /* =========================================================
-   LOW DIESEL ALERT SETTINGS — ADDITIVE MOBILE HARDENING
-   Keeps all existing controls/data; fixes the screenshot issue where
-   the fixed dialog could not be scrolled vertically on short phones.
+   LOW DIESEL ALERT SETTINGS — RESPONSIVE SCROLL + POLISH
+   Additive only: no controls, state, Firestore data or existing logic removed.
    ========================================================= */
 [role="dialog"][aria-label="Low Diesel Alert Settings"] {
   box-sizing:border-box!important;
   min-width:0!important;
+  width:min(92vw,48rem)!important;
+  max-width:48rem!important;
+  max-height:calc(100vh - 2rem)!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
   overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  scrollbar-width:thin;
+  -webkit-overflow-scrolling:touch;
+}
+[role="dialog"][aria-label="Low Diesel Alert Settings"] > div:first-child {
+  position:sticky!important;
+  top:0!important;
+  z-index:20!important;
 }
 [role="dialog"][aria-label="Low Diesel Alert Settings"] input,
-[role="dialog"][aria-label="Low Diesel Alert Settings"] button {
-  touch-action:manipulation;
+[role="dialog"][aria-label="Low Diesel Alert Settings"] button { touch-action:manipulation; }
+[role="dialog"][aria-label="Low Diesel Alert Settings"] section,
+[role="dialog"][aria-label="Low Diesel Alert Settings"] button { transition:transform .18s ease,border-color .18s ease,background-color .18s ease,box-shadow .18s ease; }
+@media (hover:hover) and (min-width:768px) {
+  [role="dialog"][aria-label="Low Diesel Alert Settings"] section:hover { transform:translateY(-1px); }
 }
+
 @media (max-width:767px) {
-  /* The dialog itself becomes the reliable scroll container on phones. */
   [role="dialog"][aria-label="Low Diesel Alert Settings"] {
     width:calc(100vw - 16px)!important;
     max-width:none!important;
     max-height:calc(100dvh - 16px)!important;
-    overflow-y:auto!important;
-    overflow-x:hidden!important;
-    -webkit-overflow-scrolling:touch!important;
+    border-radius:1.25rem!important;
     touch-action:pan-y!important;
     scroll-behavior:smooth;
-    border-radius:1.25rem!important;
   }
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] > div:first-child {
-    position:sticky!important;
-    top:0!important;
-    z-index:20!important;
-  }
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] > div:last-child {
-    padding-bottom:max(1.25rem, env(safe-area-inset-bottom))!important;
-  }
-  /* Summary cards and controls stay readable without horizontal clipping. */
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] .grid {
-    min-width:0!important;
-  }
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] button {
-    min-width:0!important;
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
+  [role="dialog"][aria-label="Low Diesel Alert Settings"] > div:last-child { padding-bottom:max(1.25rem, env(safe-area-inset-bottom))!important; }
+  [role="dialog"][aria-label="Low Diesel Alert Settings"] .grid { min-width:0!important; }
+  [role="dialog"][aria-label="Low Diesel Alert Settings"] button { min-width:0!important; overflow:hidden; text-overflow:ellipsis; }
 }
 @media (max-width:420px) {
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] {
-    width:calc(100vw - 8px)!important;
-    max-height:calc(100dvh - 8px)!important;
-    border-radius:1rem!important;
-  }
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] > div:first-child,
-  [role="dialog"][aria-label="Low Diesel Alert Settings"] > div:last-child {
-    padding-left:.75rem!important;
-    padding-right:.75rem!important;
-  }
+  [role="dialog"][aria-label="Low Diesel Alert Settings"] { width:calc(100vw - 8px)!important; max-height:calc(100dvh - 8px)!important; border-radius:1rem!important; }
+  [role="dialog"][aria-label="Low Diesel Alert Settings"] > div:first-child,[role="dialog"][aria-label="Low Diesel Alert Settings"] > div:last-child { padding-left:.75rem!important; padding-right:.75rem!important; }
   [role="dialog"][aria-label="Low Diesel Alert Settings"] h2 { font-size:1.05rem!important; }
   [role="dialog"][aria-label="Low Diesel Alert Settings"] section { padding:.85rem!important; }
 }
 
 @media (max-width:900px) {
-  [class*="p-8"] { padding:1.25rem!important; }
-  [class*="p-7"] { padding:1.125rem!important; }
-  [class*="p-6"] { padding:1rem!important; }
-  [class*="gap-8"] { gap:1rem!important; }
-  [class*="gap-7"] { gap:.875rem!important; }
-  [class*="gap-6"] { gap:.75rem!important; }
+  [class*="p-8"] { padding:1.25rem!important; } [class*="p-7"] { padding:1.125rem!important; } [class*="p-6"] { padding:1rem!important; }
+  [class*="gap-8"] { gap:1rem!important; } [class*="gap-7"] { gap:.875rem!important; } [class*="gap-6"] { gap:.75rem!important; }
 }
-
 @media (max-width:767px) {
   header[class*="z-[90]"] { height:64px!important; gap:8px!important; padding-left:10px!important; padding-right:10px!important; }
   header[class*="z-[90]"] > div:nth-child(2) { min-width:124px!important; max-width:124px!important; }
@@ -129,20 +114,13 @@ ul,ol { max-width:100%; }
   header[class*="z-[90]"] > div:nth-child(4) a svg { width:19px!important; height:19px!important; }
   aside[class*="z-[110]"] { width:min(340px,90vw)!important; max-width:90vw!important; }
   main { width:100%!important; max-width:100%!important; min-width:0!important; }
-  form { gap:10px!important; }
-  input,select,textarea,button { min-height:40px; }
+  form { gap:10px!important; } input,select,textarea,button { min-height:40px; }
   select:not([multiple]) { height:42px!important; min-height:42px!important; max-height:42px!important; }
-  textarea { min-height:84px; }
-  [class*="rounded-2xl"],[class*="rounded-xl"] { max-width:100%; }
-  [class*="grid-cols-"] { min-width:0!important; }
+  textarea { min-height:84px; } [class*="rounded-2xl"],[class*="rounded-xl"] { max-width:100%; } [class*="grid-cols-"] { min-width:0!important; }
 }
-
 @media (max-width:480px) {
   header[class*="z-[90]"] { gap:6px!important; padding-left:8px!important; padding-right:8px!important; }
-  header[class*="z-[90]"] > div:nth-child(2) { min-width:112px!important; max-width:112px!important; }
-  header[class*="z-[90]"] > div:nth-child(2) h1 { font-size:13px!important; }
-  header[class*="z-[90]"] > nav > a { padding:7px 8px!important; font-size:7px!important; }
-  header[class*="z-[90]"] > button { width:36px!important; min-width:36px!important; height:36px!important; flex-basis:36px!important; }
-  [class*="p-5"],[class*="p-6"],[class*="p-7"],[class*="p-8"] { padding:10px!important; }
-  [class*="gap-5"],[class*="gap-6"],[class*="gap-7"],[class*="gap-8"] { gap:8px!important; }
+  header[class*="z-[90]"] > div:nth-child(2) { min-width:112px!important; max-width:112px!important; } header[class*="z-[90]"] > div:nth-child(2) h1 { font-size:13px!important; }
+  header[class*="z-[90]"] > nav > a { padding:7px 8px!important; font-size:7px!important; } header[class*="z-[90]"] > button { width:36px!important; min-width:36px!important; height:36px!important; flex-basis:36px!important; }
+  [class*="p-5"],[class*="p-6"],[class*="p-7"],[class*="p-8"] { padding:10px!important; } [class*="gap-5"],[class*="gap-6"],[class*="gap-7"],[class*="gap-8"] { gap:8px!important; }
 }
