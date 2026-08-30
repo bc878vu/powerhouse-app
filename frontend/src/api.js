@@ -30,16 +30,7 @@ const normalizeAssignedUsers = (task) => {
     for (let i = 0; i < count; i++) assignedUsers.push({ id: ids[i] ?? task.user_id ?? task.assigned_user_id ?? null, user_id: ids[i] ?? task.user_id ?? task.assigned_user_id ?? null, name: usableName(names[i]) || usableName(task.assignee_name) || usableName(task.assigned_name) || usableName(task.staff_name) || usableName(task.user_name) || "", email: emails[i] || "", role: roles[i] || "" });
   }
   const primary = assignedUsers[0] || null;
-  return {
-    ...task,
-    assigned_users: assignedUsers,
-    assigned_staff_names: assignedUsers.map((u) => u.name).filter(Boolean),
-    assigned_staff_emails: assignedUsers.map((u) => u.email).filter(Boolean),
-    assigned_staff_roles: assignedUsers.map((u) => u.role).filter(Boolean),
-    assigned_user_ids: assignedUsers.map((u) => u.user_id ?? u.id).filter((v) => v != null).map(String),
-    user_id: task.user_id ?? primary?.user_id ?? primary?.id ?? null,
-    staff_name: usableName(task.staff_name) || primary?.name || ""
-  };
+  return { ...task, assigned_users: assignedUsers, assigned_staff_names: assignedUsers.map((u) => u.name).filter(Boolean), assigned_staff_emails: assignedUsers.map((u) => u.email).filter(Boolean), assigned_staff_roles: assignedUsers.map((u) => u.role).filter(Boolean), assigned_user_ids: assignedUsers.map((u) => u.user_id ?? u.id).filter((v) => v != null).map(String), user_id: task.user_id ?? primary?.user_id ?? primary?.id ?? null, staff_name: usableName(task.staff_name) || primary?.name || "" };
 };
 const normalizeTask = (task) => {
   if (!task || typeof task !== "object") return task;
@@ -54,7 +45,26 @@ const normalizeTaskResponse = (result) => { if (Array.isArray(result)) return so
 const normalizeTaskRequest = (method, url, data) => { const path = taskPath(url); if (method === "PUT" && path.startsWith("task/update-status/") && data && typeof data === "object" && typeof FormData !== "undefined" && !(data instanceof FormData)) { const user = getUser(); return { ...data, user_id: data.user_id || user?.id || user?.numericId || user?.user_id || "" }; } return data; };
 const requestTaskHttp = async (method, path, data, config = {}) => (await httpClient.request({ method, url: `/${String(path || "").replace(/^\/+/, "")}`, data, params: config?.params, headers: config?.headers, timeout: config?.timeout || 20000 })).data;
 const requestFirebaseApi = async (method, url, data, config = {}) => withTimeout(requestFirebase(method, url, normalizeTaskRequest(method, url, data), config?.params || {}), config?.timeout || 20000, `Firebase request timed out: ${method} ${url}`);
-const requestData = async (method, url, data, config = {}) => { const path = taskPath(url), payload = normalizeTaskRequest(method, url, data); if (path === "activity/stats" && method === "GET") return isSqlStatsEnabled() ? requestTaskHttp(method, path, undefined, config) : requestFirebaseApi(method, url, undefined, config); if (!isTaskPath(path)) return requestFirebaseApi(method, url, payload, config); try { return await requestTaskHttp(method, path, payload, config); } catch (error) { if (!isNetworkFailure(error)) throw error; return requestFirebaseApi(method, url, payload, config); } };
+
+// Task writes must never fall back to Firebase when the canonical API is unavailable.
+// A fallback write can create a second timestamp-ID task without the SQL assignment row,
+// which is exactly what produces "Unassigned" in the admin table/report after a network error.
+const isTaskMutation = (method, path) => ["POST", "PUT", "PATCH", "DELETE"].includes(String(method).toUpperCase()) && (String(path).startsWith("task/") || String(path).startsWith("tasks/"));
+
+const requestData = async (method, url, data, config = {}) => {
+  const path = taskPath(url), payload = normalizeTaskRequest(method, url, data);
+  if (path === "activity/stats" && method === "GET") return isSqlStatsEnabled() ? requestTaskHttp(method, path, undefined, config) : requestFirebaseApi(method, url, undefined, config);
+  if (!isTaskPath(path)) return requestFirebaseApi(method, url, payload, config);
+  try {
+    return await requestTaskHttp(method, path, payload, config);
+  } catch (error) {
+    // Never create/update/delete a task in a different data store after the SQL API fails.
+    // Reads may still use the existing Firebase compatibility fallback.
+    if (isTaskMutation(method, path)) throw error;
+    if (!isNetworkFailure(error)) throw error;
+    return requestFirebaseApi(method, url, payload, config);
+  }
+};
 const request = async (method, url, data, config = {}) => { try { const result = await requestData(method, url, data, config); return { data: normalizeTaskResponse(result), status: 200, headers: {} }; } catch (error) { const message = error?.response?.data?.message || error?.response?.data?.msg || error?.message || `Request failed: ${method} ${url}`; error.message = message; error.response = { status: error?.response?.status || 500, data: { success: false, message, msg: message, ...(error?.response?.data || {}) } }; throw error; } };
 const API = { get: (url, config = {}) => request("GET", url, undefined, config), post: (url, data, config = {}) => request("POST", url, data, config), put: (url, data, config = {}) => request("PUT", url, data, config), patch: (url, data, config = {}) => request("PATCH", url, data, config), delete: (url, config = {}) => request("DELETE", url, undefined, config) };
 export default API;
