@@ -65,6 +65,43 @@ function uniqueByUserId(rows) {
   return result;
 }
 
+function normalizeJsonList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [{ path: value }];
+  }
+}
+
+function mapCompletionRecord(record) {
+  if (!record) return null;
+  const userId = cleanId(record.user_id);
+  return {
+    ...record,
+    id: cleanId(record.id) || record.id,
+    task_id: cleanId(record.task_id) || record.task_id,
+    user_id: userId || record.user_id,
+    assignment_cycle: record.assignment_cycle != null ? Number(record.assignment_cycle) : null,
+    completion_note: record.completion_note || "",
+    media_files: normalizeJsonList(record.media_files),
+    media: normalizeJsonList(record.media_files),
+    attachments: normalizeJsonList(record.media_files),
+    voice_notes: normalizeJsonList(record.voice_notes),
+    voice_note: record.voice_note ? { path: record.voice_note, type: "audio/webm", originalName: null } : null,
+    submitted_by: {
+      id: userId || null,
+      name: record.completion_user_name || null,
+      email: record.completion_user_email || null,
+      role: record.completion_user_role || null,
+      profile_pic: record.completion_user_profile_pic || null,
+    },
+  };
+}
+
 // Canonical assignee source for task detail:
 // 1) current task_assignments rows
 // 2) latest assignment-history users
@@ -93,9 +130,7 @@ async function resolveAssignees(task, assignmentRows, historyRows) {
     }));
   }
 
-  const legacyId = cleanId(
-    task?.user_id || task?.assigned_user_id || task?.assignedTo
-  );
+  const legacyId = cleanId(task?.user_id || task?.assigned_user_id || task?.assignedTo);
 
   if (!legacyId) return [];
 
@@ -136,7 +171,7 @@ async function resolveAssignees(task, assignmentRows, historyRows) {
 async function buildTaskPayload(task, assignmentRows, historyRows, completionRows) {
   const assignments = await resolveAssignees(task, assignmentRows, historyRows);
   const history = historyRows || [];
-  const completions = completionRows || [];
+  const completions = (completionRows || []).map(mapCompletionRecord).filter(Boolean);
   const latestAssignment = history[0] || assignments[0] || null;
   const latestCompletion = completions[0] || null;
 
@@ -145,29 +180,10 @@ async function buildTaskPayload(task, assignmentRows, historyRows, completionRow
   const assignedEmails = assignments.map((item) => item.email || item.user_email || "");
   const assignedRoles = assignments.map((item) => item.role || item.user_role || "");
 
-  const assignmentUser = latestAssignment?.user_name
-    ? {
-        id: Number(latestAssignment.user_id),
-        name: latestAssignment.user_name || null,
-        email: latestAssignment.user_email || null,
-        role: latestAssignment.user_role || null,
-        profile_pic: latestAssignment.user_profile_pic || null,
-      }
-    : null;
-
-  const currentUser = assignmentUser ||
-    (assignments[0]
-      ? {
-          id: Number(assignments[0].user_id),
-          name: assignments[0].name || null,
-          email: assignments[0].email || null,
-          role: assignments[0].role || null,
-          profile_pic: assignments[0].profile_pic || null,
-        }
-      : null);
-
   const hasCompletion = completions.length > 0;
-  const taskStatus = hasCompletion ? "Completed" : task?.status || "Pending";
+  // IMPORTANT: historical completion reports must never override the current
+  // task/cycle status after an admin reassigns the same task.
+  const taskStatus = task?.status || latestAssignment?.status || "Pending";
 
   return {
     ...task,
@@ -223,14 +239,11 @@ async function buildTaskPayload(task, assignmentRows, historyRows, completionRow
     completion_reports: completions,
     latest_completion: latestCompletion,
     has_completion_report: hasCompletion,
-    complete_work_status: hasCompletion ? "SUBMITTED" : "NOT SUBMITTED",
-    completion_status: hasCompletion ? "COMPLETED" : task?.completion_status || taskStatus,
+    complete_work_status: taskStatus === "Completed" ? "SUBMITTED" : hasCompletion && Number(latestCompletion?.assignment_cycle) === Number(latestAssignment?.assignment_cycle) ? "SUBMITTED" : "NOT SUBMITTED",
+    completion_status: taskStatus === "Completed" ? "COMPLETED" : (task?.completion_status || taskStatus),
   };
 }
 
-// Canonical task-detail read. Admin report and user screens now resolve
-// assignees from assignment rows, history, or legacy task.user_id without
-// changing the existing UI/layout.
 router.get("/:id", async (req, res, next) => {
   const taskId = cleanId(req.params.id);
   if (!taskId) return next();
@@ -273,13 +286,7 @@ router.get("/:id", async (req, res, next) => {
     const task = taskRows?.[0];
     if (!task) return next();
 
-    const taskPayload = await buildTaskPayload(
-      task,
-      assignmentRows,
-      historyRows,
-      completionRows
-    );
-
+    const taskPayload = await buildTaskPayload(task, assignmentRows, historyRows, completionRows);
     return res.json({ success: true, task: taskPayload });
   } catch (error) {
     console.error("CANONICAL TASK DETAIL ERROR:", error);
@@ -290,10 +297,7 @@ router.get("/:id", async (req, res, next) => {
 router.get("/my-tasks/:userId", async (req, res, next) => {
   const userId = cleanId(req.params.userId);
   if (!userId) {
-    return res.status(400).json({
-      success: false,
-      msg: "Invalid user ID",
-    });
+    return res.status(400).json({ success: false, msg: "Invalid user ID" });
   }
 
   try {
@@ -307,17 +311,10 @@ router.get("/my-tasks/:userId", async (req, res, next) => {
           p.area AS panel_area,
           p.location AS panel_location
         FROM tasks t
-        LEFT JOIN task_assignments ta
-          ON ta.task_id = t.id
-        LEFT JOIN task_assignment_history th
-          ON th.task_id = t.id
-         AND th.user_id = ?
-        LEFT JOIN panels p
-          ON t.panel_id = p.id
-         AND p.is_deleted = 0
-        WHERE ta.user_id = ?
-           OR th.user_id IS NOT NULL
-           OR t.user_id = ?
+        LEFT JOIN task_assignments ta ON ta.task_id = t.id
+        LEFT JOIN task_assignment_history th ON th.task_id = t.id AND th.user_id = ?
+        LEFT JOIN panels p ON t.panel_id = p.id AND p.is_deleted = 0
+        WHERE ta.user_id = ? OR th.user_id IS NOT NULL OR t.user_id = ?
         ORDER BY t.id DESC
       `,
       [userId, userId, userId]
@@ -325,170 +322,113 @@ router.get("/my-tasks/:userId", async (req, res, next) => {
 
     if (!rows?.length) return res.json([]);
 
-    const ids = rows
-      .map((row) => Number(row.id))
-      .filter(Number.isInteger);
+    const ids = rows.map((row) => Number(row.id)).filter(Number.isInteger);
     const placeholders = ids.map(() => "?").join(",");
 
-    const [[assignmentRows], [historyRows], [completionRows]] =
-      await Promise.all([
-        promiseDb.query(
-          `SELECT ta.task_id, ta.user_id, u.name, u.email, u.role, u.profile_pic,
-                  ta.status AS assignment_status,
-                  ta.accepted_at, ta.completed_at, ta.rejected_at,
-                  ta.rejection_reason, ta.assignment_cycle, ta.assigned_at
-           FROM task_assignments ta
-           LEFT JOIN users u ON u.id = ta.user_id
-           WHERE ta.task_id IN (${placeholders})
-           ORDER BY ta.task_id ASC, ta.user_id ASC, ta.id DESC`,
-          ids
-        ),
-        promiseDb.query(
-          `SELECT h.*, u.name AS user_name, u.email AS user_email,
-                  u.role AS user_role, u.profile_pic AS user_profile_pic
-           FROM task_assignment_history h
-           LEFT JOIN users u ON u.id = h.user_id
-           WHERE h.task_id IN (${placeholders})
-           ORDER BY h.task_id ASC, h.assignment_cycle DESC, h.assigned_at DESC, h.id DESC`,
-          ids
-        ),
-        promiseDb.query(
-          `SELECT tc.id, tc.task_id, tc.user_id, tc.assignment_cycle,
-                  tc.completion_note, tc.submitted_at, tc.updated_at
-           FROM task_completions tc
-           WHERE tc.task_id IN (${placeholders})
-           ORDER BY tc.task_id ASC, tc.submitted_at DESC, tc.updated_at DESC, tc.id DESC`,
-          ids
-        ),
-      ]);
+    const [[assignmentRows], [historyRows], [completionRows]] = await Promise.all([
+      promiseDb.query(
+        `SELECT ta.task_id, ta.user_id, u.name, u.email, u.role, u.profile_pic,
+                ta.status AS assignment_status, ta.accepted_at, ta.completed_at, ta.rejected_at,
+                ta.rejection_reason, ta.assignment_cycle, ta.assigned_at
+         FROM task_assignments ta
+         LEFT JOIN users u ON u.id = ta.user_id
+         WHERE ta.task_id IN (${placeholders})
+         ORDER BY ta.task_id ASC, ta.user_id ASC, ta.id DESC`,
+        ids
+      ),
+      promiseDb.query(
+        `SELECT h.*, u.name AS user_name, u.email AS user_email,
+                u.role AS user_role, u.profile_pic AS user_profile_pic
+         FROM task_assignment_history h
+         LEFT JOIN users u ON u.id = h.user_id
+         WHERE h.task_id IN (${placeholders})
+         ORDER BY h.task_id ASC, h.assignment_cycle DESC, h.assigned_at DESC, h.id DESC`,
+        ids
+      ),
+      promiseDb.query(
+        `SELECT tc.id, tc.task_id, tc.user_id, tc.assignment_cycle,
+                tc.completion_note, tc.media_files, tc.voice_note, tc.voice_notes,
+                tc.submitted_at, tc.updated_at,
+                u.name AS completion_user_name,
+                u.email AS completion_user_email,
+                u.role AS completion_user_role,
+                u.profile_pic AS completion_user_profile_pic
+         FROM task_completions tc
+         LEFT JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id IN (${placeholders})
+         ORDER BY tc.task_id ASC, tc.submitted_at DESC, tc.updated_at DESC, tc.id DESC`,
+        ids
+      ),
+    ]);
 
     const assignmentsByTask = byTaskId(assignmentRows);
     const historyByTask = byTaskId(historyRows);
     const completionsByTask = byTaskId(completionRows);
 
-    const tasks = await Promise.all(
-      rows.map(async (row) => {
-        const taskId = Number(row.id);
-        const assignments = assignmentsByTask.get(taskId) || [];
-        const history = historyByTask.get(taskId) || [];
-        const completions = completionsByTask.get(taskId) || [];
+    const tasks = await Promise.all(rows.map(async (row) => {
+      const taskId = Number(row.id);
+      const assignments = assignmentsByTask.get(taskId) || [];
+      const history = historyByTask.get(taskId) || [];
+      const completions = completionsByTask.get(taskId) || [];
 
-        const current = latestForUser(history, userId);
-        const assignmentFallback = assignments.find(
-          (item) => Number(item.user_id) === userId
-        );
+      const current = latestForUser(history, userId);
+      const assignmentFallback = assignments.find((item) => Number(item.user_id) === userId);
 
-        const status =
-          current?.status ||
-          assignmentFallback?.assignment_status ||
-          row.status ||
-          "Pending";
+      const status = current?.status || assignmentFallback?.assignment_status || row.status || "Pending";
+      const assignedAt = current?.assigned_at || assignmentFallback?.assigned_at || row.created_at || null;
+      const userCycles = new Set(
+        history.filter((item) => Number(item.user_id) === userId).map((item) => Number(item.assignment_cycle || 1))
+      );
+      const title = row.title || row.task_title || row.name || "Untitled Task";
+      const label = `#${Number(row.id)}`;
+      const mappedCompletions = completions.map(mapCompletionRecord).filter(Boolean);
+      const latestCompletion = mappedCompletions[0] || null;
 
-        const assignedAt =
-          current?.assigned_at ||
-          assignmentFallback?.assigned_at ||
-          row.created_at ||
-          null;
+      return {
+        ...row,
+        id: taskId,
+        title: String(title).startsWith(label) ? title : `${label} · ${title}`,
+        task_id: taskId,
+        display_task_id: label,
+        status,
+        assigned_at: assignedAt,
+        accepted_at: current?.accepted_at || assignmentFallback?.accepted_at || null,
+        completed_at: current?.completed_at || assignmentFallback?.completed_at || row.completed_at || null,
+        rejected_at: current?.rejected_at || assignmentFallback?.rejected_at || row.rejected_at || null,
+        rejection_reason: current?.rejection_reason || assignmentFallback?.rejection_reason || null,
+        due_at: current?.due_at || row.due_at || null,
+        assignment_cycle: Number(current?.assignment_cycle || assignmentFallback?.assignment_cycle || row.assignment_cycle || 1),
+        assignment_count: userCycles.size || 1,
+        repeat_count: Math.max((userCycles.size || 1) - 1, 0),
+        assignment_history: history,
+        current_assignment: current || assignmentFallback || null,
+        completion_reports: mappedCompletions,
+        latest_completion: latestCompletion,
+        has_completion_report: mappedCompletions.length > 0,
+        assigned_user_ids: assignments.length > 0 ? assignments.map((item) => String(item.user_id)) : [String(userId)],
+        user_ids: assignments.length > 0 ? assignments.map((item) => String(item.user_id)) : [String(userId)],
+        assigned_users: assignments.length > 0
+          ? assignments.map((item) => ({
+              id: Number(item.user_id),
+              user_id: Number(item.user_id),
+              name: item.name || null,
+              email: item.email || null,
+              role: item.role || null,
+              profile_pic: item.profile_pic || null,
+            }))
+          : [{ id: userId, user_id: userId, name: null, email: null, role: null, profile_pic: null }],
+        staff_name: assignmentFallback?.name || row.staff_name || null,
+        _sortStatusRank: statusRank(status),
+        _sortPriorityRank: priorityRank(row.priority || current?.priority),
+        _sortDate: new Date(assignedAt || row.updated_at || row.created_at || 0).getTime(),
+      };
+    }));
 
-        const userCycles = new Set(
-          history
-            .filter((item) => Number(item.user_id) === userId)
-            .map((item) => Number(item.assignment_cycle || 1))
-        );
-
-        const title =
-          row.title ||
-          row.task_title ||
-          row.name ||
-          "Untitled Task";
-        const label = `#${Number(row.id)}`;
-
-        return {
-          ...row,
-          id: taskId,
-          title: String(title).startsWith(label)
-            ? title
-            : `${label} · ${title}`,
-          task_id: taskId,
-          display_task_id: label,
-          status,
-          assigned_at: assignedAt,
-          accepted_at: current?.accepted_at || assignmentFallback?.accepted_at || null,
-          completed_at:
-            current?.completed_at ||
-            assignmentFallback?.completed_at ||
-            row.completed_at ||
-            null,
-          rejected_at:
-            current?.rejected_at ||
-            assignmentFallback?.rejected_at ||
-            row.rejected_at ||
-            null,
-          rejection_reason:
-            current?.rejection_reason ||
-            assignmentFallback?.rejection_reason ||
-            null,
-          due_at: current?.due_at || row.due_at || null,
-          assignment_cycle: Number(
-            current?.assignment_cycle ||
-            assignmentFallback?.assignment_cycle ||
-            row.assignment_cycle ||
-            1
-          ),
-          assignment_count: userCycles.size || 1,
-          repeat_count: Math.max(userCycles.size - 1, 0),
-          assignment_history: history,
-          current_assignment: current || assignmentFallback || null,
-          completion_reports: completions,
-          latest_completion: completions[0] || null,
-          has_completion_report: completions.length > 0,
-          assigned_user_ids:
-            assignments.length > 0
-              ? assignments.map((item) => String(item.user_id))
-              : [String(userId)],
-          user_ids:
-            assignments.length > 0
-              ? assignments.map((item) => String(item.user_id))
-              : [String(userId)],
-          assigned_users:
-            assignments.length > 0
-              ? assignments.map((item) => ({
-                  id: Number(item.user_id),
-                  user_id: Number(item.user_id),
-                  name: item.name || null,
-                  email: item.email || null,
-                  role: item.role || null,
-                  profile_pic: item.profile_pic || null,
-                }))
-              : [
-                  {
-                    id: userId,
-                    user_id: userId,
-                    name: null,
-                    email: null,
-                    role: null,
-                    profile_pic: null,
-                  },
-                ],
-          staff_name:
-            assignmentFallback?.name ||
-            row.staff_name ||
-            null,
-          _sortStatusRank: statusRank(status),
-          _sortPriorityRank: priorityRank(row.priority || current?.priority),
-          _sortDate: new Date(
-            assignedAt || row.updated_at || row.created_at || 0
-          ).getTime(),
-        };
-      })
-    );
-
-    tasks.sort(
-      (a, b) =>
-        a._sortStatusRank - b._sortStatusRank ||
-        a._sortPriorityRank - b._sortPriorityRank ||
-        b._sortDate - a._sortDate ||
-        Number(b.id) - Number(a.id)
+    tasks.sort((a, b) =>
+      a._sortStatusRank - b._sortStatusRank ||
+      a._sortPriorityRank - b._sortPriorityRank ||
+      b._sortDate - a._sortDate ||
+      Number(b.id) - Number(a.id)
     );
 
     tasks.forEach((task) => {
@@ -507,13 +447,7 @@ router.get("/my-tasks/:userId", async (req, res, next) => {
 // Preserve the existing fast status guard, but hydrate the returned task with
 // assignment fields so the UI never receives a status-only object after an update.
 router.put("/update-status/:id", async (req, res, next) => {
-  if (
-    String(req.body?.status || "")
-      .trim()
-      .toLowerCase() !== "in progress"
-  ) {
-    return next();
-  }
+  if (String(req.body?.status || "").trim().toLowerCase() !== "in progress") return next();
 
   const taskId = cleanId(req.params.id);
   const userId = cleanId(req.body?.user_id);
@@ -523,8 +457,7 @@ router.put("/update-status/:id", async (req, res, next) => {
     const [rows] = await promiseDb.query(
       `SELECT status, assignment_cycle, accepted_at, completed_at, rejected_at
        FROM task_assignment_history
-       WHERE task_id = ?
-         AND user_id = ?
+       WHERE task_id = ? AND user_id = ?
        ORDER BY assignment_cycle DESC, assigned_at DESC, id DESC
        LIMIT 1`,
       [taskId, userId]
@@ -534,11 +467,7 @@ router.put("/update-status/:id", async (req, res, next) => {
     if (!current || current.status === "Pending") return next();
 
     if (["In Progress", "Completed"].includes(current.status)) {
-      const [taskRows] = await promiseDb.query(
-        "SELECT * FROM tasks WHERE id = ? LIMIT 1",
-        [taskId]
-      );
-
+      const [taskRows] = await promiseDb.query("SELECT * FROM tasks WHERE id = ? LIMIT 1", [taskId]);
       if (!taskRows?.length) return next();
 
       const [assignmentRows] = await promiseDb.query(
@@ -549,7 +478,6 @@ router.put("/update-status/:id", async (req, res, next) => {
          ORDER BY ta.id DESC`,
         [taskId]
       );
-
       const [historyRows] = await promiseDb.query(
         `SELECT h.*, u.name AS user_name, u.email AS user_email,
                 u.role AS user_role, u.profile_pic AS user_profile_pic
@@ -559,20 +487,22 @@ router.put("/update-status/:id", async (req, res, next) => {
          ORDER BY h.assignment_cycle DESC, h.assigned_at DESC, h.id DESC`,
         [taskId]
       );
-
-      const task = await buildTaskPayload(
-        taskRows[0],
-        assignmentRows,
-        historyRows,
-        []
+      const [completionRows] = await promiseDb.query(
+        `SELECT tc.*, u.name AS completion_user_name,
+                u.email AS completion_user_email,
+                u.role AS completion_user_role,
+                u.profile_pic AS completion_user_profile_pic
+         FROM task_completions tc
+         LEFT JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = ?
+         ORDER BY tc.submitted_at DESC, tc.updated_at DESC, tc.id DESC`,
+        [taskId]
       );
 
+      const task = await buildTaskPayload(taskRows[0], assignmentRows, historyRows, completionRows);
       return res.json({
         success: true,
-        msg:
-          current.status === "Completed"
-            ? "Task is already completed"
-            : "Task is already accepted",
+        msg: current.status === "Completed" ? "Task is already completed" : "Task is already accepted",
         status: current.status,
         overall_status: current.status,
         task: {

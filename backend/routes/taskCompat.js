@@ -18,16 +18,12 @@ function parseJson(value, fallback = []) {
 async function resolveTask(id) {
   const taskId = cleanId(id);
   if (!taskId) return null;
-  const [rows] = await promiseDb.query(
-    "SELECT * FROM tasks WHERE id = ? LIMIT 1",
-    [taskId]
-  );
+  const [rows] = await promiseDb.query("SELECT * FROM tasks WHERE id = ? LIMIT 1", [taskId]);
   return rows[0] || null;
 }
 
 async function getAssignedUsers(taskId, task) {
   const users = new Map();
-
   const add = (row) => {
     if (!row || row.user_id == null || String(row.user_id).trim() === "") return;
     const id = String(row.user_id);
@@ -59,8 +55,6 @@ async function getAssignedUsers(taskId, task) {
     console.warn("TASK COMPAT assignment lookup failed:", error.message);
   }
 
-  // Legacy/current-data safety net: report views must still resolve assignees
-  // when task_assignments is stale or temporarily missing.
   if (!users.size) {
     try {
       const [rows] = await promiseDb.query(
@@ -86,8 +80,7 @@ async function getAssignedUsers(taskId, task) {
   if (!users.size && task?.user_id != null) {
     try {
       const [rows] = await promiseDb.query(
-        `SELECT id AS user_id, name, email, role, profile_pic
-         FROM users WHERE id = ? LIMIT 1`,
+        `SELECT id AS user_id, name, email, role, profile_pic FROM users WHERE id = ? LIMIT 1`,
         [task.user_id]
       );
       (rows || []).forEach(add);
@@ -129,7 +122,9 @@ async function getCompletionReports(taskId) {
       const voiceNotes = Array.isArray(voice) ? voice : [];
       return {
         ...row,
-        id: Number(row.id), task_id: Number(row.task_id), user_id: Number(row.user_id),
+        id: Number(row.id),
+        task_id: Number(row.task_id),
+        user_id: Number(row.user_id),
         assignment_cycle: row.assignment_cycle == null ? null : Number(row.assignment_cycle),
         media_files: Array.isArray(media) ? media : [],
         media: Array.isArray(media) ? media : [],
@@ -137,8 +132,10 @@ async function getCompletionReports(taskId) {
         voice_notes: voiceNotes,
         voice_note: voiceNotes[0] || (row.voice_note ? { path: row.voice_note, type: "audio/webm" } : null),
         submitted_by: {
-          id: Number(row.user_id), name: row.completion_user_name || null,
-          email: row.completion_user_email || null, role: row.completion_user_role || null,
+          id: Number(row.user_id),
+          name: row.completion_user_name || null,
+          email: row.completion_user_email || null,
+          role: row.completion_user_role || null,
           profile_pic: row.completion_user_profile_pic || null,
         },
       };
@@ -162,15 +159,18 @@ async function buildTask(id) {
   const assignedNames = assignedUsers.map((u) => u.name || "");
   const parsedFiles = parseJson(task.file_url, []);
   const attachments = Array.isArray(parsedFiles) ? parsedFiles : (parsedFiles ? [parsedFiles] : []);
+  const currentStatus = task.status || latestAssignment?.status || "Pending";
+  const isCompleted = String(currentStatus).trim().toLowerCase() === "completed";
 
   return {
     ...task,
     id: Number(task.id),
-    // Completion data is authoritative for report rendering, while preserving DB records.
-    status: hasCompletionReport ? "Completed" : (task.status || latestAssignment?.status || "Pending"),
-    executionStatus: hasCompletionReport ? "Completed" : (task.status || latestAssignment?.status || "Pending"),
-    completeWorkStatus: hasCompletionReport ? "Submitted" : (task.completeWorkStatus || task.complete_work_status || "Not Submitted"),
-    isCompleted: hasCompletionReport || String(task.status || "").toLowerCase() === "completed",
+    // Historical completion reports are preserved for rendering, but never
+    // overwrite the current task/cycle status after reassignment.
+    status: currentStatus,
+    executionStatus: currentStatus,
+    completeWorkStatus: isCompleted ? "Submitted" : (task.completeWorkStatus || task.complete_work_status || "Not Submitted"),
+    isCompleted,
     user_id: assignedIds[0] || task.user_id || null,
     user_ids: assignedIds,
     staff_name: assignedNames[0] || task.staff_name || null,
@@ -184,7 +184,9 @@ async function buildTask(id) {
     completion_reports: completionReports,
     latest_completion: completionReports[0] || null,
     has_completion_report: hasCompletionReport,
-    attachments, media: attachments, files: attachments,
+    attachments,
+    media: attachments,
+    files: attachments,
   };
 }
 
