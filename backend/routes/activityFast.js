@@ -11,20 +11,25 @@ function buildActivities(rows) { return rows.map((activity) => { const ids = spl
 async function loadStats() {
   const staffCountQuery=`SELECT COUNT(*) AS staffCount,SUM(CASE WHEN LOWER(COALESCE(status,'active'))='active' THEN 1 ELSE 0 END) AS activeStaffCount,SUM(CASE WHEN LOWER(COALESCE(status,'active'))!='active' THEN 1 ELSE 0 END) AS inactiveStaffCount FROM users`;
   const taskCountQuery=`SELECT COUNT(*) AS taskCount,SUM(status='Completed') AS completedCount,SUM(status='In Progress') AS inProgressCount,SUM(status='Pending') AS pendingCount,SUM(status='Rejected') AS rejectedCount FROM tasks`;
-  // Assignment source of truth: prefer task_assignments, then fall back to the legacy tasks.user_id.
-  // This keeps old and new assignment writers compatible and prevents the dashboard from showing Unassigned.
+  // Dashboard assignment source of truth:
+  // 1) active task_assignments
+  // 2) latest assignment-history cycle
+  // 3) legacy tasks.user_id
+  // The history fallback preserves the last assigned staff member after completion/reassignment.
   const activityQuery=`SELECT t.id,t.title,t.description,t.status,t.priority,t.created_at,t.category,t.category_id,t.panel_id,t.file_url,IFNULL(t.rejection_reason,'') AS rejection_reason,
-    COALESCE(a.assigned_user_ids,CAST(t.user_id AS CHAR)) AS assigned_user_ids,
-    COALESCE(NULLIF(a.assigned_staff_names,''),u_legacy.name) AS assigned_staff_names,
-    COALESCE(NULLIF(a.assigned_staff_emails,''),u_legacy.email) AS assigned_staff_emails,
-    COALESCE(NULLIF(a.assigned_staff_roles,''),u_legacy.role) AS assigned_staff_roles,
-    COALESCE(NULLIF(a.assigned_employee_ids,''),u_legacy.employeeID) AS assigned_employee_ids,
-    COALESCE(NULLIF(SUBSTRING_INDEX(a.assigned_staff_names,'||',1),''),u_legacy.name) AS staff_name,
-    COALESCE(NULLIF(SUBSTRING_INDEX(a.assigned_profile_pics,'||',1),''),u_legacy.profile_pic) AS profile_pic,
-    COALESCE(NULLIF(SUBSTRING_INDEX(a.assigned_user_ids,',',1),''),t.user_id) AS user_id,
+    COALESCE(a.assigned_user_ids,h.assigned_user_ids,CAST(t.user_id AS CHAR)) AS assigned_user_ids,
+    COALESCE(NULLIF(a.assigned_staff_names,''),NULLIF(h.assigned_staff_names,''),u_legacy.name) AS assigned_staff_names,
+    COALESCE(NULLIF(a.assigned_staff_emails,''),NULLIF(h.assigned_staff_emails,''),u_legacy.email) AS assigned_staff_emails,
+    COALESCE(NULLIF(a.assigned_staff_roles,''),NULLIF(h.assigned_staff_roles,''),u_legacy.role) AS assigned_staff_roles,
+    COALESCE(NULLIF(a.assigned_profile_pics,''),NULLIF(h.assigned_profile_pics,''),u_legacy.profile_pic) AS assigned_profile_pics,
+    COALESCE(NULLIF(a.assigned_employee_ids,''),NULLIF(h.assigned_employee_ids,''),u_legacy.employeeID) AS assigned_employee_ids,
+    COALESCE(NULLIF(SUBSTRING_INDEX(a.assigned_staff_names,'||',1),''),NULLIF(SUBSTRING_INDEX(h.assigned_staff_names,'||',1),''),u_legacy.name) AS staff_name,
+    COALESCE(NULLIF(SUBSTRING_INDEX(a.assigned_profile_pics,'||',1),''),NULLIF(SUBSTRING_INDEX(h.assigned_profile_pics,'||',1),''),u_legacy.profile_pic) AS profile_pic,
+    COALESCE(NULLIF(SUBSTRING_INDEX(a.assigned_user_ids,',',1),''),NULLIF(SUBSTRING_INDEX(h.assigned_user_ids,',',1),''),t.user_id) AS user_id,
     p.panel_code,p.panel_name,p.panel_type,p.area AS panel_area,p.location AS panel_location,p.status AS panel_status,p.status_reason AS panel_status_reason
     FROM tasks t
     LEFT JOIN (SELECT ta.task_id,GROUP_CONCAT(DISTINCT ta.user_id ORDER BY ta.user_id SEPARATOR ',') AS assigned_user_ids,GROUP_CONCAT(DISTINCT COALESCE(u.name,'') ORDER BY ta.user_id SEPARATOR '||') AS assigned_staff_names,GROUP_CONCAT(DISTINCT COALESCE(u.email,'') ORDER BY ta.user_id SEPARATOR '||') AS assigned_staff_emails,GROUP_CONCAT(DISTINCT COALESCE(u.role,'') ORDER BY ta.user_id SEPARATOR '||') AS assigned_staff_roles,GROUP_CONCAT(DISTINCT COALESCE(u.profile_pic,'') ORDER BY ta.user_id SEPARATOR '||') AS assigned_profile_pics,GROUP_CONCAT(DISTINCT COALESCE(u.employeeID,'') ORDER BY ta.user_id SEPARATOR '||') AS assigned_employee_ids FROM task_assignments ta LEFT JOIN users u ON u.id=ta.user_id GROUP BY ta.task_id) a ON a.task_id=t.id
+    LEFT JOIN (SELECT h.task_id,GROUP_CONCAT(DISTINCT h.user_id ORDER BY h.user_id SEPARATOR ',') AS assigned_user_ids,GROUP_CONCAT(DISTINCT COALESCE(u.name,'') ORDER BY h.user_id SEPARATOR '||') AS assigned_staff_names,GROUP_CONCAT(DISTINCT COALESCE(u.email,'') ORDER BY h.user_id SEPARATOR '||') AS assigned_staff_emails,GROUP_CONCAT(DISTINCT COALESCE(u.role,'') ORDER BY h.user_id SEPARATOR '||') AS assigned_staff_roles,GROUP_CONCAT(DISTINCT COALESCE(u.profile_pic,'') ORDER BY h.user_id SEPARATOR '||') AS assigned_profile_pics,GROUP_CONCAT(DISTINCT COALESCE(u.employeeID,'') ORDER BY h.user_id SEPARATOR '||') AS assigned_employee_ids FROM task_assignment_history h INNER JOIN (SELECT task_id,MAX(assignment_cycle) AS max_cycle FROM task_assignment_history GROUP BY task_id) latest ON latest.task_id=h.task_id AND latest.max_cycle=h.assignment_cycle LEFT JOIN users u ON u.id=h.user_id GROUP BY h.task_id) h ON h.task_id=t.id
     LEFT JOIN users u_legacy ON u_legacy.id=t.user_id
     LEFT JOIN panels p ON t.panel_id=p.id AND p.is_deleted=0 ORDER BY t.created_at DESC,t.id DESC LIMIT 100`;
   const onDutyQuery=`SELECT sd.id AS duty_id,sd.user_id,DATE_FORMAT(sd.duty_date,'%Y-%m-%d') AS duty_date,sd.shift_name,sd.start_time,sd.end_time,sd.status AS duty_status,sd.notes,u.name AS staff_name,u.email AS staff_email,u.role AS staff_role,u.phone AS staff_phone,u.employeeID AS employee_id,u.profile_pic FROM staff_duties sd INNER JOIN users u ON sd.user_id=u.id WHERE sd.duty_date=CURDATE() AND sd.status='on_duty' ORDER BY sd.start_time ASC,u.name ASC`;
@@ -35,6 +40,6 @@ async function loadStats() {
   const staff=value(0)[0]||{},tasks=value(1)[0]||{},activities=buildActivities(value(2)),onDuty=value(3),panelsWork=value(4),panelsOff=value(5),panelsMaintenance=value(6);
   return {success:true,staffCount:Number(staff.staffCount||0),activeStaffCount:Number(staff.activeStaffCount||0),inactiveStaffCount:Number(staff.inactiveStaffCount||0),taskCount:Number(tasks.taskCount||0),completedCount:Number(tasks.completedCount||0),inProgressCount:Number(tasks.inProgressCount||0),pendingCount:Number(tasks.pendingCount||0),rejectedCount:Number(tasks.rejectedCount||0),totalActivities:activities.length,activities,onDutyToday:{count:onDuty.length,staff:onDuty},panelsUnderWork:{count:panelsWork.length,panels:panelsWork.map(item=>({...item,assigned_user_ids:split(item.assigned_user_ids,','),assigned_staff_names:split(item.assigned_staff_names,', '),assigned_employee_ids:split(item.assigned_employee_ids,',')}))},panelsOff:{count:panelsOff.length,panels:panelsOff},panelsMaintenance:{count:panelsMaintenance.length,panels:panelsMaintenance},operationalSummary:{onDutyCount:onDuty.length,panelsUnderWorkCount:panelsWork.length,panelsOffCount:panelsOff.length,panelsMaintenanceCount:panelsMaintenance.length},serverDate:new Date().toISOString().slice(0,10)};
 }
-router.get('/stats',async(req,res)=>{try{if(cached&&Date.now()-cachedAt<CACHE_TTL)return res.json(cached);if(!inFlight)inFlight=loadStats().then(data=>{cached=data;cachedAt=Date.now();return data;}).finally(()=>{inFlight=null;});return res.json(await inFlight);}catch(error){console.error('FAST DASHBOARD STATS ERROR:',error.sqlMessage||error.message||error);return res.status(500).json({success:false,message:error.sqlMessage||error.message||'Failed to load dashboard statistics'});}});
+router.get('/stats',async(req,res)=>{try{cached=null;cachedAt=0;if(!inFlight)inFlight=loadStats().then(data=>{cached=data;cachedAt=Date.now();return data;}).finally(()=>{inFlight=null;});return res.json(await inFlight);}catch(error){console.error('FAST DASHBOARD STATS ERROR:',error.sqlMessage||error.message||error);return res.status(500).json({success:false,message:error.sqlMessage||error.message||'Failed to load dashboard statistics'});}});
 router.post('/invalidate',(req,res)=>{cached=null;cachedAt=0;res.json({success:true});});
 module.exports=router;
