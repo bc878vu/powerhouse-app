@@ -1,8 +1,31 @@
 import { io } from "socket.io-client";
 
-// Optional realtime channel. Firebase/FCM features remain independent.
-const SOCKET_URL=String(import.meta.env.VITE_SOCKET_URL||"").trim();
-export const socket=SOCKET_URL?io(SOCKET_URL,{transports:["websocket"],withCredentials:true,reconnection:true,reconnectionAttempts:3,reconnectionDelay:2500,reconnectionDelayMax:8000,timeout:8000}):null;
-if(!SOCKET_URL)console.info("PowerHouse realtime socket is not configured; Firebase realtime services continue normally.");
-socket?.on("connect",()=>console.info("PowerHouse realtime connected"));
-socket?.on("connect_error",()=>{/* optional socket failure is intentionally non-fatal and silent */});
+// Realtime is optional. The dashboard already has API polling, so a missing or
+// unreachable socket endpoint must never create browser console noise or break UI.
+const SOCKET_URL = String(import.meta.env.VITE_SOCKET_URL || "").trim();
+const SOCKET_ENABLED = String(import.meta.env.VITE_SOCKET_ENABLED || "").toLowerCase() === "true";
+const VALID_SOCKET_URL = /^https?:\/\//i.test(SOCKET_URL);
+
+const createNoopSocket = () => ({
+  id: undefined,
+  connected: false,
+  on: () => undefined,
+  off: () => undefined,
+  emit: () => undefined,
+});
+
+export const socket = SOCKET_ENABLED && VALID_SOCKET_URL
+  ? io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: 2,
+      reconnectionDelay: 2500,
+      reconnectionDelayMax: 6000,
+      timeout: 8000,
+    })
+  : createNoopSocket();
+
+// Socket errors are intentionally silent because realtime is an enhancement;
+// the dashboard remains live through its existing API refresh cycle.
+socket.on("connect_error", () => undefined);
