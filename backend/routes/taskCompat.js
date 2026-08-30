@@ -172,8 +172,17 @@ async function buildTask(id) {
   const attachments = Array.isArray(parsedFiles) ? parsedFiles : (parsedFiles ? [parsedFiles] : []);
   const cycleSet = new Set(assignmentHistory.map((item) => Number(item.assignment_cycle || 1)));
 
+  // Canonical status for report views: a saved completion report means the task is completed.
+  // This preserves the stored task and only normalizes the response when legacy/stale status data exists.
+  const hasCompletionReport = completionReports.length > 0;
+  const canonicalStatus = hasCompletionReport ? "Completed" : task.status;
+
   return {
     ...task,
+    status: canonicalStatus,
+    executionStatus: hasCompletionReport ? "Completed" : (task.executionStatus || task.execution_status || task.status),
+    completeWorkStatus: hasCompletionReport ? "Submitted" : (task.completeWorkStatus || task.complete_work_status),
+    isCompleted: hasCompletionReport || Boolean(task.isCompleted || task.is_completed),
     id: Number(task.id),
     user_id: assignedIds[0] || task.user_id || null,
     user_ids: assignedIds,
@@ -188,7 +197,7 @@ async function buildTask(id) {
     repeat_count: Math.max((cycleSet.size || 1) - 1, 0),
     completion_reports: completionReports,
     latest_completion: completionReports[completionReports.length - 1] || null,
-    has_completion_report: completionReports.length > 0,
+    has_completion_report: hasCompletionReport,
     attachments,
     media: attachments,
     files: attachments,
@@ -276,14 +285,7 @@ router.post("/complete-work/:id", completionUpload, async (req, res) => {
     const currentStatus = String(assignment.assignment_status || "").trim();
     if (currentStatus && currentStatus !== "In Progress") {
       await cleanup();
-      return res.status(400).json({
-        success: false,
-        msg: currentStatus === "Completed"
-          ? "This assignment cycle is already completed"
-          : currentStatus === "Rejected"
-            ? "This assignment cycle was rejected"
-            : "Task must be accepted before submitting completion work",
-      });
+      return res.status(400).json({ success: false, msg: currentStatus === "Completed" ? "This assignment cycle is already completed" : currentStatus === "Rejected" ? "This assignment cycle was rejected" : "Task must be accepted before submitting completion work" });
     }
 
     const completionColumns = await columns("task_completions");
@@ -299,70 +301,36 @@ router.post("/complete-work/:id", completionUpload, async (req, res) => {
     }
 
     const now = new Date();
-    const payload = {
-      task_id: taskId,
-      user_id: userId,
-      assignment_cycle: assignmentCycle,
-      completion_note: completionNote || null,
-      media_files: media.length ? JSON.stringify(media) : null,
-      voice_notes: voice.length ? JSON.stringify(voice) : null,
-      voice_note: voice[0]?.path || null,
-      submitted_at: now,
-      updated_at: now,
-    };
-
+    const payload = { task_id: taskId, user_id: userId, assignment_cycle: assignmentCycle, completion_note: completionNote || null, media_files: media.length ? JSON.stringify(media) : null, voice_notes: voice.length ? JSON.stringify(voice) : null, voice_note: voice[0]?.path || null, submitted_at: now, updated_at: now };
     const insertColumns = Object.keys(payload).filter((key) => completionColumns.has(key));
-    if (!insertColumns.includes("task_id") || !insertColumns.includes("user_id")) {
-      throw new Error("task_completions schema is missing task_id/user_id");
-    }
+    if (!insertColumns.includes("task_id") || !insertColumns.includes("user_id")) throw new Error("task_completions schema is missing task_id/user_id");
 
     const connection = await promiseDb.getConnection();
     try {
       await connection.beginTransaction();
-
       const placeholders = insertColumns.map(() => "?").join(",");
-      await connection.query(
-        `INSERT INTO task_completions (${insertColumns.map((c) => `\`${c}\``).join(",")}) VALUES (${placeholders})`,
-        insertColumns.map((key) => payload[key])
-      );
-
+      await connection.query(`INSERT INTO task_completions (${insertColumns.map((c) => `\`${c}\``).join(",")}) VALUES (${placeholders})`, insertColumns.map((key) => payload[key]));
       if (historyColumns.size) {
         const historyUpdates = {};
         if (historyColumns.has("status")) historyUpdates.status = "Completed";
         if (historyColumns.has("completed_at")) historyUpdates.completed_at = now;
         if (historyColumns.has("updated_at")) historyUpdates.updated_at = now;
-        if (Object.keys(historyUpdates).length) {
-          await connection.query(
-            `UPDATE task_assignment_history SET ${Object.keys(historyUpdates).map((c) => `\`${c}\` = ?`).join(", ")} WHERE task_id = ? AND user_id = ? AND assignment_cycle = ?`,
-            [...Object.values(historyUpdates), taskId, userId, assignmentCycle]
-          );
-        }
+        if (Object.keys(historyUpdates).length) await connection.query(`UPDATE task_assignment_history SET ${Object.keys(historyUpdates).map((c) => `\`${c}\` = ?`).join(", ")} WHERE task_id = ? AND user_id = ? AND assignment_cycle = ?`, [...Object.values(historyUpdates), taskId, userId, assignmentCycle]);
       }
-
       if (assignmentColumns.has("status")) {
         const updates = { status: "Completed" };
         if (assignmentColumns.has("completed_at")) updates.completed_at = now;
         if (assignmentColumns.has("updated_at")) updates.updated_at = now;
-        await connection.query(
-          `UPDATE task_assignments SET ${Object.keys(updates).map((c) => `\`${c}\` = ?`).join(", ")} WHERE task_id = ? AND user_id = ?`,
-          [...Object.values(updates), taskId, userId]
-        );
+        await connection.query(`UPDATE task_assignments SET ${Object.keys(updates).map((c) => `\`${c}\` = ?`).join(", ")} WHERE task_id = ? AND user_id = ?`, [...Object.values(updates), taskId, userId]);
       }
-
       if (taskColumns.size) {
         const taskUpdates = {};
         if (taskColumns.has("status")) taskUpdates.status = "Completed";
         if (taskColumns.has("completed_at")) taskUpdates.completed_at = now;
         if (taskColumns.has("updated_at")) taskUpdates.updated_at = now;
         if (taskColumns.has("assignment_cycle")) taskUpdates.assignment_cycle = assignmentCycle;
-        if (Object.keys(taskUpdates).length) {
-          await connection.query(
-            `UPDATE tasks SET ${Object.keys(taskUpdates).map((c) => `\`${c}\` = ?`).join(", ")} WHERE id = ?`,
-            [...Object.values(taskUpdates), taskId]
-          );
-        }
+        if (Object.keys(taskUpdates).length) await connection.query(`UPDATE tasks SET ${Object.keys(taskUpdates).map((c) => `\`${c}\` = ?`).join(", ")} WHERE id = ?`, [...Object.values(taskUpdates), taskId]);
       }
-
       await connection.commit();
     } catch (error) {
       try { await connection.rollback(); } catch {}
@@ -373,28 +341,12 @@ router.post("/complete-work/:id", completionUpload, async (req, res) => {
 
     const updatedTask = await buildTask(taskId);
     const io = req.app.get("io");
-    if (io) {
-      io.emit("updateData");
-      io.emit("taskCompleted", { taskId, userId, status: "Completed", assignment_cycle: assignmentCycle });
-    }
-
-    return res.status(201).json({
-      success: true,
-      msg: "Work completion report submitted successfully",
-      message: "Work completion report submitted successfully",
-      taskId,
-      assignment_cycle: assignmentCycle,
-      task: updatedTask,
-      completion: updatedTask?.latest_completion || null,
-    });
+    if (io) { io.emit("updateData"); io.emit("taskCompleted", { taskId, userId, status: "Completed", assignment_cycle: assignmentCycle }); }
+    return res.status(201).json({ success: true, msg: "Work completion report submitted successfully", message: "Work completion report submitted successfully", taskId, assignment_cycle: assignmentCycle, task: updatedTask, completion: updatedTask?.latest_completion || null });
   } catch (error) {
     await cleanup();
     console.error("TASK COMPAT COMPLETE ERROR:", error);
-    return res.status(500).json({
-      success: false,
-      msg: error.message || "Failed to submit completion report",
-      message: error.message || "Failed to submit completion report",
-    });
+    return res.status(500).json({ success: false, msg: error.message || "Failed to submit completion report", message: error.message || "Failed to submit completion report" });
   }
 });
 
