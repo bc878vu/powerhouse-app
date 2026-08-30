@@ -11,22 +11,23 @@ const isNetworkFailure = (error) => !error?.response || String(error?.code || ""
 const withTimeout = async (promise, ms, message) => { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })]); } finally { clearTimeout(timer); } };
 
 const asArray = (value) => Array.isArray(value) ? value : value == null || value === "" ? [] : (() => { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return Array.isArray(parsed) ? parsed : [parsed]; } catch { return [value]; } })();
+const usableName = (value) => { const name = String(value ?? "").trim(); return name && !/^user$/i.test(name) && !/^unassigned$/i.test(name) && !/^n\/a$/i.test(name) && !/^\d+$/.test(name) ? name : ""; };
 const normalizeAssignedUsers = (task) => {
   if (!task || typeof task !== "object") return task;
-  const rawUsers = asArray(task.assigned_users).length ? asArray(task.assigned_users) : asArray(task.assignees).length ? asArray(task.assignees) : asArray(task.assigned_staff).length ? asArray(task.assigned_staff) : asArray(task.assigned_to);
-  const names = asArray(task.assigned_staff_names).length ? asArray(task.assigned_staff_names) : asArray(task.staff_names);
-  const ids = asArray(task.assigned_user_ids).length ? asArray(task.assigned_user_ids) : asArray(task.user_ids);
+  const rawUsers = asArray(task.assigned_users).length ? asArray(task.assigned_users) : asArray(task.assignees).length ? asArray(task.assignees) : asArray(task.assigned_staff).length ? asArray(task.assigned_staff) : asArray(task.assigned_to).length ? asArray(task.assigned_to) : asArray(task.assigned_user).length ? asArray(task.assigned_user) : asArray(task.user);
+  const names = asArray(task.assigned_staff_names).length ? asArray(task.assigned_staff_names) : asArray(task.staff_names).length ? asArray(task.staff_names) : asArray(task.assignee_names).length ? asArray(task.assignee_names) : asArray(task.assigned_names);
+  const ids = asArray(task.assigned_user_ids).length ? asArray(task.assigned_user_ids) : asArray(task.user_ids).length ? asArray(task.user_ids) : asArray(task.assignee_ids);
   const emails = asArray(task.assigned_staff_emails);
   const roles = asArray(task.assigned_staff_roles);
   const assignedUsers = rawUsers.map((user, index) => {
     const source = user && typeof user === "object" ? user : {};
-    const name = source.name || source.full_name || source.displayName || source.staff_name || names[index] || (typeof user === "string" && !/^\d+$/.test(user) ? user : "") || task.staff_name || "";
-    const id = source.id ?? source.user_id ?? source.uid ?? ids[index] ?? (typeof user === "string" && /^\d+$/.test(user) ? user : null) ?? task.user_id ?? null;
-    return { ...source, id, user_id: source.user_id ?? id, uid: source.uid ?? source.firebaseUid ?? null, name: String(name || "User").trim() || "User", email: source.email || emails[index] || "", role: source.role || roles[index] || "" };
-  }).filter((u) => u.id != null || u.name !== "User");
-  if (!assignedUsers.length && (ids.length || names.length || task.user_id || task.staff_name)) {
+    const name = usableName(source.name) || usableName(source.full_name) || usableName(source.fullName) || usableName(source.displayName) || usableName(source.staff_name) || usableName(source.username) || usableName(names[index]) || (typeof user === "string" ? usableName(user) : "") || usableName(task.assignee_name) || usableName(task.assigned_name) || usableName(task.staff_name) || usableName(task.user_name) || "";
+    const id = source.id ?? source.user_id ?? source.uid ?? source.firebaseUid ?? ids[index] ?? (typeof user === "string" && /^\d+$/.test(user) ? user : null) ?? task.user_id ?? task.assigned_user_id ?? null;
+    return { ...source, id, user_id: source.user_id ?? id, uid: source.uid ?? source.firebaseUid ?? null, name, email: source.email || emails[index] || "", role: source.role || roles[index] || "" };
+  }).filter((u) => u.id != null || u.name);
+  if (!assignedUsers.length && (ids.length || names.length || task.user_id || task.assigned_user_id || task.staff_name || task.assignee_name || task.assigned_name || task.user_name)) {
     const count = Math.max(ids.length, names.length, emails.length, roles.length, 1);
-    for (let i = 0; i < count; i++) assignedUsers.push({ id: ids[i] ?? task.user_id ?? null, user_id: ids[i] ?? task.user_id ?? null, name: String(names[i] ?? task.staff_name ?? "User").trim() || "User", email: emails[i] || "", role: roles[i] || "" });
+    for (let i = 0; i < count; i++) assignedUsers.push({ id: ids[i] ?? task.user_id ?? task.assigned_user_id ?? null, user_id: ids[i] ?? task.user_id ?? task.assigned_user_id ?? null, name: usableName(names[i]) || usableName(task.assignee_name) || usableName(task.assigned_name) || usableName(task.staff_name) || usableName(task.user_name) || "", email: emails[i] || "", role: roles[i] || "" });
   }
   const primary = assignedUsers[0] || null;
   return {
@@ -37,7 +38,7 @@ const normalizeAssignedUsers = (task) => {
     assigned_staff_roles: assignedUsers.map((u) => u.role).filter(Boolean),
     assigned_user_ids: assignedUsers.map((u) => u.user_id ?? u.id).filter((v) => v != null).map(String),
     user_id: task.user_id ?? primary?.user_id ?? primary?.id ?? null,
-    staff_name: task.staff_name || primary?.name || ""
+    staff_name: usableName(task.staff_name) || primary?.name || ""
   };
 };
 const normalizeTask = (task) => {
