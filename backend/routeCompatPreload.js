@@ -5,64 +5,46 @@ const express = require("express");
 // task router even when Railway has an older task route ordering.
 const originalUse = express.application.use;
 let mounted = false;
+let crudCompatRouter = null;
 let compatRouter = null;
 let myTasksOverrideRouter = null;
 let legacyAssigneeRepairRouter = null;
 let completionReportCompatRouter = null;
 
+function getCrudCompatRouter() {
+  if (!crudCompatRouter) crudCompatRouter = require("./routes/taskCrudCompat");
+  return crudCompatRouter;
+}
 function getCompatRouter() {
-  if (!compatRouter) {
-    compatRouter = require("./routes/taskCompat");
-  }
+  if (!compatRouter) compatRouter = require("./routes/taskCompat");
   return compatRouter;
 }
-
 function getMyTasksOverrideRouter() {
-  if (!myTasksOverrideRouter) {
-    myTasksOverrideRouter = require("./routes/taskMyTasksOverride");
-  }
+  if (!myTasksOverrideRouter) myTasksOverrideRouter = require("./routes/taskMyTasksOverride");
   return myTasksOverrideRouter;
 }
-
 function getLegacyAssigneeRepairRouter() {
-  if (!legacyAssigneeRepairRouter) {
-    legacyAssigneeRepairRouter = require("./routes/taskLegacyAssigneeRepair");
-  }
+  if (!legacyAssigneeRepairRouter) legacyAssigneeRepairRouter = require("./routes/taskLegacyAssigneeRepair");
   return legacyAssigneeRepairRouter;
 }
-
 function getCompletionReportCompatRouter() {
-  if (!completionReportCompatRouter) {
-    completionReportCompatRouter = require("./routes/taskCompletionReportCompat");
-  }
+  if (!completionReportCompatRouter) completionReportCompatRouter = require("./routes/taskCompletionReportCompat");
   return completionReportCompatRouter;
 }
 
 express.application.use = function patchedUse(...args) {
   const first = args[0];
-
   if (!mounted && first === "/api/task") {
     mounted = true;
-
-    // The report reader is mounted first so GET /task/:id always includes the
-    // original task plus every separate user completion submission.
+    // Mutations are mounted first: this prevents a stale duplicate router from
+    // swallowing PUT/DELETE requests and returning the dashboard's generic
+    // "Task delete/update failed" error.
+    originalUse.call(this, "/api/task", getCrudCompatRouter());
     originalUse.call(this, "/api/task", getCompletionReportCompatRouter());
-
-    // Repair only legacy external-ID assignments before the canonical reader.
-    // All normal task APIs and UI structure remain untouched.
     originalUse.call(this, "/api/task", getLegacyAssigneeRepairRouter());
-
-    // The override router must be first so My Tasks gets deterministic
-    // current-user status/order and repeated Accept cannot regress state.
     originalUse.call(this, "/api/task", getMyTasksOverrideRouter());
-
-    // Existing compatibility routes remain intact for all other task APIs.
     originalUse.call(this, "/api/task", getCompatRouter());
-
-    console.log(
-      "[TASK-BRIDGE] Completion report reader + legacy assignee repair + My Tasks override + compatibility routes mounted"
-    );
+    console.log("[TASK-BRIDGE] CRUD + completion report + assignee repair + task compatibility routes mounted");
   }
-
   return originalUse.apply(this, args);
 };
