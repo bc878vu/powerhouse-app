@@ -1,11 +1,22 @@
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
+import { getMachineImageUrl } from "./machineImageService";
 
 const MACHINE_COLLECTION = "powerhouse_machines";
 const LOG_COLLECTION = "powerhouse_machine_load_logs";
 const CATEGORY_COLLECTION = "powerhouse_machine_categories";
 
 const cleanNumber = (value, min = 0) => Math.max(min, Number(value) || 0);
+
+const restoreImageSource = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (url.pathname === "/api/machine-image" && url.searchParams.get("url")) return url.searchParams.get("url");
+  } catch {}
+  return raw;
+};
 
 const normalizeMachine = (machine = {}) => ({
   name: String(machine.name || "").trim(),
@@ -17,7 +28,7 @@ const normalizeMachine = (machine = {}) => ({
   serialNumber: String(machine.serialNumber || "").trim(),
   location: String(machine.location || "").trim(),
   department: String(machine.department || "Power House").trim(),
-  imageUrl: String(machine.imageUrl || "").trim(),
+  imageUrl: restoreImageSource(machine.imageUrl || machine.imageSourceUrl),
   description: String(machine.description || "").trim(),
   utilityRole: String(machine.utilityRole || "consumer").trim(),
   utilityType: String(machine.utilityType || "Electricity").trim(),
@@ -34,18 +45,23 @@ const normalizeMachine = (machine = {}) => ({
   notes: String(machine.notes || "").trim()
 });
 
+const toDisplayMachine = (machine = {}) => {
+  const imageSourceUrl = String(machine.imageUrl || machine.imageSourceUrl || "").trim();
+  return { ...machine, imageUrl: getMachineImageUrl(imageSourceUrl), imageSourceUrl };
+};
+
 const sortByCreated = (items) => items.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
 
 export function subscribeToMachines(callback, onError) {
   return onSnapshot(collection(db, MACHINE_COLLECTION), snapshot => {
-    callback(sortByCreated(snapshot.docs.map(item => ({ id: item.id, ...item.data() }))));
+    callback(sortByCreated(snapshot.docs.map(item => toDisplayMachine({ id: item.id, ...item.data() }))));
   }, onError);
 }
 
 export function subscribeToMachine(id, callback, onError) {
   if (!id) { onError?.(new Error("Machine ID is required.")); return () => {}; }
   return onSnapshot(doc(db, MACHINE_COLLECTION, id), snapshot => {
-    if (snapshot.exists()) callback({ id: snapshot.id, ...snapshot.data() });
+    if (snapshot.exists()) callback(toDisplayMachine({ id: snapshot.id, ...snapshot.data() }));
     else onError?.(new Error("Machine record was not found."));
   }, onError);
 }
