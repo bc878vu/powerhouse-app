@@ -7,7 +7,7 @@ function hostOf(value) {
 
 function isGoogleHost(hostname) {
   const host = String(hostname || "").toLowerCase();
-  return host === "share.google" || host.endsWith(".share.google") || host === "photos.google.com" || host === "drive.google.com" || host === "docs.google.com" || host.endsWith(".googleusercontent.com");
+  return host === "share.google" || host.endsWith(".share.google") || host === "photos.google.com" || host === "drive.google.com" || host === "docs.google.com" || host.endsWith(".googleusercontent.com") || host.endsWith(".gstatic.com");
 }
 
 function isUnsafeHost(hostname) {
@@ -25,28 +25,50 @@ function isFetchableUrl(value) {
 function decodeHtml(value) {
   return String(value || "")
     .replace(/\\u003d/gi, "=").replace(/\\u0026/gi, "&").replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/")
     .replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
     .replace(/&#x27;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
+}
+
+function extractImageFromQuery(value) {
+  try {
+    const url = new URL(String(value));
+    const keys = ["imgurl", "img_url", "image_url", "image", "mediaurl", "media_url", "src", "source", "url", "u"];
+    for (const key of keys) {
+      const candidate = url.searchParams.get(key);
+      if (candidate && isFetchableUrl(candidate)) return candidate;
+    }
+  } catch {}
+  return "";
 }
 
 function extractImageCandidates(html) {
   const text = decodeHtml(html);
   const candidates = [];
+  const add = value => {
+    try {
+      const decoded = decodeURIComponent(String(value || "")).replace(/\\\//g, "/");
+      if (isFetchableUrl(decoded) && !candidates.includes(decoded)) candidates.push(decoded);
+    } catch {
+      const decoded = String(value || "").replace(/\\\//g, "/");
+      if (isFetchableUrl(decoded) && !candidates.includes(decoded)) candidates.push(decoded);
+    }
+  };
+
   const patterns = [
     /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url)?["'][^>]*>/i,
     /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["'][^>]*>/i,
     /["'](?:image|imageUrl|image_url|imgurl|thumbnailUrl|thumbnail_url)["']\s*:\s*["'](https?:\\/\\/[^"']+)["']/gi,
+    /(?:[?&]imgurl=|["']imgurl["']\s*[:=]\s*["'])(https?[^&"'<>\\\s]+)/gi,
     /(https?:\\/\\/[^\s"'<>\\]+\.(?:jpe?g|png|webp|gif|avif|bmp)(?:\?[^\s"'<>\\]*)?)/gi,
     /(https?:\\/\\/(?:lh[35]\.googleusercontent\.com|encrypted-tbn[^/]*\.gstatic\.com)\\/[^\s"'<>\\]+)/gi
   ];
+
   for (const pattern of patterns) {
     let match;
-    while ((match = pattern.exec(text))) {
-      const value = String(match[1] || "").replace(/\\\//g, "/");
-      if (value && !candidates.includes(value)) candidates.push(value);
-    }
+    while ((match = pattern.exec(text))) add(match[1]);
   }
   return candidates;
 }
@@ -55,24 +77,32 @@ function extractRedirectTarget(location, current) {
   if (!location) return "";
   try {
     const absolute = new URL(location, current);
-    const keys = ["url", "q", "imgurl", "image", "image_url", "img_url", "mediaurl", "u"];
-    for (const key of keys) {
-      const value = absolute.searchParams.get(key);
-      if (value && isFetchableUrl(value)) return value;
-    }
+    const queryImage = extractImageFromQuery(absolute.toString());
+    if (queryImage) return queryImage;
     return absolute.toString();
   } catch { return ""; }
 }
 
 async function fetchResolvedImage(startUrl) {
   let current = startUrl;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    if (!isFetchableUrl(current)) return null;
+  const seen = new Set();
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (!isFetchableUrl(current) || seen.has(current)) return null;
+    seen.add(current);
+
+    const queryImage = extractImageFromQuery(current);
+    if (queryImage && queryImage !== current) {
+      current = queryImage;
+      continue;
+    }
+
     const response = await fetch(current, {
       redirect: "manual",
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/2.0)",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9"
       }
     });
 
@@ -91,10 +121,7 @@ async function fetchResolvedImage(startUrl) {
     const candidates = extractImageCandidates(html);
     let next = "";
     for (const candidate of candidates) {
-      try {
-        const absolute = new URL(candidate, current).toString();
-        if (isFetchableUrl(absolute)) { next = absolute; break; }
-      } catch {}
+      if (isFetchableUrl(candidate)) { next = candidate; break; }
     }
     if (!next) return null;
     current = next;
@@ -125,7 +152,10 @@ export default async function handler(req, res) {
     if (source.hostname === "drive.google.com") {
       const id = driveId(source.toString());
       if (id) {
-        const direct = await fetch(`https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`, { redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/2.0)" } });
+        const direct = await fetch(`https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`, {
+          redirect: "follow",
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/3.0)" }
+        });
         const type = String(direct.headers.get("content-type") || "").split(";")[0].toLowerCase();
         if (direct.ok && ALLOWED_IMAGE_TYPES.has(type)) return sendImage(res, direct, type);
       }
