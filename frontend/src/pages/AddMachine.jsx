@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Cpu, ExternalLink, Image as ImageIcon, Loader2, Save, Zap } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Cpu, ExternalLink, Image as ImageIcon, Loader2, Save, Upload, Zap } from "lucide-react";
 import { addMachine, subscribeToMachine, updateMachine } from "../services/machineService";
+import { uploadMachineImage } from "../services/machineImageUploadService";
 import { getMachineImageUrl, isMachineImageShareUrl } from "../services/machineImageService";
 
 const CATEGORIES = ["General", "Generator", "Compressor", "Boiler", "Motor", "Pump", "HVAC", "Production", "Electrical", "Packaging", "Cooling", "Utility", "Other"];
 const TYPES = ["Generator", "Air Compressor", "Screw Compressor", "Motor", "Electric Motor", "Pump", "Water Pump", "Boiler", "Chiller", "Cooling Tower", "AHU", "HVAC Unit", "Transformer", "UPS", "Panel / MCC", "Production Machine", "Packaging Machine", "Lifter", "Fan", "Blower", "Other"];
 const UTILITY_TYPES = ["Electricity", "Compressed Air", "Steam", "Chilled Water", "Cooling Water", "Process Water", "Fuel", "Heat", "Other"];
-const EMPTY = { name: "", code: "", category: "General", type: "", manufacturer: "", model: "", serialNumber: "", location: "", department: "Power House", imageUrl: "", description: "", utilityRole: "consumer", utilityType: "Electricity", capacity: "", capacityUnit: "kW", status: "standby", currentRunningLoad: "", loadUnit: "kW", normalLoadFactor: "", installDate: "", lastMaintenance: "", nextMaintenance: "", maintenanceIntervalDays: "", notes: "" };
+const EMPTY = { name: "", code: "", category: "General", type: "", manufacturer: "", model: "", serialNumber: "", location: "", department: "Power House", imageUrl: "", imageSourceUrl: "", description: "", utilityRole: "consumer", utilityType: "Electricity", capacity: "", capacityUnit: "kW", status: "standby", currentRunningLoad: "", loadUnit: "kW", normalLoadFactor: "", installDate: "", lastMaintenance: "", nextMaintenance: "", maintenanceIntervalDays: "", notes: "" };
 const inputClass = "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:border-yellow-500/60 placeholder:text-slate-600";
 const labelClass = "mb-2 block text-[9px] font-black uppercase tracking-widest text-slate-500";
 const DRAFT_PREFIX = "powerhouse_machine_draft_v2";
@@ -24,6 +25,7 @@ export default function AddMachine() {
   const [form, setForm] = useState(EMPTY);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -36,14 +38,37 @@ export default function AddMachine() {
     return () => unsubscribe?.();
   }, [id]);
 
-  useEffect(() => { if (loading || saving) return undefined; const timer = window.setTimeout(() => writeDraft(id, form), 250); return () => window.clearTimeout(timer); }, [form, id, loading, saving]);
-  useEffect(() => { const saveBeforeExit = () => { if (!saving) writeDraft(id, form); }; window.addEventListener("beforeunload", saveBeforeExit); return () => window.removeEventListener("beforeunload", saveBeforeExit); }, [form, id, saving]);
+  useEffect(() => { if (loading || saving || imageUploading) return undefined; const timer = window.setTimeout(() => writeDraft(id, form), 250); return () => window.clearTimeout(timer); }, [form, id, loading, saving, imageUploading]);
+  useEffect(() => { const saveBeforeExit = () => { if (!saving && !imageUploading) writeDraft(id, form); }; window.addEventListener("beforeunload", saveBeforeExit); return () => window.removeEventListener("beforeunload", saveBeforeExit); }, [form, id, saving, imageUploading]);
 
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const customCategory = form.category && !CATEGORIES.includes(form.category);
   const customType = form.type && !TYPES.includes(form.type);
   const utilization = Number(form.capacity) > 0 ? (Number(form.currentRunningLoad || 0) / Number(form.capacity)) * 100 : 0;
   const previewUrl = getMachineImageUrl(form.imageUrl);
+
+  const handleImageUrlChange = value => {
+    setForm(current => ({
+      ...current,
+      imageUrl: value,
+      imageSourceUrl: isMachineImageShareUrl(value) ? value.trim() : ""
+    }));
+  };
+
+  const handleImageUpload = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError(""); setMessage(""); setImageUploading(true);
+    try {
+      const previousSource = String(form.imageSourceUrl || (isMachineImageShareUrl(form.imageUrl) ? form.imageUrl : "")).trim();
+      const uploaded = await uploadMachineImage(file, id || "new");
+      setForm(current => ({ ...current, imageUrl: uploaded.url, imageSourceUrl: previousSource }));
+      setMessage("Machine image uploaded to Firebase Storage. The uploaded image will load directly without Google share-link redirects.");
+    } catch (err) {
+      setError(err.message || "Machine image upload failed.");
+    } finally { setImageUploading(false); }
+  };
 
   const submit = async event => {
     event.preventDefault(); setError(""); setMessage("");
@@ -59,7 +84,7 @@ export default function AddMachine() {
     if (capacity > 0 && runningLoad > capacity) return setError("Actual running load cannot exceed rated load.");
     setSaving(true);
     try {
-      const data = { ...form, name, code, category: String(form.category || "General").trim(), type: String(form.type || "General").trim(), utilityRole: String(form.utilityRole || "consumer").trim(), utilityType: String(form.utilityType || "Electricity").trim(), imageUrl: String(form.imageUrl || "").trim(), description: String(form.description || "").trim() };
+      const data = { ...form, name, code, category: String(form.category || "General").trim(), type: String(form.type || "General").trim(), utilityRole: String(form.utilityRole || "consumer").trim(), utilityType: String(form.utilityType || "Electricity").trim(), imageUrl: String(form.imageUrl || "").trim(), imageSourceUrl: String(form.imageSourceUrl || "").trim(), description: String(form.description || "").trim() };
       if (id) { await updateMachine(id, data); setMessage("Machine updated successfully and saved to Firebase."); }
       else { await addMachine(data); setMessage("Machine added successfully and saved to Firebase."); }
       clearDraft(id); window.setTimeout(() => navigate("/machines"), 800);
@@ -91,7 +116,7 @@ export default function AddMachine() {
         <div><label className={labelClass}>Utility / Resource Type *</label><select required className={inputClass} value={form.utilityType} onChange={e => set("utilityType", e.target.value)}>{UTILITY_TYPES.map(x => <option key={x} value={x}>{x}</option>)}</select></div>
       </div></section>
 
-      <section className="rounded-[2rem] border border-blue-500/10 bg-[#020617] p-5 md:p-7"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center"><ImageIcon size={18} /></div><div><h2 className="font-black">Machine Photo & Description</h2><p className="text-xs text-slate-500 mt-1">Paste a direct image URL or a Google share/Drive/Photos link. The original link is saved with the machine.</p></div></div><div className="grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-5 mt-6"><div><label className={labelClass}>Machine Image URL / Share Link</label><div className="flex gap-2"><input type="url" className={inputClass} value={form.imageUrl} onChange={e => set("imageUrl", e.target.value)} placeholder="https://share.google/... or https://example.com/machine.jpg" /><a href={form.imageUrl || undefined} target="_blank" rel="noreferrer" className={`shrink-0 rounded-xl border border-white/10 bg-white/5 px-4 flex items-center justify-center ${form.imageUrl ? "text-blue-400" : "pointer-events-none text-slate-700"}`} title="Open image/share link"><ExternalLink size={17} /></a></div><p className="text-[9px] text-slate-600 mt-2">Google share/Drive/Photos links are resolved through the PowerHouse image proxy. Direct JPG, PNG, WEBP and other image URLs continue to work normally.</p></div><div><label className={labelClass}>Preview</label><div className="h-44 rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden flex items-center justify-center">{previewUrl ? <img key={previewUrl} src={previewUrl} alt={form.name || "Machine preview"} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; e.currentTarget.parentElement.querySelector(".machine-preview-fallback")?.classList.remove("hidden"); }} /> : null}<div className={`machine-preview-fallback ${previewUrl ? "hidden" : ""} text-center text-slate-700 p-5`}><ImageIcon size={30} className="mx-auto" /><p className="text-[9px] uppercase tracking-widest mt-2">{previewUrl ? "Image could not be loaded" : "No image URL"}</p>{isMachineImageShareUrl(form.imageUrl) && <p className="text-[9px] text-slate-600 mt-2 max-w-xs">If this Google link is private or expired, make the image publicly viewable and paste the new share link.</p>}</div></div></div></div><div className="mt-5"><label className={labelClass}>Machine Description</label><textarea rows="5" className={inputClass} value={form.description} onChange={e => set("description", e.target.value)} placeholder="Describe the machine, its purpose, major function, operating role, specifications or other useful information..." /></div></section>
+      <section className="rounded-[2rem] border border-blue-500/10 bg-[#020617] p-5 md:p-7"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center"><ImageIcon size={18} /></div><div><h2 className="font-black">Machine Photo & Description</h2><p className="text-xs text-slate-500 mt-1">Use a direct image URL, Google share/Drive/Photos link, or upload the image directly to Firebase Storage for the most reliable result.</p></div></div><div className="grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-5 mt-6"><div className="space-y-4"><div><label className={labelClass}>Machine Image URL / Share Link</label><div className="flex gap-2"><input type="url" className={inputClass} value={form.imageUrl} onChange={e => handleImageUrlChange(e.target.value)} placeholder="https://share.google/... or https://example.com/machine.jpg" /><a href={form.imageUrl || undefined} target="_blank" rel="noreferrer" className={`shrink-0 rounded-xl border border-white/10 bg-white/5 px-4 flex items-center justify-center ${form.imageUrl ? "text-blue-400" : "pointer-events-none text-slate-700"}`} title="Open image/share link"><ExternalLink size={17} /></a></div><p className="text-[9px] text-slate-600 mt-2">Google share links are redirected by Google and may not expose a stable image file to serverless proxies. Direct uploads below are stored in your Firebase Storage bucket and load directly as a normal image URL.</p></div><div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4"><div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"><div><p className="text-xs font-black text-white">Reliable machine image</p><p className="text-[10px] text-slate-500 mt-1">Upload JPG, PNG, WEBP, GIF or AVIF (max 10 MB).</p></div><label className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-[10px] font-black uppercase cursor-pointer ${imageUploading ? "bg-white/10 text-slate-500 pointer-events-none" : "bg-blue-500 text-white hover:bg-blue-400"}`}><Upload size={15} />{imageUploading ? "Uploading..." : "Upload Image"}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" disabled={imageUploading} onChange={handleImageUpload} /></label></div>{form.imageSourceUrl && <p className="text-[9px] text-slate-600 mt-3 break-all">Original share/source preserved: {form.imageSourceUrl}</p>}</div></div><div><label className={labelClass}>Preview</label><div className="h-52 rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden flex items-center justify-center">{previewUrl ? <img key={previewUrl} src={previewUrl} alt={form.name || "Machine preview"} className="w-full h-full object-contain bg-black/20" onError={e => { e.currentTarget.style.display = "none"; e.currentTarget.parentElement.querySelector(".machine-preview-fallback")?.classList.remove("hidden"); }} /> : null}<div className={`machine-preview-fallback ${previewUrl ? "hidden" : ""} text-center text-slate-700 p-5`}><ImageIcon size={34} className="mx-auto" /><p className="text-[9px] uppercase tracking-widest mt-2">{previewUrl ? "Image could not be loaded" : "No image URL"}</p>{isMachineImageShareUrl(form.imageUrl) && <p className="text-[9px] text-slate-600 mt-2 max-w-xs">If the Google share cannot be resolved, use Upload Image above. The uploaded copy is independent of Google redirects and will load reliably.</p>}</div></div></div></div><div className="mt-5"><label className={labelClass}>Machine Description</label><textarea rows="5" className={inputClass} value={form.description} onChange={e => set("description", e.target.value)} placeholder="Describe the machine, its purpose, major function, operating role, specifications or other useful information..." /></div></section>
 
       <section className="rounded-[2rem] border border-yellow-500/10 bg-[#020617] p-5 md:p-7"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-yellow-500/10 text-yellow-400 flex items-center justify-center"><Zap size={18} /></div><div><h2 className="font-black">Load Configuration</h2><p className="text-xs text-slate-500 mt-1">These values drive rated load, actual running load and utilization calculations.</p></div></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mt-6">
         <div><label className={labelClass}>Rated / Total Load *</label><input required type="number" min="0" step="0.01" className={inputClass} value={form.capacity} onChange={e => set("capacity", e.target.value)} placeholder="e.g. 250" /></div>
@@ -105,7 +130,7 @@ export default function AddMachine() {
       </div></section>
 
       <section className="rounded-[2rem] border border-white/5 bg-[#020617] p-5 md:p-7"><h2 className="font-black">Maintenance Information</h2><p className="text-xs text-slate-500 mt-1">Dates are used by the Machines Dashboard to calculate maintenance due.</p><div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-6"><div><label className={labelClass}>Last Maintenance</label><input type="date" className={inputClass} value={form.lastMaintenance || ""} onChange={e => set("lastMaintenance", e.target.value)} /></div><div><label className={labelClass}>Next Maintenance</label><input type="date" className={inputClass} value={form.nextMaintenance || ""} onChange={e => set("nextMaintenance", e.target.value)} /></div><div><label className={labelClass}>Maintenance Interval (Days)</label><input type="number" min="0" className={inputClass} value={form.maintenanceIntervalDays} onChange={e => set("maintenanceIntervalDays", e.target.value)} placeholder="e.g. 90" /></div></div><div className="mt-5"><label className={labelClass}>Notes</label><textarea rows="4" className={inputClass} value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Safety notes, machine details, remarks..." /></div></section>
-      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3"><button type="button" onClick={() => navigate("/machines")} className="px-6 py-3 rounded-xl border border-white/10 bg-white/5 text-slate-300 text-xs font-black uppercase">Cancel</button><button disabled={saving} className="flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black uppercase disabled:opacity-60"><Save size={17} />{saving ? "Saving to Firebase..." : id ? "Update Machine" : "Save Machine"}</button></div>
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3"><button type="button" onClick={() => navigate("/machines")} className="px-6 py-3 rounded-xl border border-white/10 bg-white/5 text-slate-300 text-xs font-black uppercase">Cancel</button><button disabled={saving || imageUploading} className="flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-yellow-500 text-black text-xs font-black uppercase disabled:opacity-60"><Save size={17} />{saving ? "Saving to Firebase..." : id ? "Update Machine" : "Save Machine"}</button></div>
     </form>
   </div>;
 }
