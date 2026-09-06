@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Activity, AlertTriangle, ArrowLeft, BarChart3, Calendar, CalendarClock, CheckCircle2, Clock3, Cpu, Download, Edit3, Gauge, Image as ImageIcon, Loader2, Printer, RefreshCw, ShieldCheck, Wrench, Zap } from "lucide-react";
 import { subscribeToMachine, subscribeToMachineLoadLogs } from "../services/machineService";
+import { getMachineImageUrl } from "../services/machineImageService";
 import { getUser } from "../utils/auth";
 
 const STATUS = {
@@ -144,6 +145,7 @@ export default function MachineDetails() {
 
   const [statusLabel, statusClass] = STATUS[machine.status] || STATUS.standby;
   const [roleLabel, roleClass] = ROLE[machine.utilityRole] || ROLE.process;
+  const resolvedImageUrl = getMachineImageUrl(machine.imageUrl);
 
   return <div className="space-y-6 animate-in fade-in duration-500 print:space-y-4">
     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 print:hidden">
@@ -158,7 +160,7 @@ export default function MachineDetails() {
     </section>
 
     <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(300px,.9fr)] gap-5">
-      <div className="rounded-[2rem] border border-white/5 bg-[#020617] overflow-hidden min-h-[320px] flex items-center justify-center"><div className="relative w-full min-h-[320px] flex items-center justify-center">{machine.imageUrl ? <img src={machine.imageUrl} alt={machine.name || "Machine"} className="w-full h-full max-h-[520px] object-contain bg-black/20" onError={event => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.querySelector(".machine-image-fallback")?.classList.remove("hidden"); }} /> : null}<div className={`machine-image-fallback ${machine.imageUrl ? "hidden" : ""} text-center text-slate-700 p-10`}><ImageIcon size={56} className="mx-auto" /><p className="mt-3 text-xs font-black uppercase tracking-widest">No machine image available</p>{machine.imageUrl && <p className="text-[10px] text-slate-600 mt-2">The supplied image URL could not be loaded.</p>}</div></div></div>
+      <div className="rounded-[2rem] border border-white/5 bg-[#020617] overflow-hidden min-h-[320px] flex items-center justify-center"><div className="relative w-full min-h-[320px] flex items-center justify-center">{resolvedImageUrl ? <img key={resolvedImageUrl} src={resolvedImageUrl} alt={machine.name || "Machine"} className="w-full h-full max-h-[520px] object-contain bg-black/20" onError={event => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.querySelector(".machine-image-fallback")?.classList.remove("hidden"); }} /> : null}<div className={`machine-image-fallback ${resolvedImageUrl ? "hidden" : ""} text-center text-slate-700 p-10`}><ImageIcon size={56} className="mx-auto" /><p className="mt-3 text-xs font-black uppercase tracking-widest">No machine image available</p>{machine.imageUrl && <p className="text-[10px] text-slate-600 mt-2">The supplied image/share URL could not be loaded.</p>}</div></div></div>
       <div className="rounded-[2rem] border border-white/5 bg-[#020617] p-5 md:p-6"><div className="flex items-center gap-3"><div className="w-11 h-11 rounded-2xl bg-yellow-500 text-black flex items-center justify-center shrink-0"><Cpu size={21} /></div><div className="min-w-0"><p className="text-[9px] uppercase tracking-widest text-slate-600 font-black">Machine Overview</p><h2 className="font-black text-lg truncate">{machine.manufacturer || "Manufacturer not specified"}</h2></div></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6"><Field label="Category" value={machine.category} /><Field label="Type" value={machine.type} /><Field label="Model" value={machine.model} /><Field label="Serial Number" value={machine.serialNumber} /><Field label="Department" value={machine.department} /><Field label="Area / Location" value={machine.location} /></div></div>
     </section>
 
