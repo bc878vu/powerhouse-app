@@ -1,10 +1,6 @@
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/bmp"]);
 
-function hostOf(value) {
-  try { return new URL(String(value)).hostname.toLowerCase(); } catch { return ""; }
-}
-
 function isGoogleHost(hostname) {
   const host = String(hostname || "").toLowerCase();
   return host === "share.google" || host.endsWith(".share.google") || host === "photos.google.com" || host === "drive.google.com" || host === "docs.google.com" || host.endsWith(".googleusercontent.com") || host.endsWith(".gstatic.com");
@@ -30,6 +26,16 @@ function decodeHtml(value) {
     .replace(/&#x27;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
 }
 
+function addCandidate(list, value) {
+  try {
+    const decoded = decodeURIComponent(String(value || "")).replace(/\\\//g, "/");
+    if (isFetchableUrl(decoded) && !list.includes(decoded)) list.push(decoded);
+  } catch {
+    const decoded = String(value || "").replace(/\\\//g, "/");
+    if (isFetchableUrl(decoded) && !list.includes(decoded)) list.push(decoded);
+  }
+}
+
 function extractImageFromQuery(value) {
   try {
     const url = new URL(String(value));
@@ -45,16 +51,6 @@ function extractImageFromQuery(value) {
 function extractImageCandidates(html) {
   const text = decodeHtml(html);
   const candidates = [];
-  const add = value => {
-    try {
-      const decoded = decodeURIComponent(String(value || "")).replace(/\\\//g, "/");
-      if (isFetchableUrl(decoded) && !candidates.includes(decoded)) candidates.push(decoded);
-    } catch {
-      const decoded = String(value || "").replace(/\\\//g, "/");
-      if (isFetchableUrl(decoded) && !candidates.includes(decoded)) candidates.push(decoded);
-    }
-  };
-
   const patterns = [
     /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url)?["'][^>]*>/i,
@@ -62,13 +58,13 @@ function extractImageCandidates(html) {
     /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["'][^>]*>/i,
     /["'](?:image|imageUrl|image_url|imgurl|thumbnailUrl|thumbnail_url)["']\s*:\s*["'](https?:\\/\\/[^"']+)["']/gi,
     /(?:[?&]imgurl=|["']imgurl["']\s*[:=]\s*["'])(https?[^&"'<>\\\s]+)/gi,
+    /\[!?[^\]]*\]\((https?:\/\/[^)\s]+)\)/gi,
     /(https?:\\/\\/[^\s"'<>\\]+\.(?:jpe?g|png|webp|gif|avif|bmp)(?:\?[^\s"'<>\\]*)?)/gi,
     /(https?:\\/\\/(?:lh[35]\.googleusercontent\.com|encrypted-tbn[^/]*\.gstatic\.com)\\/[^\s"'<>\\]+)/gi
   ];
-
   for (const pattern of patterns) {
     let match;
-    while ((match = pattern.exec(text))) add(match[1]);
+    while ((match = pattern.exec(text))) addCandidate(candidates, match[1]);
   }
   return candidates;
 }
@@ -78,8 +74,7 @@ function extractRedirectTarget(location, current) {
   try {
     const absolute = new URL(location, current);
     const queryImage = extractImageFromQuery(absolute.toString());
-    if (queryImage) return queryImage;
-    return absolute.toString();
+    return queryImage || absolute.toString();
   } catch { return ""; }
 }
 
@@ -119,14 +114,37 @@ async function fetchResolvedImage(startUrl) {
 
     const html = await response.text();
     const candidates = extractImageCandidates(html);
-    let next = "";
-    for (const candidate of candidates) {
-      if (isFetchableUrl(candidate)) { next = candidate; break; }
-    }
-    if (!next) return null;
-    current = next;
+    if (!candidates.length) return null;
+    current = candidates[0];
   }
   return null;
+}
+
+// Google sometimes sends share.google through an anti-bot/interstitial page when
+// fetched by a serverless runtime. Reader provides a browser-backed fallback that
+// can resolve the same public share URL and expose the image URL from the page.
+async function fetchViaReader(startUrl) {
+  try {
+    const readerUrl = `https://r.jina.ai/${startUrl}`;
+    const response = await fetch(readerUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/4.0)",
+        "Accept": "text/plain,text/markdown,*/*;q=0.8",
+        "X-Engine": "browser",
+        "X-No-Cache": "true"
+      }
+    });
+    if (!response.ok) return null;
+    const text = await response.text();
+    const candidates = extractImageCandidates(text);
+    for (const candidate of candidates) {
+      const resolved = await fetchResolvedImage(candidate);
+      if (resolved) return resolved;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function driveId(value) {
@@ -154,14 +172,14 @@ export default async function handler(req, res) {
       if (id) {
         const direct = await fetch(`https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`, {
           redirect: "follow",
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/3.0)" }
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/4.0)" }
         });
         const type = String(direct.headers.get("content-type") || "").split(";")[0].toLowerCase();
         if (direct.ok && ALLOWED_IMAGE_TYPES.has(type)) return sendImage(res, direct, type);
       }
     }
 
-    const resolved = await fetchResolvedImage(source.toString());
+    const resolved = await fetchResolvedImage(source.toString()) || (isGoogleHost(source.hostname) ? await fetchViaReader(source.toString()) : null);
     if (!resolved) return res.status(404).json({ error: "Image could not be resolved. Make sure the shared image is publicly viewable." });
     return sendImage(res, resolved.response, resolved.contentType);
   } catch (error) {
