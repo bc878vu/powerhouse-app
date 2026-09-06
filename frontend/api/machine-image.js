@@ -36,6 +36,16 @@ function addCandidate(list, value) {
   }
 }
 
+function googleShareLanding(value) {
+  try {
+    const url = new URL(String(value));
+    if (!isGoogleHost(url.hostname) || url.hostname !== "share.google") return "";
+    const token = url.pathname.replace(/^\/+/, "").split("/")[0];
+    if (!token) return "";
+    return `https://www.google.com/share.google?q=${encodeURIComponent(token)}`;
+  } catch { return ""; }
+}
+
 function extractImageFromQuery(value) {
   try {
     const url = new URL(String(value));
@@ -58,6 +68,7 @@ function extractImageCandidates(html) {
     /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["'][^>]*>/i,
     /["'](?:image|imageUrl|image_url|imgurl|thumbnailUrl|thumbnail_url)["']\s*:\s*["'](https?:\\/\\/[^"']+)["']/gi,
     /(?:[?&]imgurl=|["']imgurl["']\s*[:=]\s*["'])(https?[^&"'<>\\\s]+)/gi,
+    /https?:\/\/[^\s"'<>]+\/imgres\?[^\s"'<>]*[?&]imgurl=([^&\s"'<>]+)/gi,
     /\[!?[^\]]*\]\((https?:\/\/[^)\s]+)\)/gi,
     /(https?:\\/\\/[^\s"'<>\\]+\.(?:jpe?g|png|webp|gif|avif|bmp)(?:\?[^\s"'<>\\]*)?)/gi,
     /(https?:\\/\\/(?:lh[35]\.googleusercontent\.com|encrypted-tbn[^/]*\.gstatic\.com)\\/[^\s"'<>\\]+)/gi
@@ -79,10 +90,10 @@ function extractRedirectTarget(location, current) {
 }
 
 async function fetchResolvedImage(startUrl) {
-  let current = startUrl;
+  let current = googleShareLanding(startUrl) || startUrl;
   const seen = new Set();
 
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     if (!isFetchableUrl(current) || seen.has(current)) return null;
     seen.add(current);
 
@@ -95,9 +106,11 @@ async function fetchResolvedImage(startUrl) {
     const response = await fetch(current, {
       redirect: "manual",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
       }
     });
 
@@ -113,22 +126,24 @@ async function fetchResolvedImage(startUrl) {
     if (!response.ok || !contentType.includes("text/html")) return null;
 
     const html = await response.text();
-    const candidates = extractImageCandidates(html);
-    if (!candidates.length) return null;
-    current = candidates[0];
+    const queryImage = extractImageFromQuery(current);
+    const candidates = queryImage ? [queryImage, ...extractImageCandidates(html)] : extractImageCandidates(html);
+    const unique = [...new Set(candidates)];
+    if (!unique.length) return null;
+    current = unique[0];
   }
   return null;
 }
 
-// Google sometimes sends share.google through an anti-bot/interstitial page when
-// fetched by a serverless runtime. Reader provides a browser-backed fallback that
-// can resolve the same public share URL and expose the image URL from the page.
+// Google can return an anti-bot/interstitial page to serverless runtimes.
+// Reader uses a browser-backed fetch for publicly accessible pages, so it is
+// used only as a fallback after the direct Google resolver fails.
 async function fetchViaReader(startUrl) {
   try {
     const readerUrl = `https://r.jina.ai/${startUrl}`;
     const response = await fetch(readerUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/4.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/5.0)",
         "Accept": "text/plain,text/markdown,*/*;q=0.8",
         "X-Engine": "browser",
         "X-No-Cache": "true"
@@ -172,7 +187,7 @@ export default async function handler(req, res) {
       if (id) {
         const direct = await fetch(`https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`, {
           redirect: "follow",
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/4.0)" }
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; PowerHouseImageProxy/5.0)" }
         });
         const type = String(direct.headers.get("content-type") || "").split(";")[0].toLowerCase();
         if (direct.ok && ALLOWED_IMAGE_TYPES.has(type)) return sendImage(res, direct, type);
@@ -180,7 +195,7 @@ export default async function handler(req, res) {
     }
 
     const resolved = await fetchResolvedImage(source.toString()) || (isGoogleHost(source.hostname) ? await fetchViaReader(source.toString()) : null);
-    if (!resolved) return res.status(404).json({ error: "Image could not be resolved. Make sure the shared image is publicly viewable." });
+    if (!resolved) return res.status(404).json({ error: "Image could not be resolved. Upload the image directly to Firebase Storage if Google does not expose a public image target for this share link." });
     return sendImage(res, resolved.response, resolved.contentType);
   } catch (error) {
     return res.status(502).json({ error: "Unable to resolve image URL", detail: error?.message || "Unknown error" });
