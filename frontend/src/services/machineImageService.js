@@ -25,13 +25,13 @@ export const getMachineImageUrl = value => {
   if (!clean) return "";
   if (!isGoogleShareUrl(clean)) return clean;
 
-  // Google share URLs are landing/redirect URLs, not browser-loadable image files.
-  // In production always use the same-origin Vercel serverless resolver so the
-  // image never depends on the Railway API being online.
+  // Google share URLs are landing/redirect URLs, not stable image files.
+  // Production uses the same-origin Vercel resolver; uploaded Firebase Storage
+  // URLs are direct and therefore bypass this proxy entirely.
   if (typeof window !== "undefined" && window.location?.origin && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-    return `${window.location.origin}/api/machine-image?url=${encodeURIComponent(clean)}&v=4`;
+    return `${window.location.origin}/api/machine-image?url=${encodeURIComponent(clean)}&v=5`;
   }
-  return `${API_URL}/machine-image?url=${encodeURIComponent(clean)}&v=4`;
+  return `${API_URL}/machine-image?url=${encodeURIComponent(clean)}&v=5`;
 };
 
 export const isMachineImageShareUrl = isGoogleShareUrl;
