@@ -17,6 +17,8 @@ const normalizeMachine = (machine = {}) => ({
   serialNumber: String(machine.serialNumber || "").trim(),
   location: String(machine.location || "").trim(),
   department: String(machine.department || "Power House").trim(),
+  imageUrl: String(machine.imageUrl || "").trim(),
+  description: String(machine.description || "").trim(),
   capacity: cleanNumber(machine.capacity),
   capacityUnit: String(machine.capacityUnit || "kW").trim(),
   status: String(machine.status || "standby").trim(),
