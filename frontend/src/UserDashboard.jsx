@@ -4,59 +4,48 @@ import { getUser } from "./utils/auth";
 import { useNavigate } from "react-router-dom";
 import { socket } from "./utils/socket";
 import { onMessageListener } from "./firebaseConfig";
+import { createNotification, sendPushNotification } from "./services/notificationService";
+import { getUserDuty } from "./services/dutyService";
 import {
   ArrowRight, Bell, Calendar, CheckCircle, Clock, ExternalLink,
-  Layers, LayoutGrid, ListTodo, MapPin, RefreshCw, XCircle, Zap, AlertCircle
+  Layers, LayoutGrid, ListTodo, MapPin, RefreshCw, XCircle, Zap,
+  CalendarDays, Timer, Sunrise, UserCheck, X
 } from "lucide-react";
 
 const CACHE_PREFIX = "powerhouse_tasks_cache_v3_";
-const CACHE_TTL = 1000 * 60 * 15;
+const DUTY_SHIFT_CACHE_PREFIX = "powerhouse_last_duty_shift_v1_";
+const text = (v) => String(v ?? "").trim();
 
 const readTaskCache = (userId) => {
   try {
     const raw = localStorage.getItem(`${CACHE_PREFIX}${userId}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.tasks)) return [];
-    return parsed.tasks;
-  } catch {
-    return [];
-  }
+    return Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+  } catch { return []; }
 };
-
-const writeTaskCache = (userId, tasks) => {
-  try {
-    localStorage.setItem(`${CACHE_PREFIX}${userId}`, JSON.stringify({
-      at: Date.now(),
-      tasks: Array.isArray(tasks) ? tasks : []
-    }));
-  } catch {}
-};
+const writeTaskCache = (userId, tasks) => { try { localStorage.setItem(`${CACHE_PREFIX}${userId}`, JSON.stringify({ at: Date.now(), tasks: Array.isArray(tasks) ? tasks : [] })); } catch {} };
+const readLastDutyShift = (userId) => { try { return localStorage.getItem(`${DUTY_SHIFT_CACHE_PREFIX}${userId}`) || ""; } catch { return ""; } };
+const writeLastDutyShift = (userId, id) => { try { localStorage.setItem(`${DUTY_SHIFT_CACHE_PREFIX}${userId}`, String(id || "")); } catch {} };
+const formatDate = (value) => { const d = new Date(value); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }); };
+const formatDateTime = (value) => { const d = new Date(value); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
+const formatTime = (value) => text(value).slice(0, 5) || "—";
 
 export default function UserDashboard() {
   const user = getUser();
   const navigate = useNavigate();
-  const userId = user?.id;
+  const userId = user?.id ?? user?.numericId ?? user?.uid ?? user?.firebaseUid;
   const cachedTasks = useMemo(() => userId ? readTaskCache(userId) : [], [userId]);
-
   const [tasks, setTasks] = useState(cachedTasks);
   const [refreshing, setRefreshing] = useState(false);
   const [popup, setPopup] = useState(null);
   const [acceptingTaskId, setAcceptingTaskId] = useState(null);
+  const [duty, setDuty] = useState(null);
+  const [dutyLoading, setDutyLoading] = useState(true);
+  const [dutyRefreshing, setDutyRefreshing] = useState(false);
 
-  const showPopup = useCallback((title, msg, type = "info") => {
-    setPopup({ title, msg, type });
-    window.clearTimeout(showPopup.timer);
-    showPopup.timer = window.setTimeout(() => setPopup(null), 3000);
-  }, []);
-
-  const playNotificationSound = useCallback(() => {
-    try {
-      const audio = new Audio("/notification.mp3");
-      audio.volume = 1;
-      audio.play().catch(() => {});
-    } catch {}
-  }, []);
+  const showPopup = useCallback((title, msg, type = "info") => { setPopup({ title, msg, type }); window.clearTimeout(showPopup.timer); showPopup.timer = window.setTimeout(() => setPopup(null), 4500); }, []);
+  const playNotificationSound = useCallback(() => { try { const audio = new Audio("/notification.mp3"); audio.volume = 1; audio.play().catch(() => {}); } catch {} }, []);
 
   const fetchTasks = useCallback(async (manual = false) => {
     if (!userId) return;
@@ -64,189 +53,96 @@ export default function UserDashboard() {
     try {
       const res = await API.get(`/task/my-tasks/${userId}`, { timeout: 12000 });
       const fresh = Array.isArray(res?.data) ? res.data : Array.isArray(res?.data?.tasks) ? res.data.tasks : [];
-      setTasks(fresh);
-      writeTaskCache(userId, fresh);
-    } catch (error) {
-      console.warn("Dashboard background task refresh skipped:", error?.message || error);
-    } finally {
-      if (manual) setRefreshing(false);
-    }
+      setTasks(fresh); writeTaskCache(userId, fresh);
+    } catch (error) { console.warn("Dashboard task refresh skipped:", error?.message || error); }
+    finally { if (manual) setRefreshing(false); }
   }, [userId]);
 
+  const fetchDuty = useCallback(async (manual = false) => {
+    if (!userId) return;
+    if (manual) setDutyRefreshing(true);
+    try {
+      const result = await getUserDuty(userId);
+      setDuty(result);
+      const shift = result?.currentShift;
+      if (shift?.id) {
+        const key = `${shift.id}:${shift.effective_from || ""}:${shift.effective_to || ""}:${shift.start_time || ""}:${shift.end_time || ""}`;
+        const previous = readLastDutyShift(userId);
+        if (previous && previous !== key) {
+          const body = `${shift.shift_name || "Assigned Shift"} assigned: ${formatTime(shift.start_time)}–${formatTime(shift.end_time)}, ${formatDate(shift.effective_from)} to ${shift.effective_to ? formatDate(shift.effective_to) : "ongoing"}.`;
+          try {
+            const notificationId = await createNotification(userId, { title: "Duty Assigned", body, type: "duty_assigned", route: "/profile", sourceId: String(shift.id) });
+            await sendPushNotification({ title: "Duty Assigned", body, route: "/profile", userIds: [userId], notificationId });
+          } catch (error) { console.warn("Duty notification persistence skipped:", error?.message || error); }
+          showPopup("Duty Assigned", body, "new"); playNotificationSound();
+        }
+        writeLastDutyShift(userId, key);
+      }
+    } catch (error) { console.warn("Duty dashboard refresh skipped:", error?.message || error); }
+    finally { setDutyLoading(false); if (manual) setDutyRefreshing(false); }
+  }, [userId, playNotificationSound, showPopup]);
+
+  useEffect(() => { if (!userId) return; void fetchTasks(false); const interval = window.setInterval(() => void fetchTasks(false), 10000); return () => window.clearInterval(interval); }, [userId, fetchTasks]);
+  useEffect(() => { if (!userId) return; void fetchDuty(false); const interval = window.setInterval(() => void fetchDuty(false), 10000); return () => window.clearInterval(interval); }, [userId, fetchDuty]);
+
   useEffect(() => {
     if (!userId) return;
-    void fetchTasks(false);
-    const interval = window.setInterval(() => void fetchTasks(false), 15000);
-    return () => window.clearInterval(interval);
-  }, [userId, fetchTasks]);
-
-  useEffect(() => {
-    if (!userId) return;
-
-    const joinedIds = [user?.id, user?.numericId, user?.uid, user?.firebaseUid]
-      .filter((value) => value !== undefined && value !== null && String(value).trim())
-      .map(String)
-      .filter((value, index, list) => list.indexOf(value) === index);
-
-    const joinRooms = () => {
-      joinedIds.forEach((id) => socket.emit("joinUser", id));
-    };
-
+    const joinedIds = [user?.id, user?.numericId, user?.uid, user?.firebaseUid].filter((v) => v !== undefined && v !== null && text(v)).map(String).filter((v, i, a) => a.indexOf(v) === i);
+    const joinRooms = () => joinedIds.forEach((id) => socket.emit("joinUser", id));
     const refreshFromSocket = async (data) => {
       const incoming = data?.task || (data?.title && (data?.id || data?.taskId) ? data : null);
       if (incoming?.id || incoming?.taskId) {
         const incomingId = String(incoming.id ?? incoming.taskId);
-        setTasks((prev) => {
-          const exists = prev.some((item) => String(item.id) === incomingId);
-          const next = exists
-            ? prev.map((item) => String(item.id) === incomingId ? { ...item, ...incoming } : item)
-            : [incoming, ...prev];
-          writeTaskCache(userId, next);
-          return next;
-        });
+        setTasks((prev) => { const exists = prev.some((item) => String(item.id) === incomingId); const next = exists ? prev.map((item) => String(item.id) === incomingId ? { ...item, ...incoming } : item) : [incoming, ...prev]; writeTaskCache(userId, next); return next; });
       }
       void fetchTasks(false);
     };
-
-    const handleAssigned = async (data = {}) => {
-      await refreshFromSocket(data);
-      showPopup("New Task Assigned", data?.title || "You received a new task", "new");
-      playNotificationSound();
-    };
-
-    const handleTaskEvent = async (data = {}) => {
-      await refreshFromSocket(data);
-      const status = String(data?.status || "").trim();
-      if (status || data?.taskId || data?.id) {
-        showPopup(
-          data?.title || "Task Update",
-          status ? `Task ${data?.taskId || data?.id ? `#${data.taskId || data.id}` : ""} → ${status}` : "Your task list was updated.",
-          status === "Completed" ? "success" : status === "Rejected" ? "error" : "info"
-        );
-      }
-    };
-
-    if (socket.connected) joinRooms();
-    socket.on("connect", joinRooms);
-
-    const events = [
-      "taskAssigned", "taskReassigned", "taskUpdate", "taskUpdated", "taskEdited",
-      "taskDeleted", "taskDelete", "taskAccepted", "taskRejected", "taskCompleted",
-      "taskStatusChanged", "updateData"
-    ];
+    const handleAssigned = async (data = {}) => { await refreshFromSocket(data); showPopup("New Task Assigned", data?.title || "You received a new task", "new"); playNotificationSound(); };
+    const handleTaskEvent = async (data = {}) => { await refreshFromSocket(data); const status = String(data?.status || "").trim(); if (status || data?.taskId || data?.id) showPopup(data?.title || "Task Update", status ? `Task #${data.taskId || data.id} → ${status}` : "Your task list was updated.", status === "Completed" ? "success" : status === "Rejected" ? "error" : "info"); };
+    if (socket.connected) joinRooms(); socket.on("connect", joinRooms);
+    const events = ["taskAssigned", "taskReassigned", "taskUpdate", "taskUpdated", "taskEdited", "taskDeleted", "taskDelete", "taskAccepted", "taskRejected", "taskCompleted", "taskStatusChanged", "updateData"];
     events.forEach((event) => socket.on(event, event === "taskAssigned" ? handleAssigned : handleTaskEvent));
-
-    return () => {
-      socket.off("connect", joinRooms);
-      events.forEach((event) => socket.off(event, event === "taskAssigned" ? handleAssigned : handleTaskEvent));
-    };
+    return () => { socket.off("connect", joinRooms); events.forEach((event) => socket.off(event, event === "taskAssigned" ? handleAssigned : handleTaskEvent)); };
   }, [userId, user?.id, user?.numericId, user?.uid, user?.firebaseUid, fetchTasks, showPopup, playNotificationSound]);
 
   useEffect(() => {
     let mounted = true;
-    const timer = window.setTimeout(() => {
-      onMessageListener().then((payload) => {
-        if (!mounted || !payload) return;
-        const title = payload?.notification?.title || payload?.data?.title || "Task Notification";
-        const message = payload?.notification?.body || payload?.data?.body || payload?.data?.message || "You have a task update";
-        showPopup(title, message, "new");
-        playNotificationSound();
-        void fetchTasks(false);
-      }).catch(() => {});
-    }, 300);
+    const timer = window.setTimeout(() => { onMessageListener().then((payload) => { if (!mounted || !payload) return; const title = payload?.notification?.title || payload?.data?.title || "PowerHouse Notification"; const message = payload?.notification?.body || payload?.data?.body || payload?.data?.message || "You have a new PowerHouse update."; showPopup(title, message, "new"); playNotificationSound(); void fetchTasks(false); void fetchDuty(false); }).catch(() => {}); }, 300);
     return () => { mounted = false; window.clearTimeout(timer); };
-  }, [fetchTasks, playNotificationSound, showPopup]);
+  }, [fetchTasks, fetchDuty, playNotificationSound, showPopup]);
 
   const handleAccept = async (task) => {
     if (!task?.id || acceptingTaskId) return;
     setAcceptingTaskId(task.id);
     const now = new Date().toISOString();
-    setTasks((prev) => {
-      const next = prev.map((item) => Number(item.id) === Number(task.id) ? { ...item, status: "In Progress", accepted_at: item.accepted_at || now } : item);
-      writeTaskCache(userId, next);
-      return next;
-    });
-    try {
-      await API.put(`/task/update-status/${task.id}`, { status: "In Progress" });
-      showPopup("Task Accepted", `Task #${task.id} is now In Progress`, "success");
-      void fetchTasks(false);
-    } catch (error) {
-      showPopup("Accept Failed", error?.response?.data?.message || "Could not accept this task", "error");
-      void fetchTasks(false);
-    } finally {
-      setAcceptingTaskId(null);
-    }
+    setTasks((prev) => { const next = prev.map((item) => String(item.id) === String(task.id) ? { ...item, status: "In Progress", accepted_at: item.accepted_at || now } : item); writeTaskCache(userId, next); return next; });
+    try { await API.put(`/task/update-status/${task.id}`, { status: "In Progress" }); showPopup("Task Accepted", `Task #${task.id} is now In Progress`, "success"); void fetchTasks(false); }
+    catch (error) { showPopup("Accept Failed", error?.response?.data?.message || "Could not accept this task", "error"); void fetchTasks(false); }
+    finally { setAcceptingTaskId(null); }
   };
 
-  const counts = useMemo(() => ({
-    pending: tasks.filter((t) => t.status === "Pending").length,
-    running: tasks.filter((t) => t.status === "In Progress").length,
-    completed: tasks.filter((t) => t.status === "Completed").length,
-    rejected: tasks.filter((t) => t.status === "Rejected").length,
-  }), [tasks]);
-
-  const recentTasks = useMemo(() => [...tasks].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 5), [tasks]);
-
-  const statusStyle = (status) => {
-    if (status === "Completed") return { bg: "bg-green-500/10", text: "text-green-400", border: "border-green-500/20", icon: <CheckCircle size={13} /> };
-    if (status === "In Progress") return { bg: "bg-blue-500/10", text: "text-blue-400", border: "border-blue-500/20", icon: <Layers size={13} /> };
-    if (status === "Rejected") return { bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20", icon: <XCircle size={13} /> };
-    return { bg: "bg-yellow-500/10", text: "text-yellow-500", border: "border-yellow-500/20", icon: <Clock size={13} /> };
-  };
-
-  const statCards = [
-    ["To Do", counts.pending, "text-yellow-500", "bg-yellow-500/10", <Clock />],
-    ["Running", counts.running, "text-blue-400", "bg-blue-500/10", <Layers />],
-    ["Completed", counts.completed, "text-green-400", "bg-green-500/10", <ListTodo />],
-    ["Rejected", counts.rejected, "text-red-400", "bg-red-500/10", <XCircle />],
-    ["Total", tasks.length, "text-yellow-400", "bg-yellow-500/10", <LayoutGrid />]
+  const counts = useMemo(() => ({ pending: tasks.filter((t) => String(t.status) === "Pending").length, running: tasks.filter((t) => String(t.status) === "In Progress").length, completed: tasks.filter((t) => String(t.status) === "Completed").length, rejected: tasks.filter((t) => String(t.status) === "Rejected").length }), [tasks]);
+  const allTasks = useMemo(() => [...tasks].sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0)), [tasks]);
+  const dutyShift = duty?.currentShift;
+  const daysRemaining = duty?.dutyDaysRemaining;
+  const dutyStatus = duty?.todayDuty?.status || (dutyShift ? "on_duty" : "not_marked");
+  const attendance = duty?.summary?.recordedDays ? (Number(duty.summary.dutyDays || 0) / Number(duty.summary.recordedDays || 1)) * 100 : 0;
+  const statusStyle = (status) => status === "Completed" ? { bg: "bg-emerald-500/10", text: "text-emerald-300", icon: <CheckCircle size={14} /> } : status === "In Progress" ? { bg: "bg-blue-500/10", text: "text-blue-300", icon: <Layers size={14} /> } : status === "Rejected" ? { bg: "bg-red-500/10", text: "text-red-300", icon: <XCircle size={14} /> } : { bg: "bg-yellow-500/10", text: "text-yellow-300", icon: <Clock size={14} /> };
+  const stats = [
+    { label: "To Do", value: counts.pending, icon: <Clock size={21} />, tone: "text-yellow-400", bg: "bg-yellow-500/10" },
+    { label: "Running", value: counts.running, icon: <Layers size={21} />, tone: "text-blue-400", bg: "bg-blue-500/10" },
+    { label: "Completed", value: counts.completed, icon: <ListTodo size={21} />, tone: "text-emerald-400", bg: "bg-emerald-500/10" },
+    { label: "Rejected", value: counts.rejected, icon: <XCircle size={21} />, tone: "text-red-400", bg: "bg-red-500/10" },
+    { label: "Total Tasks", value: tasks.length, icon: <LayoutGrid size={21} />, tone: "text-yellow-400", bg: "bg-yellow-500/10" },
   ];
 
-  return (
-    <div className="animate-in fade-in duration-300">
-      <div className="bg-yellow-500 p-6 md:p-12 rounded-[2.5rem] md:rounded-[3.5rem] mb-8 md:mb-12 flex flex-col md:flex-row justify-between items-center shadow-2xl relative overflow-hidden">
-        <div className="absolute -right-20 -top-20 w-64 h-64 bg-white/10 rounded-full" />
-        <div className="absolute -left-20 -bottom-24 w-64 h-64 bg-slate-900/5 rounded-full" />
-        <div className="relative z-10 w-full md:w-auto">
-          <p className="text-slate-900 font-black text-[10px] uppercase tracking-[0.4em] mb-3">User Terminal</p>
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-black text-slate-900 italic uppercase leading-none">Hello, {user?.name || "User"}</h1>
-          <div className="flex flex-wrap gap-3 md:gap-4 mt-4">
-            <span className="bg-slate-900 text-white px-4 py-1.5 rounded-xl text-[9px] font-black uppercase shadow-lg italic">ID: #{user?.id || "N/A"}</span>
-            <span className="bg-white/20 px-4 py-1.5 rounded-xl text-[9px] font-black text-slate-900 uppercase italic">Tasks Assigned: {tasks.length}</span>
-            {counts.pending > 0 && <span className="bg-red-500 text-white px-4 py-1.5 rounded-xl text-[9px] font-black uppercase shadow-lg animate-pulse">{counts.pending} Pending</span>}
-          </div>
-        </div>
-        <div className="relative z-10 flex flex-col sm:flex-row gap-3 mt-8 md:mt-0">
-          <button onClick={() => fetchTasks(true)} disabled={refreshing} className="bg-white/20 text-slate-900 p-5 rounded-[2rem] font-black hover:bg-white/30 transition-all disabled:opacity-50" title="Refresh Tasks"><RefreshCw size={20} className={refreshing ? "animate-spin" : ""} /></button>
-          <button onClick={() => navigate("/my-tasks")} className="bg-slate-900 text-white px-8 md:px-10 py-5 rounded-[2rem] font-black text-[11px] uppercase flex items-center justify-center gap-4 hover:scale-105 transition-all shadow-2xl">Go To My Tasks <ArrowRight size={20} /></button>
-        </div>
-      </div>
+  return <div className="min-h-full animate-in fade-in duration-300 px-4 pb-12 md:px-8"><div className="mx-auto max-w-[1650px]">
+    <section className="relative mb-6 overflow-hidden rounded-[2.5rem] bg-yellow-500 p-6 shadow-2xl md:mb-8 md:rounded-[3.5rem] md:p-10 lg:p-12"><div className="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-white/10"/><div className="absolute -bottom-28 -left-24 h-72 w-72 rounded-full bg-slate-900/5"/><div className="relative z-10 flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><p className="mb-3 text-[10px] font-black uppercase tracking-[0.42em] text-slate-900">User Terminal</p><h1 className="text-3xl font-black uppercase italic leading-none text-slate-900 sm:text-4xl lg:text-5xl">Hello, {user?.name || "User"}</h1><div className="mt-5 flex flex-wrap gap-2.5"><span className="rounded-xl bg-slate-900 px-4 py-2 text-[9px] font-black uppercase italic text-white shadow-lg">ID: #{user?.id || "N/A"}</span><span className="rounded-xl bg-white/25 px-4 py-2 text-[9px] font-black uppercase italic text-slate-900">Tasks Assigned: {tasks.length}</span>{counts.pending > 0 && <span className="animate-pulse rounded-xl bg-red-500 px-4 py-2 text-[9px] font-black uppercase text-white shadow-lg">{counts.pending} Pending</span>}</div></div><div className="flex shrink-0 flex-col gap-2.5 sm:flex-row"><button onClick={() => { void fetchTasks(true); void fetchDuty(true); }} disabled={refreshing || dutyRefreshing} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white/25 px-5 py-4 text-[10px] font-black uppercase text-slate-900 transition hover:bg-white/35 disabled:opacity-60"><RefreshCw size={17} className={(refreshing || dutyRefreshing) ? "animate-spin" : ""}/> Refresh</button><button onClick={() => navigate("/my-tasks")} className="inline-flex items-center justify-center gap-3 rounded-2xl bg-slate-900 px-7 py-4 text-[10px] font-black uppercase text-white shadow-2xl transition hover:-translate-y-0.5">My Tasks <ArrowRight size={18}/></button></div></div></section>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8 md:mb-12">
-        {statCards.map(([label, count, color, bg, icon]) => (
-          <div key={label} className="bg-slate-900/60 border border-white/5 p-5 rounded-[2rem] flex items-center justify-between shadow-xl">
-            <div><div className={`${bg} ${color} p-2 rounded-xl mb-3 inline-block`}>{icon}</div><h3 className="text-3xl md:text-4xl font-black text-white italic">{count}</h3><p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-2">{label}</p></div><LayoutGrid className="text-white/[0.03]" size={50} />
-          </div>
-        ))}
-      </div>
+    <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5 md:mb-8">{stats.map((item) => <div key={item.label} className="min-h-[145px] rounded-[2rem] border border-white/5 bg-slate-900/70 p-5 shadow-xl"><div className="flex items-start justify-between gap-3"><span className={`inline-flex h-11 w-11 items-center justify-center rounded-xl ${item.bg} ${item.tone}`}>{item.icon}</span><LayoutGrid className="text-white/[0.035]" size={38}/></div><p className="mt-5 text-3xl font-black italic text-white md:text-4xl">{item.value}</p><p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">{item.label}</p></div>)}</section>
 
-      <div className="bg-slate-900/40 border border-white/5 p-5 md:p-10 rounded-[2.5rem] md:rounded-[3rem] shadow-2xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8"><div><h3 className="text-white font-black text-xl uppercase italic">Recent Task Timeline</h3><p className="text-slate-500 text-[9px] uppercase tracking-widest mt-2">Latest 5 assigned tasks</p></div><button onClick={() => navigate("/my-tasks")} className="text-yellow-500 text-[10px] font-black uppercase flex items-center gap-2">View All Tasks <ArrowRight size={15} /></button></div>
-        <div className="grid gap-4">
-          {recentTasks.length ? recentTasks.map((task) => {
-            const style = statusStyle(task.status);
-            return <div key={task.id} onClick={() => window.open(`/task-view/${task.id}`, "_blank")} className={`p-5 md:p-6 bg-white/[0.03] border ${style.border} rounded-[2rem] hover:bg-white/[0.08] transition-all cursor-pointer`}>
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-                <div className="flex items-start gap-4 min-w-0"><div className="w-12 h-12 shrink-0 bg-slate-800 rounded-2xl flex items-center justify-center text-yellow-500 font-black italic shadow-lg">#{task.id}</div><div className="min-w-0"><h4 className="text-white font-bold text-base tracking-tight">{task.title || "No Title"}</h4><p className="text-slate-500 text-[10px] font-black uppercase mt-2 flex items-center gap-2 italic"><Calendar size={12} />{task.created_at ? new Date(task.created_at).toLocaleString() : "N/A"}</p>{task.panel_id && <div className="mt-3 flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-1.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase"><Zap size={12} />{task.panel_code || `Panel #${task.panel_id}`}</span>{task.panel_name && <span className="text-slate-300 text-[10px] font-bold">{task.panel_name}</span>}</div>}{(task.panel_area || task.panel_location) && <p className="text-slate-500 text-[9px] mt-2 flex items-center gap-1"><MapPin size={11} />{[task.panel_area, task.panel_location].filter(Boolean).join(" • ")}</p>}</div></div>
-                <div className="flex flex-wrap items-center gap-3 lg:justify-end"><span className={`inline-flex items-center gap-2 px-5 py-2 rounded-full text-[9px] font-black uppercase ${style.bg} ${style.text}`}>{style.icon}{task.status || "Pending"}</span>{task.status === "Pending" && <button onClick={(e) => { e.stopPropagation(); void handleAccept(task); }} disabled={acceptingTaskId === task.id} className="bg-blue-500 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase disabled:opacity-50">{acceptingTaskId === task.id ? "Accepting..." : "Accept"}</button>}<button onClick={(e) => { e.stopPropagation(); window.open(`/task-view/${task.id}`, "_blank"); }} className="p-2.5 bg-white/5 text-slate-400 hover:text-yellow-500 rounded-xl" title="Open Task"><ExternalLink size={16} /></button></div>
-              </div>
-              {task.status === "Rejected" && task.rejection_reason && <div className="mt-4 bg-red-500/5 border border-red-500/10 rounded-2xl p-4 flex gap-2"><AlertCircle size={15} className="text-red-400 shrink-0" /><div><p className="text-red-400 text-[9px] font-black uppercase tracking-widest mb-1">Rejection Reason</p><p className="text-slate-300 text-xs">{task.rejection_reason}</p></div></div>}
-            </div>;
-          }) : <div className="text-center py-16"><ListTodo size={40} className="mx-auto text-slate-700 mb-4" /><p className="text-slate-600 font-bold uppercase tracking-widest italic">No tasks assigned yet</p></div>}
-        </div>
-      </div>
+    <section className="mb-6 rounded-[2.5rem] border border-yellow-500/10 bg-slate-900/55 p-5 shadow-2xl md:mb-8 md:rounded-[3rem] md:p-8"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-[9px] font-black uppercase tracking-[0.3em] text-yellow-400">Workforce Status</p><h2 className="mt-1 text-xl font-black uppercase italic text-white md:text-2xl">My Duty</h2><p className="mt-1 text-xs text-slate-500">Your assigned shift, working hours and duty duration.</p></div><div className="flex flex-wrap items-center gap-2"><span className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[9px] font-black uppercase ${dutyStatus === "on_duty" ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" : dutyStatus === "leave" ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300" : dutyStatus === "off_duty" ? "border-red-500/20 bg-red-500/10 text-red-300" : "border-white/10 bg-white/5 text-slate-400"}`}><UserCheck size={13}/>{dutyStatus === "on_duty" ? "On Duty" : dutyStatus === "leave" ? "On Leave" : dutyStatus === "off_duty" ? "Off Duty" : "Not Marked"}</span><button onClick={() => void fetchDuty(true)} disabled={dutyRefreshing} className="rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-slate-300"><RefreshCw size={14} className={dutyRefreshing ? "animate-spin" : ""}/></button></div></div>{dutyLoading ? <div className="mt-5 rounded-2xl border border-white/5 bg-white/[0.025] p-7 text-sm text-slate-500">Loading duty assignment…</div> : <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-white/5 bg-white/[0.025] p-5"><div className="flex items-center gap-2 text-yellow-400"><Sunrise size={18}/><span className="text-[9px] font-black uppercase tracking-widest">Shift</span></div><p className="mt-3 text-base font-black text-white">{dutyShift?.shift_name || "No duty assigned"}</p><p className="mt-1 text-xs text-slate-500">{dutyShift ? `${formatTime(dutyShift.start_time)} – ${formatTime(dutyShift.end_time)}` : "Waiting for assignment"}</p></div><div className="rounded-2xl border border-white/5 bg-white/[0.025] p-5"><div className="flex items-center gap-2 text-blue-400"><Clock size={18}/><span className="text-[9px] font-black uppercase tracking-widest">Duty Time</span></div><p className="mt-3 text-base font-black text-white">{dutyShift ? `${formatTime(dutyShift.start_time)} – ${formatTime(dutyShift.end_time)}` : "—"}</p><p className="mt-1 text-xs text-slate-500">Effective {dutyShift?.effective_from ? formatDate(dutyShift.effective_from) : "—"}</p></div><div className="rounded-2xl border border-white/5 bg-white/[0.025] p-5"><div className="flex items-center gap-2 text-emerald-400"><CalendarDays size={18}/><span className="text-[9px] font-black uppercase tracking-widest">Duty Duration</span></div><p className="mt-3 text-base font-black text-white">{daysRemaining === null || daysRemaining === undefined ? (dutyShift ? "Ongoing" : "—") : `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} remaining`}</p><p className="mt-1 text-xs text-slate-500">{duty?.shiftEnd ? `Ends ${formatDate(duty.shiftEnd)}` : "No end date set"}</p></div><div className="rounded-2xl border border-white/5 bg-white/[0.025] p-5"><div className="flex items-center gap-2 text-yellow-400"><Timer size={18}/><span className="text-[9px] font-black uppercase tracking-widest">Monthly Attendance</span></div><p className="mt-3 text-base font-black text-white">{attendance.toFixed(1)}%</p><p className="mt-1 text-xs text-slate-500">{Number(duty?.summary?.dutyDays || 0)} duty · {Number(duty?.summary?.leaveDays || 0)} leave · {Number(duty?.summary?.offDays || 0)} off</p></div></div>}</section>
 
-      {popup && <div className={`fixed top-5 right-5 max-w-sm px-6 py-4 rounded-2xl shadow-2xl z-[99999] border ${popup.type === "success" ? "bg-green-500 text-white border-green-400" : popup.type === "error" ? "bg-red-500 text-white border-red-400" : popup.type === "new" ? "bg-yellow-500 text-black border-yellow-400" : "bg-blue-500 text-white border-blue-400"}`}><div className="flex items-start gap-3"><Bell size={19} /><div><h4 className="font-black text-sm">{popup.title}</h4><p className="text-sm mt-1 opacity-90">{popup.msg}</p></div></div></div>}
-    </div>
-  );
+    <section className="rounded-[2.5rem] border border-white/5 bg-slate-900/45 p-5 shadow-2xl md:rounded-[3rem] md:p-8"><div className="flex flex-col gap-3 border-b border-white/5 pb-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[9px] font-black uppercase tracking-[0.3em] text-yellow-400">Task Register</p><h2 className="mt-1 text-xl font-black uppercase italic text-white md:text-2xl">All Assigned Tasks</h2><p className="mt-1 text-xs text-slate-500">Complete task list synced automatically. New assignments appear here without refreshing the page.</p></div><button onClick={() => navigate("/my-tasks")} className="inline-flex items-center gap-2 self-start text-[10px] font-black uppercase text-yellow-400">Open My Tasks <ArrowRight size={15}/></button></div><div className="mt-5 overflow-x-auto rounded-2xl border border-white/5"><table className="w-full min-w-[1050px] text-left"><thead className="bg-white/[0.025] text-[9px] font-black uppercase tracking-widest text-slate-500"><tr><th className="px-4 py-4">Task</th><th className="px-4 py-4">Panel / Location</th><th className="px-4 py-4">Assigned</th><th className="px-4 py-4">Status</th><th className="px-4 py-4 text-right">Action</th></tr></thead><tbody>{allTasks.length ? allTasks.map((task) => { const style = statusStyle(task.status); return <tr key={task.id} className="border-t border-white/5 transition hover:bg-white/[0.025]"><td className="px-4 py-4"><div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-800 text-[10px] font-black italic text-yellow-400">#{task.id}</span><div className="min-w-0"><p className="max-w-[330px] truncate text-sm font-bold text-white">{task.title || "Untitled Task"}</p><p className="mt-1 flex items-center gap-1.5 text-[9px] font-bold uppercase text-slate-600"><Calendar size={11}/>{formatDateTime(task.created_at || task.createdAt)}</p></div></div></td><td className="px-4 py-4"><div className="flex min-w-[210px] flex-col gap-1.5">{task.panel_id ? <span className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-yellow-500/10 px-2.5 py-1.5 text-[9px] font-black uppercase text-yellow-400"><Zap size={11}/>{task.panel_code || `Panel #${task.panel_id}`}</span> : <span className="text-xs text-slate-600">No panel linked</span>}{(task.panel_area || task.panel_location || task.location) && <span className="flex items-center gap-1 text-[9px] text-slate-500"><MapPin size={11}/>{[task.panel_area, task.panel_location, task.location].filter(Boolean).join(" • ")}</span>}</div></td><td className="px-4 py-4"><span className="whitespace-nowrap text-xs font-semibold text-slate-400">{formatDate(task.assigned_at || task.created_at || task.createdAt)}</span></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-[9px] font-black uppercase ${style.bg} ${style.text}`}>{style.icon}{task.status || "Pending"}</span></td><td className="px-4 py-4"><div className="flex justify-end gap-2"><button onClick={() => navigate(`/task-view/${task.id}`)} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[9px] font-black uppercase text-slate-300 hover:bg-white/[0.08]"><ExternalLink size={13}/> View</button>{task.status === "Pending" && <button onClick={() => void handleAccept(task)} disabled={acceptingTaskId === task.id} className="rounded-xl bg-blue-500 px-3 py-2 text-[9px] font-black uppercase text-white disabled:opacity-50">{acceptingTaskId === task.id ? "Accepting…" : "Accept"}</button>}</div></td></tr>; }) : <tr><td colSpan="5" className="px-5 py-14 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] text-slate-600"><ListTodo size={21}/></div><p className="mt-3 text-sm font-bold text-slate-500">No tasks assigned yet.</p><p className="mt-1 text-xs text-slate-700">New assignments will appear automatically.</p></td></tr>}</tbody></table></div><div className="mt-4 flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-600"><span>{allTasks.length} total task{allTasks.length === 1 ? "" : "s"}</span><span>•</span><span>{counts.pending} pending</span><span>•</span><span>{counts.running} running</span><span>•</span><span>{counts.completed} completed</span></div></section>
+  </div>{popup && <div className="fixed bottom-5 right-5 z-[100] w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-yellow-500/20 bg-[#0b1326] p-4 shadow-2xl"><div className="flex items-start gap-3"><span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-yellow-500/10 text-yellow-400"><Bell size={17}/></span><div className="min-w-0"><p className="text-sm font-black text-white">{popup.title}</p><p className="mt-1 text-xs leading-5 text-slate-400">{popup.msg}</p></div><button onClick={() => setPopup(null)} className="ml-auto text-slate-600 hover:text-white" aria-label="Close notification"><X size={15}/></button></div></div>}</div>;
 }
