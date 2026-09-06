@@ -111,7 +111,7 @@ ul,ol { max-width:100%; }
   header[class*="z-[90]"] > button { width:38px!important; min-width:38px!important; height:38px!important; flex-basis:38px!important; }
   header[class*="z-[90]"] > button::before { font-size:22px!important; }
   header[class*="z-[90]"] > div:nth-child(4) a { padding:8px!important; }
-  header[class*="z-[90]"] > div:nth-child(4) a svg { width:19px!important; height:19px!important; }
+  header[class*="z-[90"] > div:nth-child(4) a svg { width:19px!important; height:19px!important; }
   aside[class*="z-[110]"] { width:min(340px,90vw)!important; max-width:90vw!important; }
   main { width:100%!important; max-width:100%!important; min-width:0!important; }
   form { gap:10px!important; } input,select,textarea,button { min-height:40px; }
@@ -123,4 +123,157 @@ ul,ol { max-width:100%; }
   header[class*="z-[90]"] > div:nth-child(2) { min-width:112px!important; max-width:112px!important; } header[class*="z-[90]"] > div:nth-child(2) h1 { font-size:13px!important; }
   header[class*="z-[90]"] > nav > a { padding:7px 8px!important; font-size:7px!important; } header[class*="z-[90]"] > button { width:36px!important; min-width:36px!important; height:36px!important; flex-basis:36px!important; }
   [class*="p-5"],[class*="p-6"],[class*="p-7"],[class*="p-8"] { padding:10px!important; } [class*="gap-5"],[class*="gap-6"],[class*="gap-7"],[class*="gap-8"] { gap:8px!important; }
+}
+
+/* =========================================================
+   MACHINE PERFORMANCE REPORT — PROFESSIONAL A4 PRINT
+   Scoped only to MachineDetails via its unique image fallback.
+   Existing screen UI/data remains unchanged.
+   ========================================================= */
+@media print {
+  @page { size: A4 portrait; margin: 9mm; }
+
+  body:has(.machine-image-fallback) {
+    background:#fff !important;
+    color:#0f172a !important;
+    overflow:visible !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 {
+    width:100% !important;
+    max-width:100% !important;
+    margin:0 !important;
+    padding:0 !important;
+    background:#fff !important;
+    color:#0f172a !important;
+    display:block !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 > * {
+    box-sizing:border-box !important;
+    max-width:100% !important;
+  }
+
+  body:has(.machine-image-fallback) .print\\:hidden,
+  body:has(.machine-image-fallback) .machine-image-fallback.hidden {
+    display:none !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 > section,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 > footer {
+    background:#fff !important;
+    color:#0f172a !important;
+    border-color:#dbe3ea !important;
+    box-shadow:none !important;
+    border-radius:5mm !important;
+    padding:5mm !important;
+    margin:0 0 4mm !important;
+    break-inside:auto !important;
+    page-break-inside:auto !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 > section:nth-of-type(2) {
+    break-inside:avoid !important;
+    page-break-inside:avoid !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 section > div,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 section > article,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="bg-[#020617]"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="bg-white/[0.025]"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="bg-white/[0.03]"] {
+    background:#fff !important;
+    color:#0f172a !important;
+    border-color:#e2e8f0 !important;
+    box-shadow:none !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 h1,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 h2,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 h3,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 p,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 span,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 td,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 th {
+    color:#0f172a !important;
+    text-shadow:none !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 p.text-slate-500,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 p.text-slate-600,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 p.text-slate-700,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-slate-5"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-slate-6"] {
+    color:#64748b !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-yellow-"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-orange-"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-blue-"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-green-"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="text-red-"] {
+    color:#334155 !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="border-white/"] {
+    border-color:#e2e8f0 !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 .grid {
+    gap:2.5mm !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="p-6"],
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="p-5"] {
+    padding:3.5mm !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 [class*="p-4"] {
+    padding:2.5mm !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 img {
+    display:block !important;
+    width:100% !important;
+    max-width:100% !important;
+    height:auto !important;
+    max-height:70mm !important;
+    object-fit:contain !important;
+    background:#fff !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 .machine-image-fallback {
+    min-height:30mm !important;
+    padding:8mm !important;
+    color:#94a3b8 !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 section {
+    min-height:0 !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 table {
+    width:100% !important;
+    min-width:0 !important;
+    table-layout:fixed !important;
+    font-size:7.5pt !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 th,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 td {
+    padding:1.5mm 1.2mm !important;
+    border-color:#e2e8f0 !important;
+    overflow-wrap:anywhere !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 footer {
+    margin-top:2mm !important;
+    break-inside:avoid !important;
+  }
+
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 > section:last-of-type,
+  body:has(.machine-image-fallback) .space-y-6.animate-in.fade-in.duration-500 > footer:last-child {
+    page-break-after:auto !important;
+    break-after:auto !important;
+  }
 }
