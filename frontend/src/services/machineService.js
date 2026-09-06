@@ -1,6 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
-import { getMachineImageUrl } from "./machineImageService";
+import { getMachineImageUrl, isMachineImageShareUrl } from "./machineImageService";
 
 const MACHINE_COLLECTION = "powerhouse_machines";
 const LOG_COLLECTION = "powerhouse_machine_load_logs";
@@ -18,36 +18,44 @@ const restoreImageSource = (value) => {
   return raw;
 };
 
-const normalizeMachine = (machine = {}) => ({
-  name: String(machine.name || "").trim(),
-  code: String(machine.code || "").trim().toUpperCase(),
-  category: String(machine.category || "General").trim(),
-  type: String(machine.type || "").trim(),
-  manufacturer: String(machine.manufacturer || "").trim(),
-  model: String(machine.model || "").trim(),
-  serialNumber: String(machine.serialNumber || "").trim(),
-  location: String(machine.location || "").trim(),
-  department: String(machine.department || "Power House").trim(),
-  imageUrl: restoreImageSource(machine.imageUrl || machine.imageSourceUrl),
-  description: String(machine.description || "").trim(),
-  utilityRole: String(machine.utilityRole || "consumer").trim(),
-  utilityType: String(machine.utilityType || "Electricity").trim(),
-  capacity: cleanNumber(machine.capacity),
-  capacityUnit: String(machine.capacityUnit || "kW").trim(),
-  status: String(machine.status || "standby").trim(),
-  currentRunningLoad: cleanNumber(machine.currentRunningLoad),
-  loadUnit: String(machine.loadUnit || "kW").trim(),
-  normalLoadFactor: Math.min(100, cleanNumber(machine.normalLoadFactor)),
-  installDate: machine.installDate || "",
-  lastMaintenance: machine.lastMaintenance || "",
-  nextMaintenance: machine.nextMaintenance || "",
-  maintenanceIntervalDays: cleanNumber(machine.maintenanceIntervalDays),
-  notes: String(machine.notes || "").trim()
-});
+const normalizeMachine = (machine = {}) => {
+  const storedImageUrl = restoreImageSource(machine.imageUrl || "");
+  const explicitSource = restoreImageSource(machine.imageSourceUrl || "");
+  const imageSourceUrl = explicitSource || (isMachineImageShareUrl(storedImageUrl) ? storedImageUrl : "");
+  return {
+    name: String(machine.name || "").trim(),
+    code: String(machine.code || "").trim().toUpperCase(),
+    category: String(machine.category || "General").trim(),
+    type: String(machine.type || "").trim(),
+    manufacturer: String(machine.manufacturer || "").trim(),
+    model: String(machine.model || "").trim(),
+    serialNumber: String(machine.serialNumber || "").trim(),
+    location: String(machine.location || "").trim(),
+    department: String(machine.department || "Power House").trim(),
+    imageUrl: storedImageUrl,
+    imageSourceUrl,
+    description: String(machine.description || "").trim(),
+    utilityRole: String(machine.utilityRole || "consumer").trim(),
+    utilityType: String(machine.utilityType || "Electricity").trim(),
+    capacity: cleanNumber(machine.capacity),
+    capacityUnit: String(machine.capacityUnit || "kW").trim(),
+    status: String(machine.status || "standby").trim(),
+    currentRunningLoad: cleanNumber(machine.currentRunningLoad),
+    loadUnit: String(machine.loadUnit || "kW").trim(),
+    normalLoadFactor: Math.min(100, cleanNumber(machine.normalLoadFactor)),
+    installDate: machine.installDate || "",
+    lastMaintenance: machine.lastMaintenance || "",
+    nextMaintenance: machine.nextMaintenance || "",
+    maintenanceIntervalDays: cleanNumber(machine.maintenanceIntervalDays),
+    notes: String(machine.notes || "").trim()
+  };
+};
 
 const toDisplayMachine = (machine = {}) => {
-  const imageSourceUrl = String(machine.imageUrl || machine.imageSourceUrl || "").trim();
-  return { ...machine, imageUrl: getMachineImageUrl(imageSourceUrl), imageSourceUrl };
+  const storedImageUrl = restoreImageSource(machine.imageUrl || "");
+  const imageSourceUrl = restoreImageSource(machine.imageSourceUrl || "") || (isMachineImageShareUrl(storedImageUrl) ? storedImageUrl : "");
+  const displaySource = storedImageUrl || imageSourceUrl;
+  return { ...machine, imageUrl: getMachineImageUrl(displaySource), imageSourceUrl };
 };
 
 const sortByCreated = (items) => items.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
