@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Cpu, Loader2, Save, Zap } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Cpu, ExternalLink, Image as ImageIcon, Loader2, Save, Zap } from "lucide-react";
 import { addMachine, subscribeToMachine, updateMachine } from "../services/machineService";
 
 const CATEGORIES = ["General", "Generator", "Compressor", "Boiler", "Motor", "Pump", "HVAC", "Production", "Electrical", "Packaging", "Cooling", "Utility", "Other"];
 const TYPES = ["Generator", "Air Compressor", "Screw Compressor", "Motor", "Electric Motor", "Pump", "Water Pump", "Boiler", "Chiller", "Cooling Tower", "AHU", "HVAC Unit", "Transformer", "UPS", "Panel / MCC", "Production Machine", "Packaging Machine", "Lifter", "Fan", "Blower", "Other"];
-const EMPTY = { name: "", code: "", category: "General", type: "", manufacturer: "", model: "", serialNumber: "", location: "", department: "Power House", capacity: "", capacityUnit: "kW", status: "standby", currentRunningLoad: "", loadUnit: "kW", normalLoadFactor: "", installDate: "", lastMaintenance: "", nextMaintenance: "", maintenanceIntervalDays: "", notes: "" };
+const EMPTY = { name: "", code: "", category: "General", type: "", manufacturer: "", model: "", serialNumber: "", location: "", department: "Power House", imageUrl: "", description: "", capacity: "", capacityUnit: "kW", status: "standby", currentRunningLoad: "", loadUnit: "kW", normalLoadFactor: "", installDate: "", lastMaintenance: "", nextMaintenance: "", maintenanceIntervalDays: "", notes: "" };
 const inputClass = "w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none focus:border-yellow-500/60 placeholder:text-slate-600";
 const labelClass = "mb-2 block text-[9px] font-black uppercase tracking-widest text-slate-500";
 const DRAFT_PREFIX = "powerhouse_machine_draft_v2";
@@ -23,6 +23,14 @@ const writeDraft = (id, form) => {
   try { localStorage.setItem(draftKey(id), JSON.stringify(form)); } catch {}
 };
 const clearDraft = (id) => { try { localStorage.removeItem(draftKey(id)); } catch {} };
+
+function isValidImageUrl(value) {
+  if (!String(value || "").trim()) return true;
+  try {
+    const url = new URL(String(value).trim());
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch { return false; }
+}
 
 export default function AddMachine() {
   const navigate = useNavigate();
@@ -72,12 +80,13 @@ export default function AddMachine() {
     const normalLoadFactor = Number(form.normalLoadFactor || 0);
     const interval = Number(form.maintenanceIntervalDays || 0);
     if (!name || !code) return setError("Machine name and machine code are required.");
+    if (!isValidImageUrl(form.imageUrl)) return setError("Please enter a valid http:// or https:// image URL.");
     if (capacity < 0 || runningLoad < 0 || normalLoadFactor < 0 || normalLoadFactor > 100 || interval < 0) return setError("Please enter valid positive values. Load factor must be between 0 and 100%.");
     if (capacity > 0 && runningLoad > capacity) return setError("Actual running load cannot exceed rated load.");
 
     setSaving(true);
     try {
-      const data = { ...form, name, code, category: String(form.category || "General").trim(), type: String(form.type || "General").trim() };
+      const data = { ...form, name, code, category: String(form.category || "General").trim(), type: String(form.type || "General").trim(), imageUrl: String(form.imageUrl || "").trim(), description: String(form.description || "").trim() };
       if (id) {
         await updateMachine(id, data);
         setMessage("Machine updated successfully and saved to Firebase.");
@@ -103,7 +112,7 @@ export default function AddMachine() {
   if (loading) return <div className="min-h-[60vh] flex items-center justify-center"><Loader2 size={32} className="animate-spin text-yellow-500"/></div>;
 
   return <div className="space-y-6 animate-in fade-in duration-500">
-    <div className="flex flex-col sm:flex-row sm:items-center gap-4"><button type="button" onClick={() => navigate("/machines")} className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center"><ArrowLeft size={19}/></button><div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center"><Cpu size={24}/></div><div className="min-w-0"><h1 className="text-2xl md:text-3xl font-black">{id ? "Edit Machine" : "Add Machine"}</h1><p className="text-slate-500 text-sm mt-1">Register complete machine identity, area, rated load, actual running load and maintenance profile.</p></div></div>
+    <div className="flex flex-col sm:flex-row sm:items-center gap-4"><button type="button" onClick={() => navigate("/machines")} className="w-11 h-11 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center"><ArrowLeft size={19}/></button><div className="w-12 h-12 rounded-2xl bg-yellow-500 text-black flex items-center justify-center"><Cpu size={24}/></div><div className="min-w-0"><h1 className="text-2xl md:text-3xl font-black">{id ? "Edit Machine" : "Add Machine"}</h1><p className="text-slate-500 text-sm mt-1">Register complete machine identity, image, description, rated load and maintenance profile.</p></div></div>
 
     {draftRestored && <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-200"><span>Your unfinished machine data was restored from this device.</span><button type="button" onClick={discardDraft} className="self-start sm:self-auto rounded-lg bg-white/10 px-3 py-2 text-xs font-black uppercase">Clear Draft</button></div>}
     {error && <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-300">{error}</div>}
@@ -114,13 +123,15 @@ export default function AddMachine() {
         <div><label className={labelClass}>Machine Name *</label><input required className={inputClass} value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Air Compressor 01"/></div>
         <div><label className={labelClass}>Machine Code *</label><input required className={inputClass} value={form.code} onChange={e => set("code", e.target.value.toUpperCase())} placeholder="e.g. MC-001"/></div>
         <div><label className={labelClass}>Category</label><select className={inputClass} value={customCategory ? "__custom__" : form.category} onChange={e => set("category", e.target.value === "__custom__" ? "" : e.target.value)}>{CATEGORIES.map(x => <option key={x}>{x}</option>)}<option value="__custom__">+ Create Custom Category</option></select>{(customCategory || !form.category) && <input className={inputClass + " mt-2"} value={form.category} onChange={e => set("category", e.target.value)} placeholder="Type custom category"/>}</div>
-        <div><label className={labelClass}>Machine Type</label><select className={inputClass} value={customType ? "__custom__" : form.type} onChange={e => set("type", e.target.value === "__custom__" ? "" : e.target.value)}><option value="">Select type</option>{TYPES.map(x => <option key={x}>{x}</option>)}<option value="__custom__">+ Create Custom Type</option></select>{(customType || !form.type) && <input className={inputClass + " mt-2"} value={form.type} onChange={e => set("type", e.target.value)} placeholder="Type custom machine type"/>}</div>
+        <div><label className={labelClass}>Machine Type</label><select className={inputClass} value={customType ? "__custom__" : form.type} onChange={e => set("type", e.target.value === "__custom__" ? "" : e.target.value)}><option value="">Select type</option>{TYPES.map(x => <option key={x}>{x}</option>)}<option value="__custom__">+ Create Custom Type</option></select>{(customType || !form.type) && <input className={inputClass + " mt-2"} value={form.type} onChange={e => set("type", e.target.value)} placeholder="Type custom machine type"/></div>
         <div><label className={labelClass}>Manufacturer</label><input className={inputClass} value={form.manufacturer} onChange={e => set("manufacturer", e.target.value)} placeholder="Manufacturer"/></div>
         <div><label className={labelClass}>Model</label><input className={inputClass} value={form.model} onChange={e => set("model", e.target.value)} placeholder="Model number"/></div>
         <div><label className={labelClass}>Serial Number</label><input className={inputClass} value={form.serialNumber} onChange={e => set("serialNumber", e.target.value)} placeholder="Serial number"/></div>
         <div><label className={labelClass}>Area / Location</label><input className={inputClass} value={form.location} onChange={e => set("location", e.target.value)} placeholder="Power House / Floor / Area"/></div>
         <div><label className={labelClass}>Department</label><input className={inputClass} value={form.department} onChange={e => set("department", e.target.value)} placeholder="Department"/></div>
       </div></section>
+
+      <section className="rounded-[2rem] border border-blue-500/10 bg-[#020617] p-5 md:p-7"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center"><ImageIcon size={18}/></div><div><h2 className="font-black">Machine Photo & Description</h2><p className="text-xs text-slate-500 mt-1">Paste a direct image URL from any website. The image is stored as a URL, so no upload/storage change is required.</p></div></div><div className="grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-5 mt-6"><div><label className={labelClass}>Machine Image URL</label><div className="flex gap-2"><input type="url" className={inputClass} value={form.imageUrl} onChange={e => set("imageUrl", e.target.value)} placeholder="https://example.com/machine.jpg"/><a href={form.imageUrl || undefined} target="_blank" rel="noreferrer" className={`shrink-0 rounded-xl border border-white/10 bg-white/5 px-4 flex items-center justify-center ${form.imageUrl ? "text-blue-400" : "pointer-events-none text-slate-700"}`} title="Open image URL"><ExternalLink size={17}/></a></div><p className="text-[9px] text-slate-600 mt-2">Use a direct image URL ending in an image resource (JPG, PNG, WEBP, etc.).</p></div><div><label className={labelClass}>Preview</label><div className="h-44 rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden flex items-center justify-center">{form.imageUrl ? <img src={form.imageUrl} alt={form.name || "Machine preview"} className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = "none"; }} /> : <div className="text-center text-slate-700"><ImageIcon size={30} className="mx-auto"/><p className="text-[9px] uppercase tracking-widest mt-2">No image URL</p></div>}</div></div></div><div className="mt-5"><label className={labelClass}>Machine Description</label><textarea rows="5" className={inputClass} value={form.description} onChange={e => set("description", e.target.value)} placeholder="Describe the machine, its purpose, major function, operating role, specifications or other useful information..."/></div></section>
 
       <section className="rounded-[2rem] border border-yellow-500/10 bg-[#020617] p-5 md:p-7"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-yellow-500/10 text-yellow-400 flex items-center justify-center"><Zap size={18}/></div><div><h2 className="font-black">Load Configuration</h2><p className="text-xs text-slate-500 mt-1">These values drive the total rated load, actual running load and utilization calculations.</p></div></div><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mt-6">
         <div><label className={labelClass}>Rated / Total Load *</label><input required type="number" min="0" step="0.01" className={inputClass} value={form.capacity} onChange={e => set("capacity", e.target.value)} placeholder="e.g. 250"/></div>
