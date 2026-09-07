@@ -1,0 +1,38 @@
+import React,{useEffect,useMemo,useState}from"react";
+import{collection,doc,getDoc,writeBatch,serverTimestamp}from"firebase/firestore";
+import{CheckCircle2,Database,Loader2,Wrench,Zap}from"lucide-react";
+import{db}from"../firebase";
+import{GENERATOR_MASTER_DATA,GENERATOR_METER_BASELINES}from"../data/generatorMasterData";
+importlegacy from"../data/generatorLegacyData.json";
+
+const VERSION="generator-operational-import-v3";
+const ENGINES=["1400kva","1020kva","650kva"];
+const num=v=>Number.isFinite(Number(v))?Number(v):0;
+const monthOrder=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function serviceType(note=""){
+ const s=String(note).toLowerCase();
+ if(s.includes("overhall"))return"Major Overhaul";
+ if(s.includes("fuel pump"))return"Fuel Pump Service";
+ if(s.includes("control"))return"Controller Service";
+ if(s.includes("module"))return"Generator Module Service";
+ if(s.includes("radiator"))return"Radiator Service";
+ return"Routine Service";
+}
+function hasMonthlyData(r){return["g1Hours","g1Kwh","g2Hours","g2Kwh","g3Hours","g3Kwh","wapdaKwh","dieselConsumed","dieselIncoming"].some(k=>r[k]!==null&&r[k]!==undefined&&r[k]!==""&&num(r[k])!==0)}
+function monthlyRows(){const out=[];Object.entries(legacy.dieselMonthly||{}).forEach(([year,rows])=>rows.forEach(r=>{if(hasMonthlyData(r))out.push({...r,year:Number(year)})}));return out.sort((a,b)=>a.year-b.year||monthOrder.indexOf(a.month)-monthOrder.indexOf(b.month))}
+function stableId(prefix,key){return`${prefix}_${String(key).replace(/[^a-zA-Z0-9_-]/g,"_")}`}
+export default function GeneratorOperationalData(){
+ const[status,setStatus]=useState("Syncing generator records…"),[error,setError]=useState(""),[stats,setStats]=useState({services:0,monthly:0,added:0});
+ const monthly=useMemo(monthlyRows,[]);
+ useEffect(()=>{let alive=true;(async()=>{try{const batch=writeBatch(db);let added=0,serviceCount=0,monthlyCount=0;const serviceRows=legacy.serviceHistory||[];
+  for(const[i,row]of serviceRows.entries()){const key=`${row.sourceSheet||"legacy"}_${row.sourceRow||i}_${row.engine||"general"}`,ref=doc(db,"engineServiceLogs",stableId("legacy_service",key)),snap=await getDoc(ref);if(!snap.exists()){batch.set(ref,{...row,serviceType:serviceType(row.notes),technician:"Legacy workbook",cost:0,recordedBy:"Legacy workbook import",legacyKey:key,importedAt:serverTimestamp(),createdAt:serverTimestamp()});added++}serviceCount++}
+  for(const row of monthly){const key=`${row.year}_${row.month}`,ref=doc(db,"generatorMonthlyReports",stableId("legacy_monthly",key)),snap=await getDoc(ref);if(!snap.exists()){batch.set(ref,{...row,legacyKey:key,source:"Monthly Diesel Consumption workbook",importedAt:serverTimestamp(),createdAt:serverTimestamp()});added++}monthlyCount++}
+  for(const key of ENGINES){const masterRef=doc(db,"generatorMasterRecords",key),meterRef=doc(db,"generatorMeterBaselines",key),masterSnap=await getDoc(masterRef),meterSnap=await getDoc(meterRef);if(!masterSnap.exists()){batch.set(masterRef,{id:key,...GENERATOR_MASTER_DATA[key],updatedAt:serverTimestamp(),source:"Supplied generator nameplates/photos"});added++}if(!meterSnap.exists()){batch.set(meterRef,{id:key,...GENERATOR_METER_BASELINES[key],capturedDate:"2026-09-07",updatedAt:serverTimestamp(),source:"Site operations current meter reading"});added++}}
+  const marker=doc(db,"powerhouse_migrations",VERSION),markerSnap=await getDoc(marker);if(!markerSnap.exists())batch.set(marker,{version:VERSION,completedAt:serverTimestamp(),serviceCount,monthlyCount});await batch.commit();if(alive){setStats({services:serviceCount,monthly:monthlyCount,added});setStatus(`Production data ready · ${added} new records added · existing records preserved`)}}
+ catch(e){if(alive){setError(e?.message||"Generator data sync failed.");setStatus("Data sync needs attention")}}})();return()=>{alive=false}},[monthly]);
+ const recent=monthly.slice(-12).reverse();
+ return <section className="mb-5 rounded-[2rem] border border-white/10 bg-[#020617] p-4 md:p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[.16em] text-emerald-300"><Database size={13}/>Production generator data</div><h2 className="mt-2 text-xl font-black">Generator Master, Meter & Service Records</h2><p className="mt-1 text-xs text-slate-500">Additive-only import from the supplied service and diesel workbooks. Nothing is deleted or replaced.</p></div><div className="flex items-center gap-2 text-xs font-bold text-slate-400">{error?<span className="text-red-300">{error}</span>:status.includes("ready")?<><CheckCircle2 size={16} className="text-emerald-400"/>{status}</>:<><Loader2 size={16} className="animate-spin text-yellow-400"/>{status}</>}</div></div>
+ <div className="mt-5 grid gap-3 md:grid-cols-3">{ENGINES.map(k=>{const m=GENERATOR_MASTER_DATA[k],b=GENERATOR_METER_BASELINES[k];return <div key={k} className="rounded-2xl border border-white/5 bg-white/[.03] p-4"><div className="flex items-center justify-between"><p className="text-sm font-black">{m.label}</p><Zap size={16} className="text-yellow-400"/></div><p className="mt-1 text-[10px] text-slate-500">{m.manufacturer} · {m.model} · {m.engineModel}</p><div className="mt-4 grid grid-cols-2 gap-2"><div><p className="text-[8px] uppercase tracking-widest text-slate-500">Current hours</p><p className="mt-1 text-lg font-black">{num(b.runningHours).toFixed(2)}</p></div><div><p className="text-[8px] uppercase tracking-widest text-slate-500">Current kWh</p><p className="mt-1 text-lg font-black">{num(b.kwh).toLocaleString()}</p></div></div></div>})}</div>
+ <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_2fr]"><div className="rounded-2xl border border-white/5 bg-white/[.02] p-4"><div className="flex items-center gap-2"><Wrench size={16} className="text-yellow-400"/><h3 className="text-sm font-black">Imported service history</h3></div><p className="mt-3 text-3xl font-black">{stats.services}</p><p className="text-[10px] text-slate-500">workbook service events preserved</p><div className="mt-3 flex gap-4 text-xs"><span><b className="text-white">{stats.monthly}</b> monthly reports</span><span><b className="text-emerald-300">{stats.added}</b> new</span></div><p className="mt-4 text-[10px] leading-4 text-slate-500">Open any generator's Engine Details page to see its imported maintenance logs.</p></div>
+ <div className="overflow-x-auto rounded-2xl border border-white/5"><table className="w-full min-w-[900px] text-[10px]"><thead><tr className="border-b border-white/5 text-left uppercase tracking-widest text-slate-500"><th className="p-3">Month</th><th className="p-3">1400h / kWh</th><th className="p-3">1020h / kWh</th><th className="p-3">650h / kWh</th><th className="p-3">Diesel Consumed</th><th className="p-3">Incoming</th><th className="p-3">WAPDA kWh</th></tr></thead><tbody>{recent.map(r=><tr key={`${r.year}-${r.month}`} className="border-b border-white/[.04]"><td className="p-3 font-black">{r.month} {r.year}</td><td className="p-3">{num(r.g3Hours).toFixed(2)} / {num(r.g3Kwh).toLocaleString()}</td><td className="p-3">{num(r.g1Hours).toFixed(2)} / {num(r.g1Kwh).toLocaleString()}</td><td className="p-3">{num(r.g2Hours).toFixed(2)} / {num(r.g2Kwh).toLocaleString()}</td><td className="p-3 text-yellow-300">{num(r.dieselConsumed).toLocaleString()} L</td><td className="p-3">{num(r.dieselIncoming).toLocaleString()} L</td><td className="p-3">{num(r.wapdaKwh).toLocaleString()}</td></tr>)}</tbody></table></div></div></section>
+}
