@@ -3,7 +3,7 @@ import{doc,getDoc,writeBatch,serverTimestamp}from"firebase/firestore";
 import{CheckCircle2,Database,Loader2,Wrench,Zap}from"lucide-react";
 import{db}from"../firebase";
 import{GENERATOR_MASTER_DATA,GENERATOR_METER_BASELINES}from"../data/generatorMasterData";
-importlegacy from"../data/generatorLegacyData.json";
+import legacy from"../data/generatorLegacyData.json";
 
 const VERSION="generator-operational-service-import-v4";
 const ENGINES=["1400kva","1020kva","650kva"];
