@@ -1,0 +1,92 @@
+{
+  "serviceHistory": [
+    {"date":"2020-09-06","engine":"1400kva","engineHoursAtService":19183.1,"lubeOilFilter":"yes","airFilter":"Nill","waterSeparatorFilter":"Nill","fuelFilter":"Nill","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"","engine":"650kva","engineHoursAtService":4122.1,"lubeOilFilter":"yes","airFilter":"yes","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2020-09-11","engine":"1020kva","engineHoursAtService":37.1,"lubeOilFilter":"yes","airFilter":"yes","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2021-02-28","engine":"1400kva","engineHoursAtService":19361.7,"lubeOilFilter":"yes","airFilter":"yes","waterSeparatorFilter":"Nill","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2021-03-26","engine":"1400kva","engineHoursAtService":19376.1,"lubeOilFilter":"Nill","airFilter":"Nill","waterSeparatorFilter":"Nill","fuelFilter":"Nill","coolant":"","notes":"Change Feul Pump","sourceSheet":"Sheet1"},
+    {"date":"2021-05-20","engine":"1020kva","engineHoursAtService":84.3,"lubeOilFilter":"Nill","airFilter":"Nill","waterSeparatorFilter":"Nill","fuelFilter":"Nill","coolant":"","notes":"Change Controler","sourceSheet":"Sheet1"},
+    {"date":"2021-06-20","engine":"1020kva","engineHoursAtService":18.6,"lubeOilFilter":"yes","airFilter":"Nill","waterSeparatorFilter":"Yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"","engine":"650kva","engineHoursAtService":4232.8,"lubeOilFilter":"yes","airFilter":"Nill","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2021-10-19","engine":"1400kva","engineHoursAtService":19557.2,"lubeOilFilter":"yes","airFilter":"yes","waterSeparatorFilter":"Nill","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2021-12-18","engine":"1400kva","engineHoursAtService":0,"lubeOilFilter":"yes","airFilter":"yes","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2022-02-24","engine":"1020kva","engineHoursAtService":152.9,"lubeOilFilter":"yes","airFilter":"yes","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2022-04-27","engine":"1020kva","engineHoursAtService":214.5,"lubeOilFilter":"Nill","airFilter":"Nill","waterSeparatorFilter":"Nill","fuelFilter":"Nill","coolant":"","notes":"Change Generator Module","sourceSheet":"Sheet1"},
+    {"date":"2022-05-05","engine":"1400kva","engineHoursAtService":19819.6,"lubeOilFilter":"yes","airFilter":"Nill","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2022-06-21","engine":"1020kva","engineHoursAtService":403.6,"lubeOilFilter":"yes","airFilter":"Nill","waterSeparatorFilter":"Nill","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet1"},
+    {"date":"2022-08-09","engine":"1400kva","engineHoursAtService":20108.4,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"yas","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2022-10-30","engine":"1020kva","engineHoursAtService":664.7,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"Yes","fuelFilter":"Yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2023-01-01","engine":"1400kva","engineHoursAtService":20382.6,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"Yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2023-03-25","engine":"1020kva","engineHoursAtService":917.2,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"No","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2023-05-14","engine":"1400kva","engineHoursAtService":20645.4,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"Yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2023-06-30","engine":"1020kva","engineHoursAtService":1141.9,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2023-08-31","engine":"1400kva","engineHoursAtService":20981.2,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"Yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2023-10-01","engine":"1020kva","engineHoursAtService":1367.8,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"Yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2024-02-25","engine":"1400kva","engineHoursAtService":21227.2,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"Yes","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2024-04-28","engine":"1020kva","engineHoursAtService":1462.6,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"No","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2024-07-28","engine":"1400kva","engineHoursAtService":21481.5,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"No","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2024-09-17","engine":"1020kva","engineHoursAtService":1731.9,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"No","fuelFilter":"yes","coolant":"","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2025-02-15","engine":"1020kva","engineHoursAtService":1849.9,"notes":"Generator engine side open for major overhalling.","sourceSheet":"Sheet2"},
+    {"date":"2025-03-09","engine":"1400kva","engineHoursAtService":21709.6,"lubeOilFilter":"yss","airFilter":"Yes","waterSeparatorFilter":"No","fuelFilter":"yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2025-03-09","engine":"650kva","engineHoursAtService":9276.1,"lubeOilFilter":"NO","airFilter":"No","waterSeparatorFilter":"No","fuelFilter":"yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2025-05-19","engine":"650kva","engineHoursAtService":9352.2,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"yes","fuelFilter":"yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2025-07-17","engine":"1020kva","engineHoursAtService":1913.2,"lubeOilFilter":"yss","airFilter":"No","waterSeparatorFilter":"yss","fuelFilter":"yss","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2025-09-14","engine":"1400kva","engineHoursAtService":21943.6,"lubeOilFilter":"Yes","airFilter":"No","waterSeparatorFilter":"Yes","fuelFilter":"Yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2026-04-16","engine":"1020kva","engineHoursAtService":2209.05,"lubeOilFilter":"Yes","airFilter":"Yes","waterSeparatorFilter":"Yes","fuelFilter":"Yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2026-04-19","engine":"1400kva","engineHoursAtService":22151.6,"lubeOilFilter":"Yes","airFilter":"Yes","waterSeparatorFilter":"Yes","fuelFilter":"Yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2026-05-04","engine":"650kva","engineHoursAtService":9580.7,"lubeOilFilter":"Yes","airFilter":"No","waterSeparatorFilter":"Yes","fuelFilter":"Yes","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"},
+    {"date":"2026-08-23","engine":"1400kva","engineHoursAtService":22394,"lubeOilFilter":"Yes","airFilter":"No","waterSeparatorFilter":"Yes","fuelFilter":"Yes","coolant":"20 Ltr","notes":"Also Change Engine lube Oil","sourceSheet":"Sheet2"}
+  ],
+  "filterDetails": [
+    {"engine1400":{"name":"Feul filter","model":"FF-202","qty":2},"engine1020":{"name":"Feul filter","model":"FF-202","qty":2}},
+    {"engine1400":{"name":"lube filter","model":"LF-777","qty":2},"engine1020":{"name":"Lube filter","model":"LF-777","qty":2}},
+    {"engine1400":{"name":"water filter","model":"WF-2076","qty":2},"engine1020":{"name":"Lube filter","model":"LF-3333","qty":4}},
+    {"engine1400":{"name":"Air filter","model":"","qty":2},"engine1020":{"name":"water filter","model":"WF-2076","qty":4}},
+    {"engine1400":{"name":"Feul Assembly Filter","model":"RC-1000FG","qty":3},"engine1020":{"name":"Air filter","model":"AF-872","qty":2}}
+  ],
+  "dieselMonthly": {
+    "2024": [
+      {"month":"January","g1Hours":1.8,"g1Kwh":231,"g2Hours":0,"g2Kwh":0,"g3Hours":3.76,"g3Kwh":49943,"totalHours":6.76,"totalKwh":50174,"wapdaKwh":474120,"dieselConsumed":15435,"dieselIncoming":16700},
+      {"month":"February","g1Hours":18.0667,"g1Kwh":3488,"g2Hours":0,"g2Kwh":0,"g3Hours":3.3,"g3Kwh":16419,"totalHours":21.3667,"totalKwh":19907,"wapdaKwh":490440,"dieselConsumed":5300,"dieselIncoming":5500},
+      {"month":"March","g1Hours":5.3,"g1Kwh":1276,"g2Hours":0,"g2Kwh":0,"g3Hours":23.1,"g3Kwh":14296,"totalHours":28.4,"totalKwh":15572,"wapdaKwh":533840,"dieselConsumed":4665,"dieselIncoming":3600},
+      {"month":"April","g1Hours":14.2,"g1Kwh":3364,"g2Hours":0,"g2Kwh":0,"g3Hours":16.5,"g3Kwh":7690,"totalHours":30.7,"totalKwh":11054,"wapdaKwh":540560,"dieselConsumed":3760,"dieselIncoming":4000},
+      {"month":"May","g1Hours":58.2,"g1Kwh":19121,"g2Hours":0,"g2Kwh":0,"g3Hours":59.6,"g3Kwh":28503,"totalHours":117.8,"totalKwh":47624,"wapdaKwh":581220,"dieselConsumed":15100,"dieselIncoming":15200},
+      {"month":"June","g1Hours":45,"g1Kwh":13314,"g2Hours":0,"g2Kwh":0,"g3Hours":47.79,"g3Kwh":21653,"totalHours":92.79,"totalKwh":34967,"wapdaKwh":590800,"dieselConsumed":11660,"dieselIncoming":12900},
+      {"month":"July","g1Hours":114.7333,"g1Kwh":38636,"g2Hours":0,"g2Kwh":0,"g3Hours":114.2,"g3Kwh":56017,"totalHours":219.9333,"totalKwh":94653,"wapdaKwh":599720,"dieselConsumed":30315,"dieselIncoming":32605},
+      {"month":"August","g1Hours":8.3,"g1Kwh":10345,"g2Hours":0,"g2Kwh":0,"g3Hours":10.1,"g3Kwh":16570,"totalHours":18.4,"totalKwh":26915,"wapdaKwh":690420,"dieselConsumed":8850,"dieselIncoming":7000},
+      {"month":"September","g1Hours":28.5,"g1Kwh":9396,"g2Hours":0,"g2Kwh":0,"g3Hours":32.5,"g3Kwh":15583,"totalHours":61,"totalKwh":24979,"wapdaKwh":666380,"dieselConsumed":8410,"dieselIncoming":7000},
+      {"month":"October","g1Hours":15.4,"g1Kwh":4731,"g2Hours":0,"g2Kwh":0,"g3Hours":15.7,"g3Kwh":6806,"totalHours":31.1,"totalKwh":11537,"wapdaKwh":671560,"dieselConsumed":4015,"dieselIncoming":4000},
+      {"month":"November","g1Hours":25,"g1Kwh":8192,"g2Hours":0,"g2Kwh":0,"g3Hours":25.5,"g3Kwh":11729,"totalHours":50.5,"totalKwh":19921,"wapdaKwh":580500,"dieselConsumed":6585,"dieselIncoming":9000},
+      {"month":"December","g1Hours":26.6,"g1Kwh":7471,"g2Hours":0.6,"g2Kwh":1,"g3Hours":32.3,"g3Kwh":12826,"totalHours":59.5,"totalKwh":20298,"wapdaKwh":536620,"dieselConsumed":7000,"dieselIncoming":5000}
+    ],
+    "2025": [
+      {"month":"January","g1Hours":5.9,"g1Kwh":8643,"g2Hours":2.6,"g2Kwh":16,"g3Hours":7.8,"g3Kwh":14725,"totalHours":16.3,"totalKwh":23384,"wapdaKwh":536480,"dieselConsumed":7080,"dieselIncoming":6000},
+      {"month":"February","g1Hours":15.4,"g1Kwh":4279,"g2Hours":34,"g2Kwh":6289,"g3Hours":49.2,"g3Kwh":22674,"totalHours":98.6,"totalKwh":33242,"wapdaKwh":453080,"dieselConsumed":10089,"dieselIncoming":9269},
+      {"month":"March","g1Hours":0,"g1Kwh":0,"g2Hours":7.9,"g2Kwh":1006,"g3Hours":7.05,"g3Kwh":2820,"totalHours":14.95,"totalKwh":3826,"wapdaKwh":564880,"dieselConsumed":1410,"dieselIncoming":6700},
+      {"month":"April","g1Hours":0,"g1Kwh":0,"g2Hours":63.7333,"g2Kwh":12018,"g3Hours":53.3,"g3Kwh":30992,"totalHours":117.0333,"totalKwh":43010,"wapdaKwh":590280,"dieselConsumed":11900,"dieselIncoming":11600},
+      {"month":"May","g1Hours":28.6,"g1Kwh":6675,"g2Hours":21.4,"g2Kwh":10398,"g3Hours":58,"g3Kwh":29299,"totalHours":108,"totalKwh":46372,"wapdaKwh":673720,"dieselConsumed":14210,"dieselIncoming":12000},
+      {"month":"June","g1Hours":33.9,"g1Kwh":10799,"g2Hours":32,"g2Kwh":6359,"g3Hours":15.9,"g3Kwh":15563,"totalHours":81.8,"totalKwh":32721,"wapdaKwh":687800,"dieselConsumed":10230,"dieselIncoming":8000},
+      {"month":"July","g1Hours":12.05,"g1Kwh":3810,"g2Hours":42.1,"g2Kwh":6281,"g3Hours":35.3,"g3Kwh":21376,"totalHours":89.45,"totalKwh":31467,"wapdaKwh":640060,"dieselConsumed":9671,"dieselIncoming":9000},
+      {"month":"August","g1Hours":34.3,"g1Kwh":10894,"g2Hours":11.7,"g2Kwh":2021,"g3Hours":37.2,"g3Kwh":19214,"totalHours":83.2,"totalKwh":32129,"wapdaKwh":668500,"dieselConsumed":10060,"dieselIncoming":12000},
+      {"month":"September","g1Hours":25.6,"g1Kwh":9032,"g2Hours":12.6,"g2Kwh":1739,"g3Hours":1.1,"g3Kwh":12528,"totalHours":65.3,"totalKwh":23299,"wapdaKwh":728280,"dieselConsumed":7170,"dieselIncoming":4000},
+      {"month":"October","g1Hours":26.3,"g1Kwh":9894,"g2Hours":0.8,"g2Kwh":117,"g3Hours":25.4,"g3Kwh":13773,"totalHours":52.5,"totalKwh":23784,"wapdaKwh":676120,"dieselConsumed":7470,"dieselIncoming":7500},
+      {"month":"November","g1Hours":4.9,"g1Kwh":1294,"g2Hours":7.9,"g2Kwh":1705,"g3Hours":10.7,"g3Kwh":5889,"totalHours":23.5,"totalKwh":8888,"wapdaKwh":626700,"dieselConsumed":3230,"dieselIncoming":5000},
+      {"month":"December","g1Hours":11.6,"g1Kwh":3465,"g2Hours":0.5,"g2Kwh":13,"g3Hours":11.5,"g3Kwh":4900,"totalHours":23.6,"totalKwh":8378,"wapdaKwh":375660,"dieselConsumed":2970,"dieselIncoming":0}
+    ],
+    "2026": [
+      {"month":"January","g1Hours":7.8167,"g1Kwh":21428,"g2Hours":34,"g2Kwh":7175,"g3Hours":23.1,"g3Kwh":10774,"totalHours":64.9167,"totalKwh":39377,"wapdaKwh":577140,"dieselConsumed":12110,"dieselIncoming":10550},
+      {"month":"February","g1Hours":15.8667,"g1Kwh":5105,"g2Hours":0.5,"g2Kwh":18,"g3Hours":15.5,"g3Kwh":6893,"totalHours":31.8667,"totalKwh":12016,"wapdaKwh":600780,"dieselConsumed":4020,"dieselIncoming":3600},
+      {"month":"March","g1Hours":50.7667,"g1Kwh":18533,"g2Hours":0.9,"g2Kwh":90,"g3Hours":25.9,"g3Kwh":25794,"totalHours":77.5667,"totalKwh":44417,"wapdaKwh":600400,"dieselConsumed":13825,"dieselIncoming":13750},
+      {"month":"April","g1Hours":125.5333,"g1Kwh":39611,"g2Hours":86.7333,"g2Kwh":11671,"g3Hours":21.8333,"g3Kwh":35344,"totalHours":234.1,"totalKwh":86626,"wapdaKwh":686400,"dieselConsumed":27075,"dieselIncoming":28000},
+      {"month":"May","g1Hours":82.6833,"g1Kwh":16807,"g2Hours":112.2833,"g2Kwh":29571,"g3Hours":12.4,"g3Kwh":18511,"totalHours":207.3667,"totalKwh":64889,"wapdaKwh":749840,"dieselConsumed":19600,"dieselIncoming":18400},
+      {"month":"June","g1Hours":75.5333,"g1Kwh":22668,"g2Hours":50.3167,"g2Kwh":18514,"g3Hours":42.7,"g3Kwh":19913,"totalHours":168.55,"totalKwh":61095,"wapdaKwh":698300,"dieselConsumed":19350,"dieselIncoming":18800},
+      {"month":"July","g1Hours":55.9,"g1Kwh":18574,"g2Hours":75.5,"g2Kwh":15108,"g3Hours":37.8,"g3Kwh":29145,"totalHours":169.2,"totalKwh":62827,"wapdaKwh":763860,"dieselConsumed":20470,"dieselIncoming":21000}
+    ]
+  },
+  "departmentDiesel2025": [
+    {"month":"Janjuary","boiler":0,"ceoHome":40,"lifter":100,"mechanical":5,"total":145},{"month":"February","boiler":0,"ceoHome":20,"lifter":150,"mechanical":10,"total":180},{"month":"March","boiler":0,"ceoHome":40,"lifter":150,"mechanical":4,"total":194},{"month":"April","boiler":0,"ceoHome":0,"lifter":100,"mechanical":5,"total":105},{"month":"May","boiler":150,"ceoHome":40,"lifter":150,"mechanical":10,"total":350},{"month":"June","boiler":40,"ceoHome":40,"lifter":100,"mechanical":5,"total":185},{"month":"July","boiler":20,"ceoHome":60,"lifter":200,"mechanical":40,"total":320},{"month":"August","boiler":40,"ceoHome":20,"lifter":150,"mechanical":0,"total":210},{"month":"September","boiler":50,"ceoHome":80,"lifter":200,"mechanical":11,"total":341},{"month":"October","boiler":0,"ceoHome":40,"lifter":250,"mechanical":10,"total":300},{"month":"November","boiler":80,"ceoHome":60,"lifter":230,"mechanical":20,"total":390},{"month":"December","boiler":80,"ceoHome":20,"lifter":240,"mechanical":1,"total":341}
+  ],
+  "newLoadAdd2025": [
+    {"sr":1,"department":"New Boiler","averageLoad":250,"hourlyUnits":140,"dailyUnits":3360,"monthlyUnits":100800},{"sr":2,"department":"Pre Depart","averageLoad":50,"hourlyUnits":31,"dailyUnits":748,"monthlyUnits":22440},{"sr":3,"department":"Coal Lab","averageLoad":15,"hourlyUnits":10,"dailyUnits":20,"monthlyUnits":600},{"sr":4,"department":"HVAC","averageLoad":40,"hourlyUnits":13,"dailyUnits":156,"monthlyUnits":4600},{"sr":5,"department":"Grey Hall","averageLoad":20,"hourlyUnits":5,"dailyUnits":120,"monthlyUnits":3600},{"sr":6,"department":"AUX Load","averageLoad":15,"hourlyUnits":4,"dailyUnits":48,"monthlyUnits":1440},{"sr":7,"department":"Total","averageLoad":390,"hourlyUnits":203,"dailyUnits":4452,"monthlyUnits":133480}
+  ]
+}

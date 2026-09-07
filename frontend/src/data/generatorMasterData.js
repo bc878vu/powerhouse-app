@@ -1,0 +1,82 @@
+// PowerHouse generator master data captured from the supplied nameplates/photos.
+// Current meter values are operational baselines supplied by site operations.
+export const GENERATOR_MASTER_DATA = {
+  "1400kva": {
+    label: "1400 KVA",
+    ratedKVA: 1400,
+    ratedKW: 1120,
+    manufacturer: "Cummins Power Generation",
+    model: "C1250D2R",
+    engineModel: "Cummins KTA50-G3",
+    serialNumber: "G08S702950",
+    year: 2008,
+    country: "Singapore",
+    application: "Prime",
+    voltage: "380 / 480 V",
+    frequency: "50 / 60 Hz",
+    rpm: "1500 / 1800 RPM",
+    battery: "24 VDC",
+    control: "PCC3100",
+    siteAltitude: "600 / 1400 mASL",
+    ambient: "45 °C",
+    maxMass: "18160 kg",
+    rating50Hz: "Prime 1005 kW / 1256 kVA; Standby 1120 kW / 1400 kVA",
+    rating60Hz: "Prime 1120 kW / 1400 kVA; Standby 1270 kW / ~1588 kVA",
+    technicalNotes: "KTA50-G3, 16-cylinder, turbocharged/aftercooled; approx. 50.3 L displacement; engine oil 178 L; radiator coolant 470 L."
+  },
+  "1020kva": {
+    label: "1020 KVA",
+    ratedKVA: 1020,
+    ratedKW: 816,
+    manufacturer: "ESMO",
+    model: "G.M.S.",
+    engineModel: "KTA50 series (exact subtype not legible on supplied plate)",
+    serialNumber: "S21109.3",
+    year: 1991,
+    country: "U.K. (nameplate says MADE IN U.K.)",
+    application: "Continuous / S1",
+    voltage: "400 V",
+    frequency: "50 Hz",
+    rpm: "1500 RPM",
+    siteAltitude: "1524 m max",
+    ambient: "25 °C max",
+    generatorSerial: "L7A00869",
+    generatorConnection: "S-STAR",
+    enclosure: "IP23",
+    insulationClass: "H",
+    excitationVoltage: "40 V",
+    ratedCurrentCalculatedA: 1472,
+    technicalNotes: "3-phase alternator; 1020 kVA at PF 0.80, equivalent to approx. 816 kW. ISO 8528-3 marking is worn/partly illegible."
+  },
+  "650kva": {
+    label: "650 KVA",
+    ratedKVA: 650,
+    ratedKW: 520,
+    manufacturer: "Caterpillar",
+    model: "650",
+    engineModel: "CAT C18",
+    serialNumber: "CAT00000EG4C02045",
+    year: 2006,
+    country: "U.K.",
+    application: "Standby",
+    voltage: "400 / 230 V",
+    frequency: "50 Hz",
+    rpm: "1500 RPM",
+    ratedCurrentA: 938,
+    powerFactor: 0.80,
+    siteAltitude: "1524 m max",
+    ambient: "25 °C max",
+    generatorSerial: "L7A00869",
+    generatorConnection: "S-STAR",
+    enclosure: "IP23",
+    insulationClass: "H",
+    excitationVoltage: "40 V",
+    technicalNotes: "ISO 8528 marking present on nameplate."
+  }
+};
+
+export const GENERATOR_METER_BASELINES = {
+  "1400kva": { runningHours: 22442.4, kwh: 1771094, capturedAs: "Current meter reading" },
+  "1020kva": { runningHours: 2574.50, kwh: 932820, capturedAs: "Current meter reading" },
+  "650kva": { runningHours: 10017.8, kwh: 203857, capturedAs: "Current meter reading" }
+};
