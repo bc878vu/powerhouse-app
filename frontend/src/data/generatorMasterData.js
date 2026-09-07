@@ -76,7 +76,7 @@ export const GENERATOR_MASTER_DATA = {
 };
 
 export const GENERATOR_METER_BASELINES = {
-  "1400kva": { runningHours: 22442.4, kwh: 1771094, capturedAs: "Current meter reading" },
-  "1020kva": { runningHours: 2574.50, kwh: 932820, capturedAs: "Current meter reading" },
-  "650kva": { runningHours: 10017.8, kwh: 203857, capturedAs: "Current meter reading" }
+  "1400kva": { runningHours: 22442.4, kwh: 1771094, capturedAs: "Current meter reading", capturedDate: "2026-09-07" },
+  "1020kva": { runningHours: 2574.50, kwh: 932820, capturedAs: "Current meter reading", capturedDate: "2026-09-07" },
+  "650kva": { runningHours: 10017.8, kwh: 203857, capturedAs: "Current meter reading", capturedDate: "2026-09-07" }
 };
