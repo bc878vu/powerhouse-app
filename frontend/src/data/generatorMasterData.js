@@ -1,4 +1,5 @@
-// PowerHouse generator master data captured from supplied nameplates/photos and site meter readings.
+// PowerHouse generator master data captured from the supplied nameplates/photos.
+// Current meter values are operational baselines supplied by site operations.
 export const GENERATOR_MASTER_DATA = {
   "1400kva": {
     label: "1400 KVA",
@@ -29,10 +30,10 @@ export const GENERATOR_MASTER_DATA = {
     ratedKW: 816,
     manufacturer: "ESMO",
     model: "G.M.S.",
-    engineModel: "Cummins KTA50 series (exact subtype not legible on supplied plate)",
+    engineModel: "KTA50 series (exact subtype not legible on supplied plate)",
     serialNumber: "S21109.3",
     year: 1991,
-    country: "France / plate states MADE IN U.K.",
+    country: "U.K. (nameplate says MADE IN U.K.)",
     application: "Continuous / S1",
     voltage: "400 V",
     frequency: "50 Hz",
@@ -45,8 +46,7 @@ export const GENERATOR_MASTER_DATA = {
     insulationClass: "H",
     excitationVoltage: "40 V",
     ratedCurrentCalculatedA: 1472,
-    powerFactor: 0.80,
-    technicalNotes: "3-phase alternator; 1020 kVA at PF 0.80, equivalent to approx. 816 kW. ISO 8528-3 marking worn/partly illegible."
+    technicalNotes: "3-phase alternator; 1020 kVA at PF 0.80, equivalent to approx. 816 kW. ISO 8528-3 marking is worn/partly illegible."
   },
   "650kva": {
     label: "650 KVA",
