@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Activity, FileSpreadsheet, Fuel, LayoutDashboard, Zap } from "lucide-react";
+import { Activity, Bell, FileSpreadsheet, Fuel, LayoutDashboard, Zap } from "lucide-react";
 import ProductionFuelManagement from "./pages/ProductionFuelManagement";
+import DieselAlertNotifications from "./pages/DieselAlertNotifications";
 import FuelManagementLegacy from "./FuelManagement";
 import WapdaManagement from "./WapdaManagement";
 import DailyDieselReport from "./pages/DailyDieselReportExact";
@@ -8,6 +9,7 @@ import DailyDieselReport from "./pages/DailyDieselReportExact";
 const TABS = [
   ["dashboard", "Dashboard", LayoutDashboard],
   ["entry", "Fuel Entry / Fuel Center", Fuel],
+  ["alerts", "Diesel Alerts", Bell],
   ["wapda", "WAPDA Report", Zap],
   ["reports", "Fuel Reports", FileSpreadsheet]
 ];
@@ -64,6 +66,7 @@ export default function FuelManagementWorkspace() {
           <FuelManagementLegacy />
         </div>
       )}
+      {tab === "alerts" && <DieselAlertNotifications />}
       {tab === "wapda" && <WapdaManagement />}
       {tab === "reports" && <DailyDieselReport />}
     </div>
