@@ -20,6 +20,7 @@ app.use((req,res,next)=>{console.log(`📥 ${req.method} ${req.path}`);next()});
 // Never accept identity or authorization from x-user-id / role headers.
 const privateUploadsEnabled = process.env.PRIVATE_UPLOADS_ENABLED === "true";
 async function authorizePrivateUpload(req, res, next) {
+  if (req.method !== "GET" && req.method !== "HEAD") return res.status(405).json({ success: false, message: "Method not allowed" });
   if (!privateUploadsEnabled) return next();
   const authHeader = String(req.headers.authorization || "");
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
