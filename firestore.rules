@@ -292,19 +292,28 @@ service cloud.firestore {
 
       // Allows public device registration only when an installation ID
       // and token are present.
+      // Limit unauthenticated payload size and disallow unexpected fields.
+      // This reduces abuse; installationId remains an untrusted client identifier.
       allow create: if
-        request.resource.data.keys().hasAll([
-          'token',
-          'installationId'
-        ])
+        request.resource.data.keys().hasAll(['token', 'installationId'])
+        && request.resource.data.keys().hasOnly(['token', 'installationId', 'createdAt', 'updatedAt', 'platform'])
         && request.resource.data.token is string
-        && request.resource.data.installationId is string;
+        && request.resource.data.token.size() >= 20
+        && request.resource.data.token.size() <= 4096
+        && request.resource.data.installationId is string
+        && request.resource.data.installationId.size() >= 8
+        && request.resource.data.installationId.size() <= 256;
 
-      // Anonymous client cannot change token ownership identity.
+      // Keep the same installation ID and apply the same field/size limits.
       allow update: if
         resource.data.installationId == request.resource.data.installationId
+        && request.resource.data.keys().hasOnly(['token', 'installationId', 'createdAt', 'updatedAt', 'platform'])
+        && request.resource.data.token is string
+        && request.resource.data.token.size() >= 20
+        && request.resource.data.token.size() <= 4096
         && request.resource.data.installationId is string
-        && request.resource.data.token is string;
+        && request.resource.data.installationId.size() >= 8
+        && request.resource.data.installationId.size() <= 256;
 
       // Public deletion is intentionally disabled.
       // Admin or backend cleanup handles expired tokens.
