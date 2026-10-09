@@ -16,7 +16,44 @@ app.use(cors(corsOptions));app.use((req,res,next)=>{const origin=req.headers.ori
 app.use(express.json({limit:"50mb"}));app.use(express.urlencoded({extended:true,limit:"50mb"}));app.use((req,res,next)=>{console.log(`📥 ${req.method} ${req.originalUrl}`);if(req.headers["x-user-id"])console.log("👤 X-User-Id:",req.headers["x-user-id"]);if(req.headers.role)console.log("🛡️ Role:",req.headers.role);next()});
 const uploadDir=path.resolve(__dirname,"uploads");if(!fs.existsSync(uploadDir))fs.mkdirSync(uploadDir,{recursive:true});app.use("/uploads",(req,res,next)=>{const origin=req.headers.origin;if(origin&&uniqueAllowedOrigins.includes(origin))res.setHeader("Access-Control-Allow-Origin",origin);res.setHeader("Access-Control-Allow-Credentials","true");res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate");res.setHeader("Pragma","no-cache");res.setHeader("Expires","0");next()});app.use("/uploads",express.static(uploadDir,{fallthrough:true,setHeaders:(res)=>{res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate")}}));app.use("/uploads",(req,res)=>res.status(404).json({success:false,message:"Upload file not found",requested_path:req.originalUrl,uploads_directory:uploadDir}));
 const io=new Server(server,{cors:{origin:(origin,callback)=>{if(!origin)return callback(null,true);if(uniqueAllowedOrigins.includes(origin))return callback(null,true);return callback(new Error(`Socket.IO CORS blocked origin: ${origin}`))},methods:["GET","POST"],allowedHeaders:["Origin","Content-Type","Authorization","role","x-user-id","X-User-Id"],credentials:true},transports:["websocket","polling"]});app.set("io",io);
-io.on("connection",socket=>{console.log("⚡ Client connected:",socket.id);socket.onAny((event,...args)=>console.log("📡 EVENT:",event,args));socket.on("joinUser",userId=>{if(userId)socket.join(`user_${userId}`)});socket.on("joinPanelMonitoring",()=>socket.join("panel_monitoring"));socket.on("joinAdmin",()=>socket.join("admins"));const broadcastToUsers=(event,data={})=>{const ids=Array.isArray(data.userIds||data.user_ids)?(data.userIds||data.user_ids):(data.userId||data.user_id?[data.userId||data.user_id]:[]);ids.map(String).filter(Boolean).forEach(id=>io.to(`user_${id}`).emit(event,data))};socket.on("taskAssigned",data=>broadcastToUsers("taskAssigned",data));socket.on("taskReassigned",data=>broadcastToUsers("taskReassigned",data));socket.on("taskUpdate",data=>{broadcastToUsers("taskUpdate",data);io.to("admins").emit("taskUpdate",data)});socket.emit("connected","Welcome Client ✅");socket.on("disconnect",reason=>console.log("❌ Client disconnected:",socket.id,"| Reason:",reason))});
+// Socket events must never trust arbitrary room names or client-originated task updates.
+// Unauthenticated users can connect, but cannot subscribe to private events.
+const firebaseAdmin = require("./firebaseAdmin");
+async function socketIdentity(socket) {
+  if (!firebaseAdmin.apps.length) return null;
+  const raw = String(socket.handshake.auth?.token || "").replace(/^Bearer\\s+/i, "");
+  if (!raw) return null;
+  try {
+    const decoded = await firebaseAdmin.auth().verifyIdToken(raw);
+    const doc = await firebaseAdmin.firestore().collection("powerhouse_users").doc(decoded.uid).get();
+    const profile = doc.exists ? doc.data() : {};
+    if (["blocked", "inactive"].includes(String(profile.status || "").toLowerCase())) return null;
+    const admin = ["admin", "superadmin"].includes(String(profile.role || "").toLowerCase()) ||
+      String(decoded.email || "").toLowerCase() === "admin@powerhouse.com";
+    return { uid: decoded.uid, admin };
+  } catch (error) {
+    console.warn("Socket authentication rejected:", error.code || error.message);
+    return null;
+  }
+}
+io.on("connection", socket => {
+  let identityPromise = socketIdentity(socket);
+  socket.on("joinUser", async userId => {
+    const identity = await identityPromise;
+    if (identity && String(userId) === identity.uid) socket.join("user_" + identity.uid);
+  });
+  socket.on("joinAdmin", async () => {
+    const identity = await identityPromise;
+    if (identity?.admin) socket.join("admins");
+  });
+  socket.on("joinPanelMonitoring", async () => {
+    const identity = await identityPromise;
+    if (identity) socket.join("panel_monitoring");
+  });
+  // Task notifications are emitted only by trusted backend routes using io.
+  // Accepting client-supplied taskAssigned/taskUpdate broadcasts would enable spoofing.
+  socket.emit("connected", "Welcome Client");
+});
 const userCompatRoutes=require("./routes/userCompat"),userRoutes=require("./routes/user"),authRoutes=require("./routes/auth"),taskRoutes=require("./routes/task"),taskCompatRoutes=require("./routes/taskCompat"),activityRoutes=require("./routes/activity"),taskFastRoutes=require("./routes/taskFast"),activityFastRoutes=require("./routes/activityFast"),toolsRoutes=require("./routes/tools"),mcpRoutes=require("./routes/mcp"),panelRoutes=require("./routes/panels"),dutyRoutes=require("./routes/duty"),taskFirebaseFallback=require("./routes/taskFirebaseFallback"),notificationRoutes=require("./routes/notifications"),aiRoutes=require("./routes/ai"),whatsappRoutes=require("./routes/whatsapp"),machineImageRoutes=require("./routes/machineImage");
 app.use("/api",mcpRoutes);app.use("/api/user",userCompatRoutes);app.use("/api/user",userRoutes);app.use("/api/auth",authRoutes);app.get("/api/task/:id",taskFirebaseFallback);app.use("/api/task",taskFastRoutes);app.use("/api/task",taskRoutes);app.use("/api/task-compat",taskCompatRoutes);app.use("/api/tasks",taskRoutes);app.use("/api/activity",activityFastRoutes);app.use("/api/activity",activityRoutes);app.use("/api/tools",toolsRoutes);app.use("/api/panels",panelRoutes);app.use("/api/duty",dutyRoutes);app.use("/api/notifications",notificationRoutes);app.use("/api/ai",aiRoutes);app.use("/api/whatsapp",whatsappRoutes);app.use("/api/machine-image",machineImageRoutes);
 app.get("/test-db",async(req,res)=>{try{const[rows]=await db.promise().query("SELECT 1 AS database_test");return res.status(200).json({success:true,msg:"DB OK",result:rows})}catch(err){console.error("❌ DB TEST ERROR:",err);return res.status(500).json({success:false,error:err.message})}});app.get("/test-cors",(req,res)=>res.status(200).json({success:true,message:"CORS is working correctly",origin:req.headers.origin||null,user_id:req.headers["x-user-id"]||null,role:req.headers.role||null,time:new Date().toISOString()}));app.use((req,res)=>res.status(404).json({success:false,message:"API route not found",method:req.method,path:req.originalUrl}));
