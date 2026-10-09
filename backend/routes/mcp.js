@@ -17,7 +17,8 @@ async function verifyFirebaseAdmin(req) {
   const email = String(decoded.email || "").trim().toLowerCase();
   const profileSnap = await admin.firestore().collection("powerhouse_users").doc(decoded.uid).get();
   const profile = profileSnap.exists ? profileSnap.data() : null;
-  const isAdmin = email === "admin@powerhouse.com" || ["admin", "superadmin"].includes(String(profile?.role || decoded.role || "").toLowerCase());
+  const active = profile && !["inactive", "blocked"].includes(String(profile.status || "").toLowerCase());
+  const isAdmin = active && (email === "admin@powerhouse.com" || ["admin", "superadmin"].includes(String(profile.role || "").toLowerCase()));
   if (!isAdmin) { const e = new Error("Admin permission is required to send system notifications."); e.status = 403; throw e; }
   return decoded;
 }
