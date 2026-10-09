@@ -86,3 +86,15 @@ test("system counters are readable by staff but writable only by admin",async()=
   await assertFails(deleteDoc(doc(staff,"system_counters","task")));
   await assertSucceeds(updateDoc(doc(admin,"system_counters","task"),{value:6}));
 });
+
+test("staff can mark only own duty status; shift assignment stays admin-only",async()=>{
+  const staff=firestore("staff-uid"),other=firestore("other-uid"),admin=firestore("admin-uid");
+  const key="staff-uid_2026-10-09";
+  const record={user_id:"staff-uid",duty_date:"2026-10-09",record_type:"status",status:"on_duty"};
+  await assertSucceeds(setDoc(doc(staff,"duties",key),record));
+  await assertFails(updateDoc(doc(other,"duties",key),{status:"off_duty"}));
+  await assertFails(setDoc(doc(staff,"duties","other-uid_2026-10-09"),{...record,user_id:"other-uid"}));
+  await assertFails(setDoc(doc(staff,"duties","shift-1"),{user_id:"staff-uid",record_type:"shift"}));
+  await assertSucceeds(setDoc(doc(admin,"duties","shift-1"),{user_id:"staff-uid",record_type:"shift"}));
+  await assertSucceeds(updateDoc(doc(staff,"duties",key),{status:"off_duty"}));
+});
