@@ -39,7 +39,7 @@ async function authorizePrivateUpload(req, res, next) {
   }
 }
 app.use("/uploads", authorizePrivateUpload);
-const uploadDir=path.resolve(__dirname,"uploads");if(!fs.existsSync(uploadDir))fs.mkdirSync(uploadDir,{recursive:true});app.use("/uploads",(req,res,next)=>{const origin=req.headers.origin;if(origin&&uniqueAllowedOrigins.includes(origin))res.setHeader("Access-Control-Allow-Origin",origin);res.setHeader("Access-Control-Allow-Credentials","true");res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate");res.setHeader("Pragma","no-cache");res.setHeader("Expires","0");next()});app.use("/uploads",express.static(uploadDir,{fallthrough:true,setHeaders:(res)=>{res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate")}}));app.use("/uploads",(req,res)=>res.status(404).json({success:false,message:"Upload file not found",requested_path:req.originalUrl,uploads_directory:uploadDir}));
+const uploadDir=path.resolve(__dirname,"uploads");if(!fs.existsSync(uploadDir))fs.mkdirSync(uploadDir,{recursive:true});app.use("/uploads",(req,res,next)=>{const origin=req.headers.origin;if(origin&&uniqueAllowedOrigins.includes(origin))res.setHeader("Access-Control-Allow-Origin",origin);res.setHeader("Access-Control-Allow-Credentials","true");res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate");res.setHeader("Pragma","no-cache");res.setHeader("Expires","0");next()});app.use("/uploads",express.static(uploadDir,{fallthrough:true,setHeaders:(res)=>{res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate")}}));app.use("/uploads",(req,res)=>res.status(404).json({success:false,message:"Upload file not found",requested_path:req.originalUrl}));
 const io=new Server(server,{cors:{origin:(origin,callback)=>{if(!origin)return callback(null,true);if(uniqueAllowedOrigins.includes(origin))return callback(null,true);return callback(new Error(`Socket.IO CORS blocked origin: ${origin}`))},methods:["GET","POST"],allowedHeaders:["Origin","Content-Type","Authorization","role","x-user-id","X-User-Id"],credentials:true},transports:["websocket","polling"]});app.set("io",io);
 // Socket events must never trust arbitrary room names or client-originated task updates.
 // Unauthenticated users can connect, but cannot subscribe to private events.
@@ -51,8 +51,8 @@ async function socketIdentity(socket) {
   try {
     const decoded = await firebaseAdmin.auth().verifyIdToken(raw);
     const doc = await firebaseAdmin.firestore().collection("powerhouse_users").doc(decoded.uid).get();
-    const profile = doc.exists ? doc.data() : {};
-    if (["blocked", "inactive"].includes(String(profile.status || "").toLowerCase())) return null;
+    const profile = doc.exists ? doc.data() : null;
+    if (!profile || ["blocked", "inactive"].includes(String(profile.status || "").toLowerCase())) return null;
     const admin = ["admin", "superadmin"].includes(String(profile.role || "").toLowerCase()) ||
       String(decoded.email || "").toLowerCase() === "admin@powerhouse.com";
     return { uid: decoded.uid, admin };
