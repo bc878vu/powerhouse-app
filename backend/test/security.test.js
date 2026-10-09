@@ -64,3 +64,9 @@ test("upload responses have privacy and MIME hardening headers", () => {
   assert.match(src, /Referrer-Policy", "no-referrer"/);
   assert.match(src, /privateUploadsEnabled\?"same-origin":"cross-origin"/);
 });
+
+test("legacy upload endpoint only serves GET or HEAD", () => {
+  const src = source("server.js");
+  assert.match(src, /req\.method !== "GET" && req\.method !== "HEAD"/);
+  assert.match(src, /res\.status\(405\)/);
+});
