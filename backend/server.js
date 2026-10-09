@@ -14,6 +14,31 @@ const allowedOrigins=["http://localhost:5173","http://127.0.0.1:5173","https://p
 const corsOptions={origin:(origin,callback)=>{if(!origin)return callback(null,true);if(uniqueAllowedOrigins.includes(origin))return callback(null,true);console.warn("⚠️ CORS blocked origin:",origin);return callback(new Error(`CORS blocked origin: ${origin}`));},methods:["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allowedHeaders:["Origin","X-Requested-With","Content-Type","Accept","Authorization","role","Role","x-user-id","X-User-Id","x-user-role","X-User-Role","x-auth-token","X-Auth-Token"],exposedHeaders:["Content-Disposition","Content-Length"],credentials:true,optionsSuccessStatus:204,preflightContinue:false};
 app.use(cors(corsOptions));app.use((req,res,next)=>{const origin=req.headers.origin;if(origin&&uniqueAllowedOrigins.includes(origin))res.setHeader("Access-Control-Allow-Origin",origin);res.setHeader("Access-Control-Allow-Credentials","true");res.setHeader("Access-Control-Allow-Methods","GET, POST, PUT, PATCH, DELETE, OPTIONS");res.setHeader("Access-Control-Allow-Headers","Origin, X-Requested-With, Content-Type, Accept, Authorization, role, Role, x-user-id, X-User-Id, x-user-role, X-User-Role, x-auth-token, X-Auth-Token");res.setHeader("Access-Control-Expose-Headers","Content-Disposition, Content-Length");if(req.method==="OPTIONS")return res.sendStatus(204);next()});
 app.use(express.json({limit:"50mb"}));app.use(express.urlencoded({extended:true,limit:"50mb"}));app.use((req,res,next)=>{console.log(`📥 ${req.method} ${req.originalUrl}`);if(req.headers["x-user-id"])console.log("👤 X-User-Id:",req.headers["x-user-id"]);if(req.headers.role)console.log("🛡️ Role:",req.headers.role);next()});
+// Deployment-controlled protection for legacy /uploads URLs.
+// Turn on only after attachment clients are migrated to send ID tokens.
+// Never accept identity or authorization from x-user-id / role headers.
+const privateUploadsEnabled = process.env.PRIVATE_UPLOADS_ENABLED === "true";
+async function authorizePrivateUpload(req, res, next) {
+  if (!privateUploadsEnabled) return next();
+  const authHeader = String(req.headers.authorization || "");
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return res.status(401).json({ success: false, message: "Authentication required for attachments" });
+  try {
+    const admin = require("./firebaseAdmin");
+    if (!admin.apps.length) return res.status(503).json({ success: false, message: "Attachment authentication unavailable" });
+    const decoded = await admin.auth().verifyIdToken(token);
+    const doc = await admin.firestore().collection("powerhouse_users").doc(decoded.uid).get();
+    const profile = doc.exists ? doc.data() : null;
+    if (profile && ["inactive", "blocked"].includes(String(profile.status || "").toLowerCase())) {
+      return res.status(403).json({ success: false, message: "Account disabled" });
+    }
+    if (!profile) return res.status(403).json({ success: false, message: "Staff profile required" });
+    return next();
+  } catch (_) {
+    return res.status(401).json({ success: false, message: "Invalid or expired authentication" });
+  }
+}
+app.use("/uploads", authorizePrivateUpload);
 const uploadDir=path.resolve(__dirname,"uploads");if(!fs.existsSync(uploadDir))fs.mkdirSync(uploadDir,{recursive:true});app.use("/uploads",(req,res,next)=>{const origin=req.headers.origin;if(origin&&uniqueAllowedOrigins.includes(origin))res.setHeader("Access-Control-Allow-Origin",origin);res.setHeader("Access-Control-Allow-Credentials","true");res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate");res.setHeader("Pragma","no-cache");res.setHeader("Expires","0");next()});app.use("/uploads",express.static(uploadDir,{fallthrough:true,setHeaders:(res)=>{res.setHeader("Cross-Origin-Resource-Policy","cross-origin");res.setHeader("Cache-Control","no-cache, no-store, must-revalidate")}}));app.use("/uploads",(req,res)=>res.status(404).json({success:false,message:"Upload file not found",requested_path:req.originalUrl,uploads_directory:uploadDir}));
 const io=new Server(server,{cors:{origin:(origin,callback)=>{if(!origin)return callback(null,true);if(uniqueAllowedOrigins.includes(origin))return callback(null,true);return callback(new Error(`Socket.IO CORS blocked origin: ${origin}`))},methods:["GET","POST"],allowedHeaders:["Origin","Content-Type","Authorization","role","x-user-id","X-User-Id"],credentials:true},transports:["websocket","polling"]});app.set("io",io);
 // Socket events must never trust arbitrary room names or client-originated task updates.
