@@ -17,10 +17,22 @@ async function verifyFirebaseAdmin(req) {
   const email = String(decoded.email || "").trim().toLowerCase();
   const profileSnap = await admin.firestore().collection("powerhouse_users").doc(decoded.uid).get();
   const profile = profileSnap.exists ? profileSnap.data() : null;
-  const isAdmin = email === "admin@powerhouse.com" || ["admin", "superadmin"].includes(String(profile?.role || decoded.role || "").toLowerCase());
+  const active = profile && !["inactive", "blocked"].includes(String(profile.status || "").toLowerCase());
+  const isAdmin = active && (email === "admin@powerhouse.com" || ["admin", "superadmin"].includes(String(profile.role || "").toLowerCase()));
   if (!isAdmin) { const e = new Error("Admin permission is required to send system notifications."); e.status = 403; throw e; }
   return decoded;
 }
+
+// All MCP operations include staff and write tools: gate the transport itself.
+router.use("/mcp", async (req, res, next) => {
+  try {
+    await verifyFirebaseAdmin(req);
+    next();
+  } catch (error) {
+    const status = error.status || (String(error.code || "").startsWith("auth/") ? 401 : 403);
+    res.status(status).json({ success: false, message: "MCP admin authorization required." });
+  }
+});
 
 const normalizeIds = value => Array.isArray(value) ? [...new Set(value.map(String).map(x => x.trim()).filter(Boolean))] : (value == null || value === "" ? [] : [String(value).trim()].filter(Boolean));
 
