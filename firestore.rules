@@ -465,7 +465,14 @@ service cloud.firestore {
         && (
           staffId == request.auth.uid ||
           staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('id', null) ||
-          staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null) ||
+          (
+            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null) ||
+            (
+              staffId is string &&
+              get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null) is int &&
+              staffId == string(get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null))
+            )
+          ) ||
           staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('employeeID', null)
         );
     }
