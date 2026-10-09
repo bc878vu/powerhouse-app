@@ -21,7 +21,7 @@ const io=new Server(server,{cors:{origin:(origin,callback)=>{if(!origin)return c
 const firebaseAdmin = require("./firebaseAdmin");
 async function socketIdentity(socket) {
   if (!firebaseAdmin.apps.length) return null;
-  const raw = String(socket.handshake.auth?.token || "").replace(/^Bearer\\s+/i, "");
+  const raw = String(socket.handshake.auth?.token || "").replace(/^Bearer\s+/i, "");
   if (!raw) return null;
   try {
     const decoded = await firebaseAdmin.auth().verifyIdToken(raw);
