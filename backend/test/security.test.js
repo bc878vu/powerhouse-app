@@ -41,3 +41,11 @@ test("Firestore task changes require admin or existing assignee and restrict sta
   assert.match(rules, /allow update: if isAdmin\(\) \|\| isStaffTaskUpdate\(\);/);
   assert.match(rules, /allow delete: if isAdmin\(\);/);
 });
+
+test("Storage rules restrict writes to known paths and protect machines", () => {
+  const rules = fs.readFileSync(path.join(root, "..", "storage.rules"), "utf8");
+  assert.match(rules, /match \/powerhouse\/tasks\/\{filePath=\*\*\}/);
+  assert.match(rules, /match \/powerhouse\/machines\/\{filePath=\*\*\}/);
+  assert.match(rules, /allow create: if isAdmin\(\) && validSize/);
+  assert.match(rules, /allow write: if false;/);
+});
