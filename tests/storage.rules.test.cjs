@@ -19,6 +19,7 @@ before(async () => {
     const db = context.firestore();
     await setDoc(doc(db, "powerhouse_users", "admin-uid"), {role:"admin",status:"active"});
     await setDoc(doc(db, "powerhouse_users", "staff-uid"), {role:"electrician",status:"active"});
+    await setDoc(doc(db, "powerhouse_users", "blocked-admin"), {role:"admin",status:"blocked"});
   });
 });
 after(async () => { if (env) await env.cleanup(); });
@@ -41,4 +42,8 @@ test("staff cannot write unknown storage folder", async () => {
 });
 test("staff cannot upload another user's profile picture", async () => {
   await assertFails(uploadBytes(ref(storage("staff-uid"), "profilePictures/admin-uid/img.png"), image, {contentType:"image/png"}));
+});
+
+test("blocked admin cannot upload machine images", async () => {
+  await assertFails(uploadBytes(ref(storage("blocked-admin"), "powerhouse/machines/machine-b/blocked.png"), image, {contentType:"image/png"}));
 });
