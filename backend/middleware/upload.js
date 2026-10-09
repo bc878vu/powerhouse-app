@@ -106,8 +106,32 @@ const allowedMimeTypes = [
 // FILE FILTER
 // ============================================================
 
+// Validate the extension in addition to the client-reported MIME type.
+// This is a first defense, not a replacement for signature scanning.
+const allowedExtensions = new Map([
+  [".jpg", ["image/jpeg", "image/jpg", "application/octet-stream"]],
+  [".jpeg", ["image/jpeg", "image/jpg", "application/octet-stream"]],
+  [".png", ["image/png", "application/octet-stream"]],
+  [".webp", ["image/webp", "application/octet-stream"]],
+  [".gif", ["image/gif", "application/octet-stream"]],
+  [".mp3", ["audio/mpeg", "audio/mp3", "application/octet-stream"]],
+  [".wav", ["audio/wav", "audio/x-wav", "application/octet-stream"]],
+  [".webm", ["audio/webm", "video/webm", "application/octet-stream"]],
+  [".ogg", ["audio/ogg", "application/octet-stream"]],
+  [".mp4", ["video/mp4", "application/octet-stream"]],
+  [".mov", ["video/quicktime", "application/octet-stream"]],
+  [".pdf", ["application/pdf", "application/octet-stream"]],
+  [".doc", ["application/msword", "application/octet-stream"]],
+  [".docx", ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream"]],
+  [".xls", ["application/vnd.ms-excel", "application/octet-stream"]],
+  [".xlsx", ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"]],
+  [".txt", ["text/plain", "application/octet-stream"]],
+  [".csv", ["text/csv", "text/plain", "application/vnd.ms-excel", "application/octet-stream"]],
+]);
 const fileFilter = (req, file, cb) => {
-  if (allowedMimeTypes.includes(file.mimetype)) {
+  const ext = path.extname(String(file.originalname || "")).toLowerCase();
+  if (allowedMimeTypes.includes(file.mimetype) &&
+      allowedExtensions.get(ext)?.includes(file.mimetype)) {
     cb(null, true);
     return;
   }
