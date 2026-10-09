@@ -56,3 +56,11 @@ test("HTTP request logging excludes user IDs, roles and token-bearing query stri
   assert.doesNotMatch(sourceCode, /console\.log\("👤 X-User-Id:"/);
   assert.doesNotMatch(sourceCode, /console\.log\("🛡️ Role:"/);
 });
+
+test("upload responses have privacy and MIME hardening headers", () => {
+  const src = source("server.js");
+  assert.match(src, /X-Content-Type-Options", "nosniff"/);
+  assert.match(src, /X-Robots-Tag", "noindex, nofollow, noarchive"/);
+  assert.match(src, /Referrer-Policy", "no-referrer"/);
+  assert.match(src, /privateUploadsEnabled\?"same-origin":"cross-origin"/);
+});
