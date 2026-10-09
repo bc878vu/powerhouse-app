@@ -14,7 +14,7 @@ before(async () => {
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
     await setDoc(doc(db,"powerhouse_users","admin-uid"),{uid:"admin-uid",role:"admin",status:"active"});
-    await setDoc(doc(db,"powerhouse_users","staff-uid"),{uid:"staff-uid",id:"staff-legacy-12",numericId:"12",role:"electrician",status:"active"});
+    await setDoc(doc(db,"powerhouse_users","staff-uid"),{uid:"staff-uid",id:"staff-legacy-12",numericId:12,role:"electrician",status:"active"});
     await setDoc(doc(db,"powerhouse_users","other-uid"),{uid:"other-uid",role:"electrician",status:"active"});
     await setDoc(doc(db,"powerhouse_users","blocked-admin"),{uid:"blocked-admin",role:"admin",status:"blocked"});
     await setDoc(doc(db,"powerhouse_users","blocked-superadmin"),{uid:"blocked-superadmin",role:"superadmin",status:"inactive"});
@@ -105,4 +105,13 @@ test("legacy duty ID works only when matched to signed-in staff profile",async()
   const record={user_id:"staff-legacy-12",duty_date:"2026-10-10",record_type:"status",status:"on_duty"};
   await assertSucceeds(setDoc(doc(staff,"duties",key),record));
   await assertFails(updateDoc(doc(other,"duties",key),{status:"off_duty"}));
+});
+
+test("numeric legacy duty ID maps to signed-in employee and rejects other users",async()=>{
+  const staff=firestore("staff-uid"),other=firestore("other-uid");
+  const key="12_2026-10-11";
+  const record={user_id:"12",duty_date:"2026-10-11",record_type:"status",status:"on_duty"};
+  await assertSucceeds(setDoc(doc(staff,"duties",key),record));
+  await assertFails(updateDoc(doc(other,"duties",key),{status:"off_duty"}));
+  await assertSucceeds(updateDoc(doc(staff,"duties",key),{status:"off_duty"}));
 });
