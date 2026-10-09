@@ -18,6 +18,7 @@ before(async () => {
     await setDoc(doc(db,"powerhouse_users","other-uid"),{uid:"other-uid",role:"electrician",status:"active"});
     await setDoc(doc(db,"powerhouse_users","blocked-admin"),{uid:"blocked-admin",role:"admin",status:"blocked"});
     await setDoc(doc(db,"powerhouse_users","blocked-superadmin"),{uid:"blocked-superadmin",role:"superadmin",status:"inactive"});
+    await setDoc(doc(db,"system_counters","task"),{value:5});
     await setDoc(doc(db,"activities","audit-1"),{type:"task_status",task_id:"t1"});
     for (const name of ["entries","engineServiceLogs","wapdaReadings"]) {
       await setDoc(doc(db,name,"record-1"),{value:100,created_by:"staff-uid"});
@@ -76,4 +77,12 @@ test("staff activity events are append-only, admins can correct",async()=>{
   await assertFails(updateDoc(doc(staff,"activities","audit-1"),{type:"tampered"}));
   await assertFails(deleteDoc(doc(staff,"activities","audit-1")));
   await assertSucceeds(updateDoc(doc(admin,"activities","audit-1"),{type:"corrected"}));
+});
+
+test("system counters are readable by staff but writable only by admin",async()=>{
+  const staff=firestore("staff-uid"),admin=firestore("admin-uid");
+  await assertSucceeds(getDoc(doc(staff,"system_counters","task")));
+  await assertFails(updateDoc(doc(staff,"system_counters","task"),{value:6}));
+  await assertFails(deleteDoc(doc(staff,"system_counters","task")));
+  await assertSucceeds(updateDoc(doc(admin,"system_counters","task"),{value:6}));
 });
