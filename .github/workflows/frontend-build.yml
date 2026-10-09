@@ -37,3 +37,23 @@ jobs:
           fi
       - name: Build production bundle
         run: npm run build
+
+  backend-security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify JavaScript syntax
+        run: |
+          node --check server.js
+          node --check routes/mcp.js
+          node --check middleware/upload.js
+      - name: Run backend security regression checks
+        run: npm test
