@@ -22,6 +22,17 @@ async function verifyFirebaseAdmin(req) {
   return decoded;
 }
 
+// All MCP operations include staff and write tools: gate the transport itself.
+router.use("/mcp", async (req, res, next) => {
+  try {
+    await verifyFirebaseAdmin(req);
+    next();
+  } catch (error) {
+    const status = error.status || (String(error.code || "").startsWith("auth/") ? 401 : 403);
+    res.status(status).json({ success: false, message: "MCP admin authorization required." });
+  }
+});
+
 const normalizeIds = value => Array.isArray(value) ? [...new Set(value.map(String).map(x => x.trim()).filter(Boolean))] : (value == null || value === "" ? [] : [String(value).trim()].filter(Boolean));
 
 async function getPushTokens(userIds = []) {
