@@ -71,5 +71,5 @@ jobs:
           java-version: '21'
       - name: Install emulator and test packages
         run: npm install --no-save --no-package-lock firebase@12 @firebase/rules-unit-testing@5 firebase-tools@14
-      - name: Execute Firestore authorization tests
-        run: npx firebase emulators:exec --project powerhouse-security-rules-test --only firestore "node --test tests/firestore.rules.test.cjs"
+      - name: Execute Firestore and Storage authorization tests
+        run: npx firebase emulators:exec --project powerhouse-security-rules-test --only firestore,storage "node --test tests/firestore.rules.test.cjs tests/storage.rules.test.cjs"
