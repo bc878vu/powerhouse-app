@@ -16,6 +16,7 @@ before(async () => {
     await setDoc(doc(db,"powerhouse_users","admin-uid"),{uid:"admin-uid",role:"admin",status:"active"});
     await setDoc(doc(db,"powerhouse_users","staff-uid"),{uid:"staff-uid",role:"electrician",status:"active"});
     await setDoc(doc(db,"powerhouse_users","other-uid"),{uid:"other-uid",role:"electrician",status:"active"});
+    await setDoc(doc(db,"powerhouse_users","blocked-admin"),{uid:"blocked-admin",role:"admin",status:"blocked"});
     await setDoc(doc(db,"tasks","t1"),{assigned_user_ids:["staff-uid"],user_ids:["staff-uid"],user_id:"staff-uid",status:"Pending",assignment_cycle:1,title:"Test task"});
   });
 });
@@ -43,4 +44,9 @@ test("assigned staff cannot reassign or delete task",async()=>{
 test("admin can reassign task",async()=>{
   const db=firestore("admin-uid");
   await assertSucceeds(updateDoc(doc(db,"tasks","t1"),{assigned_user_ids:["other-uid"]}));
+});
+
+test("blocked admin cannot modify protected task",async()=>{
+  const db=firestore("blocked-admin");
+  await assertFails(updateDoc(doc(db,"tasks","t1"),{title:"Unauthorized"}));
 });
