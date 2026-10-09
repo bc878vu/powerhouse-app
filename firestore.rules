@@ -391,7 +391,9 @@ service cloud.firestore {
     // =========================================================
 
     match /system_counters/{id} {
-      allow read, write: if signedIn();
+      // Counters coordinate shared identifiers; ordinary staff must not alter them.
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
     }
 
 
