@@ -20,6 +20,7 @@ before(async () => {
     await setDoc(doc(db, "powerhouse_users", "admin-uid"), {role:"admin",status:"active"});
     await setDoc(doc(db, "powerhouse_users", "staff-uid"), {role:"electrician",status:"active"});
     await setDoc(doc(db, "powerhouse_users", "blocked-admin"), {role:"admin",status:"blocked"});
+    await setDoc(doc(db, "powerhouse_users", "blocked-staff"), {role:"electrician",status:"blocked"});
   });
 });
 after(async () => { if (env) await env.cleanup(); });
@@ -46,4 +47,9 @@ test("staff cannot upload another user's profile picture", async () => {
 
 test("blocked admin cannot upload machine images", async () => {
   await assertFails(uploadBytes(ref(storage("blocked-admin"), "powerhouse/machines/machine-b/blocked.png"), image, {contentType:"image/png"}));
+});
+
+test("blocked staff cannot upload task files or personal profile pictures", async () => {
+  await assertFails(uploadBytes(ref(storage("blocked-staff"), "powerhouse/tasks/blocked.png"), image, {contentType:"image/png"}));
+  await assertFails(uploadBytes(ref(storage("blocked-staff"), "profilePictures/blocked-staff/blocked.png"), image, {contentType:"image/png"}));
 });
