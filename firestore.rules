@@ -440,7 +440,9 @@ service cloud.firestore {
     // =========================================================
 
     match /activities/{id} {
-      allow read, write: if signedIn();
+      // Append-only audit events for staff; only admins can correct or remove.
+      allow read, create: if signedIn();
+      allow update, delete: if isAdmin();
     }
 
 
