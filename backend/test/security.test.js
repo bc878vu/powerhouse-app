@@ -33,3 +33,11 @@ test("Private downloads default to opt-in and check Firebase identity", () => {
   assert.match(text, /PRIVATE_UPLOADS_ENABLED === "true"/);
   assert.match(text, /admin\.auth\(\)\.verifyIdToken\(token\)/);
 });
+
+test("Firestore task changes require admin or existing assignee and restrict staff fields", () => {
+  const rules = fs.readFileSync(path.join(root, "..", "firestore.rules"), "utf8");
+  assert.match(rules, /function isAssignedTask\(task\)/);
+  assert.match(rules, /function isStaffTaskUpdate\(\)/);
+  assert.match(rules, /allow update: if isAdmin\(\) \|\| isStaffTaskUpdate\(\);/);
+  assert.match(rules, /allow delete: if isAdmin\(\);/);
+});
