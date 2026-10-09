@@ -392,12 +392,32 @@ service cloud.firestore {
     // Existing CRUD preserved.
     // =========================================================
 
+    // Only existing assignees may perform workflow/status updates.
+    // Admins retain full task editing and reassignment controls.
+    function isAssignedTask(task) {
+      return signedIn() && (
+        (task.get('assigned_user_ids', []) is list && request.auth.uid in task.get('assigned_user_ids', [])) ||
+        (task.get('user_ids', []) is list && request.auth.uid in task.get('user_ids', [])) ||
+        task.get('user_id', '') == request.auth.uid
+      );
+    }
+
+    function isStaffTaskUpdate() {
+      return isAssignedTask(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'assignment_history', 'assignment_cycle', 'updated_at',
+          'accepted_at', 'completed_at', 'rejected_at', 'rejection_reason',
+          'completion_reports', 'latest_completion'
+        ])
+        // Assignees cannot change the cycle or edit assignment identity.
+        && request.resource.data.get('assignment_cycle', 1) == resource.data.get('assignment_cycle', 1);
+    }
+
     match /tasks/{id} {
       allow read: if true;
-      // Keep legacy task creation and assigned-staff status updates working.
-      // Destructive operations require an administrator.
+      // Keep creation available for legacy authenticated complaint flows.
       allow create: if signedIn();
-      allow update: if signedIn();
+      allow update: if isAdmin() || isStaffTaskUpdate();
       allow delete: if isAdmin();
     }
 
