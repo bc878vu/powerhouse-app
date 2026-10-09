@@ -57,3 +57,19 @@ jobs:
           node --check middleware/upload.js
       - name: Run backend security regression checks
         run: npm test
+
+  firestore-rules-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install emulator and test packages
+        run: npm install --no-save --no-package-lock firebase@12 @firebase/rules-unit-testing@5 firebase-tools@14
+      - name: Execute Firestore authorization tests
+        run: npx firebase emulators:exec --project powerhouse-security-rules-test --only firestore "node --test tests/firestore.rules.test.cjs"
