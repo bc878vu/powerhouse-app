@@ -21,9 +21,11 @@ service cloud.firestore {
     // Existing admin email compatibility
     function isAdminEmail() {
       return signedIn()
-        && (
-          userEmail() == 'admin@powerhouse.com' ||
-          userEmail() == 'Admin@powerhouse.com'
+        && userEmail().lower() == 'admin@powerhouse.com'
+        && exists(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+        && !(
+          get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+            .data.get('status', 'active') in ['inactive', 'blocked']
         );
     }
 
@@ -35,7 +37,11 @@ service cloud.firestore {
         )
         && get(
           /databases/$(database)/documents/powerhouse_users/$(request.auth.uid)
-        ).data.role in ['admin', 'superadmin'];
+        ).data.role in ['admin', 'superadmin']
+        && !(
+          get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+            .data.get('status', 'active') in ['inactive', 'blocked']
+        );
     }
 
     function isAdmin() {
