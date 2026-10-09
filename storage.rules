@@ -1,10 +1,56 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        firestore.exists(/databases/(default)/documents/powerhouse_users/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/powerhouse_users/$(request.auth.uid)).data.role in ['admin', 'superadmin'];
+    }
+
+    function validSize(maxBytes) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= maxBytes;
+    }
+
+    // Existing authenticated downloads remain available while per-task ACL
+    // and tokenized legacy download URL migration are being developed.
+    match /powerhouse/tasks/{filePath=**} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validSize(50 * 1024 * 1024);
+      allow update, delete: if isAdmin();
+    }
+
+    match /powerhouse/uploads/{filePath=**} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validSize(50 * 1024 * 1024);
+      allow update, delete: if isAdmin();
+    }
+
+    match /powerhouse/machines/{filePath=**} {
+      allow read: if signedIn();
+      allow create: if isAdmin() && validSize(10 * 1024 * 1024)
+        && request.resource.contentType.matches('image/.*');
+      allow update, delete: if isAdmin();
+    }
+
+    match /profilePictures/{userId}/{filePath=**} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId
+        && validSize(10 * 1024 * 1024)
+        && request.resource.contentType.matches('image/.*');
+      allow update, delete: if isAdmin() || (signedIn() && request.auth.uid == userId);
+    }
+
+    // Unrecognized locations are not writable by general authenticated users.
+    // Inventory other legacy paths before deploying these proposed rules.
     match /{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.resource.size < 50 * 1024 * 1024;
+      allow read: if signedIn();
+      allow write: if false;
     }
   }
 }
