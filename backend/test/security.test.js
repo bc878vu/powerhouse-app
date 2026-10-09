@@ -49,3 +49,10 @@ test("Storage rules restrict writes to known paths and protect machines", () => 
   assert.match(rules, /allow create: if isAdmin\(\) && validSize/);
   assert.match(rules, /allow write: if false;/);
 });
+
+test("HTTP request logging excludes user IDs, roles and token-bearing query strings", () => {
+  const sourceCode = source("server.js");
+  assert.match(sourceCode, /console\.log\(`📥 \$\{req\.method\} \$\{req\.path\}`\)/);
+  assert.doesNotMatch(sourceCode, /console\.log\("👤 X-User-Id:"/);
+  assert.doesNotMatch(sourceCode, /console\.log\("🛡️ Role:"/);
+});
