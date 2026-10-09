@@ -456,21 +456,18 @@ service cloud.firestore {
     // instead of a Firebase UID. Resolve it from the caller's own staff profile,
     // never from client-controlled request fields alone.
     function dutyOwner(staffId) {
-      return signedIn() && (
-        staffId == request.auth.uid ||
-        (
-          exists(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
-          && !(
-            get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
-              .data.get('status', 'active') in ['blocked', 'inactive']
-          )
-          && (
-            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('id', null) ||
-            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null) ||
-            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('employeeID', null)
-          )
+      return signedIn()
+        && exists(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+        && !(
+          get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+            .data.get('status', 'active') in ['blocked', 'inactive']
         )
-      );
+        && (
+          staffId == request.auth.uid ||
+          staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('id', null) ||
+          staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null) ||
+          staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('employeeID', null)
+        );
     }
 
     match /duties/{id} {
