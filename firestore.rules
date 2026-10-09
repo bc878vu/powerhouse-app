@@ -452,6 +452,27 @@ service cloud.firestore {
     // DUTIES
     // =========================================================
 
+    // Legacy duty documents may use an immutable numeric staff identifier
+    // instead of a Firebase UID. Resolve it from the caller's own staff profile,
+    // never from client-controlled request fields alone.
+    function dutyOwner(staffId) {
+      return signedIn() && (
+        staffId == request.auth.uid ||
+        (
+          exists(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+          && !(
+            get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid))
+              .data.get('status', 'active') in ['blocked', 'inactive']
+          )
+          && (
+            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('id', null) ||
+            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('numericId', null) ||
+            staffId == get(/databases/$(database)/documents/powerhouse_users/$(request.auth.uid)).data.get('employeeID', null)
+          )
+        )
+      );
+    }
+
     match /duties/{id} {
       // Staff can mark their own status; shifts and other users' records
       // require an administrator. Existing duty reads remain available.
@@ -459,13 +480,13 @@ service cloud.firestore {
       allow create: if isAdmin() || (
         signedIn()
         && request.resource.data.get('record_type', '') == 'status'
-        && request.resource.data.get('user_id', '') == request.auth.uid
-        && id == request.auth.uid + '_' + request.resource.data.get('duty_date', '')
+        && dutyOwner(request.resource.data.get('user_id', ''))
+        && id == request.resource.data.get('user_id', '') + '_' + request.resource.data.get('duty_date', '')
       );
       allow update: if isAdmin() || (
         signedIn()
         && resource.data.get('record_type', '') == 'status'
-        && resource.data.get('user_id', '') == request.auth.uid
+        && dutyOwner(resource.data.get('user_id', ''))
         && request.resource.data.get('user_id', '') == resource.data.get('user_id', '')
         && request.resource.data.get('record_type', '') == 'status'
         && request.resource.data.get('duty_date', '') == resource.data.get('duty_date', '')
