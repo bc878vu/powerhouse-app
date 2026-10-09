@@ -99,6 +99,10 @@ service cloud.firestore {
           && request.resource.data.uid == uid
           && request.resource.data.role == resource.data.role
           && request.resource.data.status == resource.data.status
+          // A user may edit profile details, but cannot change identity fields.
+          // Administrative identity changes must go through an admin workflow.
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasNone(['uid', 'id', 'numericId', 'firebaseUid', 'email', 'employeeID', 'role', 'status'])
         );
 
       allow delete: if isAdmin();
