@@ -453,8 +453,23 @@ service cloud.firestore {
     // =========================================================
 
     match /duties/{id} {
-      // Existing duty marking and shift assignments continue unchanged.
-      allow read, create, update: if signedIn();
+      // Staff can mark their own status; shifts and other users' records
+      // require an administrator. Existing duty reads remain available.
+      allow read: if signedIn();
+      allow create: if isAdmin() || (
+        signedIn()
+        && request.resource.data.get('record_type', '') == 'status'
+        && request.resource.data.get('user_id', '') == request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.get('duty_date', '')
+      );
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.get('record_type', '') == 'status'
+        && resource.data.get('user_id', '') == request.auth.uid
+        && request.resource.data.get('user_id', '') == resource.data.get('user_id', '')
+        && request.resource.data.get('record_type', '') == 'status'
+        && request.resource.data.get('duty_date', '') == resource.data.get('duty_date', '')
+      );
       allow delete: if isAdmin();
     }
 
