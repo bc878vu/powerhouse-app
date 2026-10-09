@@ -5,6 +5,12 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function activeStaff() {
+      return signedIn() &&
+        firestore.exists(/databases/(default)/documents/powerhouse_users/$(request.auth.uid)) &&
+        !(firestore.get(/databases/(default)/documents/powerhouse_users/$(request.auth.uid)).data.get('status', 'active') in ['inactive', 'blocked']);
+    }
+
     function isAdmin() {
       return signedIn() &&
         firestore.exists(/databases/(default)/documents/powerhouse_users/$(request.auth.uid)) &&
@@ -22,13 +28,13 @@ service firebase.storage {
     // and tokenized legacy download URL migration are being developed.
     match /powerhouse/tasks/{filePath=**} {
       allow read: if signedIn();
-      allow create: if signedIn() && validSize(50 * 1024 * 1024);
+      allow create: if activeStaff() && validSize(50 * 1024 * 1024);
       allow update, delete: if isAdmin();
     }
 
     match /powerhouse/uploads/{filePath=**} {
       allow read: if signedIn();
-      allow create: if signedIn() && validSize(50 * 1024 * 1024);
+      allow create: if activeStaff() && validSize(50 * 1024 * 1024);
       allow update, delete: if isAdmin();
     }
 
@@ -41,10 +47,10 @@ service firebase.storage {
 
     match /profilePictures/{userId}/{filePath=**} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.auth.uid == userId
+      allow create: if activeStaff() && request.auth.uid == userId
         && validSize(10 * 1024 * 1024)
         && request.resource.contentType.matches('image/.*');
-      allow update, delete: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow update, delete: if isAdmin() || (activeStaff() && request.auth.uid == userId);
     }
 
     // Unrecognized locations are not writable by general authenticated users.
