@@ -208,7 +208,8 @@ service cloud.firestore {
 
     match /entries/{id} {
       allow read: if true;
-      allow create, update, delete: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isAdmin();
     }
 
 
@@ -218,7 +219,8 @@ service cloud.firestore {
 
     match /engineServiceLogs/{id} {
       allow read: if signedIn();
-      allow create, update, delete: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isAdmin();
     }
 
 
@@ -228,7 +230,8 @@ service cloud.firestore {
 
     match /wapdaReadings/{id} {
       allow read: if true;
-      allow create, update, delete: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isAdmin();
     }
 
 
